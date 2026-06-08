@@ -15,7 +15,7 @@ import 'package:nivio/services/episode_check_service.dart';
 import 'package:nivio/services/github_release_update_service.dart';
 import 'package:nivio/services/shorebird_update_service.dart';
 import 'package:package_info_plus/package_info_plus.dart';
-import 'package:phosphor_flutter/phosphor_flutter.dart';
+import 'package:phosphoricons_flutter/phosphoricons_flutter.dart';
 
 class ProfileScreen extends ConsumerStatefulWidget {
   const ProfileScreen({super.key});
@@ -396,7 +396,8 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                   ),
                 ),
               ),
-              SliverToBoxAdapter(
+
+                            SliverToBoxAdapter(
                 child: Padding(
                   padding: const EdgeInsets.fromLTRB(16, 14, 16, 0),
                   child: _buildSectionCard(

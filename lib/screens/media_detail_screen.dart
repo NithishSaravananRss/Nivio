@@ -16,7 +16,7 @@ import 'package:nivio/providers/service_providers.dart';
 import 'package:nivio/providers/watch_party_provider.dart';
 import 'package:nivio/providers/watchlist_provider.dart';
 import 'package:nivio/widgets/episode_list.dart';
-import 'package:phosphor_flutter/phosphor_flutter.dart';
+import 'package:phosphoricons_flutter/phosphoricons_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 class _TrailerSource {

@@ -27,6 +27,7 @@ import 'package:nivio/screens/player_screen.dart';
 import 'package:nivio/screens/auth_screen.dart';
 import 'package:nivio/screens/library_screen.dart';
 import 'package:nivio/screens/profile_screen.dart';
+import 'package:nivio/screens/provider_content_screen.dart';
 import 'package:nivio/screens/main_shell_screen.dart';
 import 'package:nivio/screens/watch_party_screen.dart';
 import 'package:nivio/services/watch_party/watch_party_models.dart';
@@ -189,6 +190,15 @@ final _router = GoRouter(
       redirect: (context, state) {
         final query = state.uri.query;
         return query.isEmpty ? '/party' : '/party?$query';
+      },
+    ),
+
+    GoRoute(
+      path: '/provider/:id',
+      builder: (context, state) {
+        final id = int.tryParse(state.pathParameters['id'] ?? '0') ?? 0;
+        final name = state.uri.queryParameters['name'] ?? 'Provider';
+        return ProviderContentScreen(providerId: id, providerName: name);
       },
     ),
     GoRoute(

@@ -16,10 +16,9 @@ import 'package:nivio/models/stream_result.dart';
 import 'package:nivio/services/streaming_service.dart';
 import 'package:nivio/services/watch_party/watch_party_models.dart';
 import 'package:nivio/services/watch_party/watch_party_service_supabase.dart';
-import 'package:nivio/widgets/webview_player.dart';
-import 'package:phosphor_flutter/phosphor_flutter.dart';
 
 import 'dart:async';
+import 'package:nivio/widgets/webview_player.dart';
 import 'dart:math' as math;
 
 class PlayerScreen extends ConsumerStatefulWidget {
@@ -245,14 +244,12 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
       final preferredQuality =
           manualQuality ?? (settingsQuality == 'auto' ? null : settingsQuality);
       final subDubPref = ref.read(animeSubDubProvider);
-      final net22AudioPref = ref.read(net22AudioLanguageProvider);
 
       final result = await streamingService.fetchStreamUrl(
         media: media,
         season: widget.season,
         episode: _currentEpisode,
         preferredQuality: preferredQuality,
-        preferredNet22Audio: net22AudioPref,
         providerIndex: _currentProviderIndex,
         subDubPreference: subDubPref,
       );
@@ -819,37 +816,6 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     _lastWatchPartyBroadcastAt = now;
   }
 
-  Future<void> _broadcastWatchPartyPlaybackFromWebView({
-    required int positionMs,
-    required bool isPlaying,
-    required bool force,
-  }) async {
-    final service = _watchPartyService;
-    if (service == null ||
-        !service.canControlPlayback ||
-        _isApplyingWatchPartyState) {
-      return;
-    }
-
-    final now = DateTime.now();
-    if (!force &&
-        _lastWatchPartyBroadcastAt != null &&
-        now.difference(_lastWatchPartyBroadcastAt!) <
-            _watchPartyHostProgressInterval) {
-      return;
-    }
-
-    await service.syncPlayback(
-      mediaId: widget.mediaId,
-      mediaType: _resolvedWatchPartyMediaType(),
-      providerIndex: _currentProviderIndex,
-      season: widget.season,
-      episode: _currentEpisode,
-      positionMs: math.max(0, positionMs),
-      isPlaying: isPlaying,
-    );
-    _lastWatchPartyBroadcastAt = now;
-  }
 
   String _resolvedWatchPartyMediaType() {
     final fromWidget = (widget.mediaType ?? '').trim();
@@ -1264,41 +1230,6 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
   }
 
   // ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ WebView event handler ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬
-  void _handlePlayerEvent(String event, double currentTime, double duration) {
-    final media = ref.read(selectedMediaProvider);
-    if (media == null) return;
-    switch (event) {
-      case 'time':
-        _saveWebViewProgress(currentTime, duration);
-        unawaited(
-          _broadcastWatchPartyPlaybackFromWebView(
-            positionMs: (currentTime * 1000).round(),
-            isPlaying: true,
-            force: false,
-          ),
-        );
-        final progress = duration > 0 ? currentTime / duration : 0.0;
-        if (progress >= 0.90 &&
-            !_showNextEpisodeButton &&
-            !_nextEpisodeDismissed &&
-            _hasNextEpisode()) {
-          _showNextEpisodePopup();
-        }
-        break;
-      case 'complete':
-        _markWebViewAsCompleted(duration);
-        unawaited(
-          _broadcastWatchPartyPlaybackFromWebView(
-            positionMs: ((duration > 0 ? duration : currentTime) * 1000)
-                .round(),
-            isPlaying: false,
-            force: true,
-          ),
-        );
-        if (_hasNextEpisode()) _showNextEpisodePopup();
-        break;
-    }
-  }
 
   bool _hasNextEpisode() {
     final media = ref.read(selectedMediaProvider);
@@ -1699,371 +1630,15 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
         provider.contains('anizone');
   }
 
-  bool _isNet22DirectStream() {
-    final provider = (_streamResult?.provider ?? '').toLowerCase();
-    if (!_isDirectStream || provider.isEmpty) return false;
-    return provider.contains('net22');
-  }
 
-  static const Map<String, String> _net22AudioAliasToCode = {
-    'english': 'eng',
-    'eng': 'eng',
-    'en': 'eng',
-    'hindi': 'hin',
-    'hin': 'hin',
-    'hi': 'hin',
-    'tamil': 'tam',
-    'tam': 'tam',
-    'ta': 'tam',
-    'telugu': 'tel',
-    'tel': 'tel',
-    'te': 'tel',
-    'malayalam': 'mal',
-    'mal': 'mal',
-    'ml': 'mal',
-    'kannada': 'kan',
-    'kan': 'kan',
-    'kn': 'kan',
-    'japanese': 'jpn',
-    'jpn': 'jpn',
-    'ja': 'jpn',
-    'korean': 'kor',
-    'kor': 'kor',
-    'ko': 'kor',
-    'chinese': 'chi',
-    'chi': 'chi',
-    'zho': 'chi',
-    'zh': 'chi',
-    'spanish': 'spa',
-    'spa': 'spa',
-    'es': 'spa',
-    'french': 'fre',
-    'fre': 'fre',
-    'fra': 'fre',
-    'fr': 'fre',
-    'german': 'ger',
-    'ger': 'ger',
-    'deu': 'ger',
-    'de': 'ger',
-    'italian': 'ita',
-    'ita': 'ita',
-    'it': 'ita',
-    'portuguese': 'por',
-    'por': 'por',
-    'pt': 'por',
-    'arabic': 'ara',
-    'ara': 'ara',
-    'ar': 'ara',
-    'russian': 'rus',
-    'rus': 'rus',
-    'ru': 'rus',
-    'bengali': 'ben',
-    'ben': 'ben',
-    'bn': 'ben',
-    'marathi': 'mar',
-    'mar': 'mar',
-    'mr': 'mar',
-    'urdu': 'urd',
-    'urd': 'urd',
-    'ur': 'urd',
-  };
 
-  static const Map<String, String> _net22AudioCodeToName = {
-    'eng': 'English',
-    'hin': 'Hindi',
-    'tam': 'Tamil',
-    'tel': 'Telugu',
-    'mal': 'Malayalam',
-    'kan': 'Kannada',
-    'jpn': 'Japanese',
-    'kor': 'Korean',
-    'chi': 'Chinese',
-    'spa': 'Spanish',
-    'fre': 'French',
-    'ger': 'German',
-    'ita': 'Italian',
-    'por': 'Portuguese',
-    'ara': 'Arabic',
-    'rus': 'Russian',
-    'ben': 'Bengali',
-    'mar': 'Marathi',
-    'urd': 'Urdu',
-  };
 
-  String _normalizeNet22AudioToken(String value) {
-    return value.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'), '');
-  }
 
-  String _canonicalNet22AudioValue(String value) {
-    final token = _normalizeNet22AudioToken(value.trim());
-    if (token.isEmpty) return '';
-    final alias = _net22AudioAliasToCode[token];
-    if (alias != null && alias.isNotEmpty) return alias;
-    return token;
-  }
 
-  String _titleCaseNet22Audio(String value) {
-    final cleaned = value.trim().replaceAll(RegExp(r'[_-]+'), ' ');
-    if (cleaned.isEmpty) return '';
-    return cleaned
-        .split(RegExp(r'\s+'))
-        .where((part) => part.isNotEmpty)
-        .map((part) {
-          final lower = part.toLowerCase();
-          return '${lower[0].toUpperCase()}${lower.substring(1)}';
-        })
-        .join(' ');
-  }
 
-  String _net22AudioDisplayLabel(
-    String canonical, {
-    String? rawValue,
-    BetterPlayerAsmsAudioTrack? track,
-  }) {
-    final code = canonical.trim().toLowerCase();
-    if (code.isEmpty) return 'Unknown';
 
-    final knownName = _net22AudioCodeToName[code];
-    if (knownName != null) {
-      return '$knownName ($code)';
-    }
 
-    final raw = (rawValue ?? '').trim();
-    if (raw.isNotEmpty) {
-      final rawPretty = _titleCaseNet22Audio(raw);
-      if (rawPretty.isNotEmpty &&
-          _normalizeNet22AudioToken(rawPretty) !=
-              _normalizeNet22AudioToken(code)) {
-        return '$rawPretty ($code)';
-      }
-      if (rawPretty.isNotEmpty) return rawPretty;
-    }
 
-    final trackLanguage = (track?.language ?? '').trim();
-    if (trackLanguage.isNotEmpty) {
-      final pretty = _titleCaseNet22Audio(trackLanguage);
-      if (pretty.isNotEmpty &&
-          _normalizeNet22AudioToken(pretty) !=
-              _normalizeNet22AudioToken(code)) {
-        return '$pretty ($code)';
-      }
-      if (pretty.isNotEmpty) return pretty;
-    }
-
-    final trackLabel = (track?.label ?? '').trim();
-    if (trackLabel.isNotEmpty) {
-      final pretty = _titleCaseNet22Audio(trackLabel);
-      if (pretty.isNotEmpty &&
-          _normalizeNet22AudioToken(pretty) !=
-              _normalizeNet22AudioToken(code)) {
-        return '$pretty ($code)';
-      }
-      if (pretty.isNotEmpty) return pretty;
-    }
-
-    return code.toUpperCase();
-  }
-
-  Map<String, String> _buildNet22AudioOptions() {
-    final options = <String, String>{};
-    final tracks = _net22AsmsAudioTrackMap();
-
-    void addOption(String raw, {BetterPlayerAsmsAudioTrack? track}) {
-      final value = raw.trim();
-      if (value.isEmpty) return;
-      final canonical = _canonicalNet22AudioValue(value);
-      if (canonical.isEmpty) return;
-      options.putIfAbsent(
-        canonical,
-        () => _net22AudioDisplayLabel(
-          canonical,
-          rawValue: value,
-          track: track ?? tracks[canonical],
-        ),
-      );
-    }
-
-    for (final audio in _streamResult?.availableAudios ?? const <String>[]) {
-      addOption(audio);
-    }
-
-    final asmsTracks =
-        _betterPlayerController?.betterPlayerAsmsAudioTracks ??
-        const <BetterPlayerAsmsAudioTrack>[];
-    for (final track in asmsTracks) {
-      addOption(track.label ?? '', track: track);
-      addOption(track.language ?? '', track: track);
-    }
-
-    for (final entry in tracks.entries) {
-      options.putIfAbsent(
-        entry.key,
-        () => _net22AudioDisplayLabel(entry.key, track: entry.value),
-      );
-    }
-
-    return options;
-  }
-
-  Map<String, BetterPlayerAsmsAudioTrack> _net22AsmsAudioTrackMap() {
-    final tracks = _betterPlayerController?.betterPlayerAsmsAudioTracks;
-    if (tracks == null || tracks.isEmpty) return const {};
-
-    final out = <String, BetterPlayerAsmsAudioTrack>{};
-    for (final track in tracks) {
-      final label = (track.label ?? '').trim();
-      final language = (track.language ?? '').trim();
-      if (label.isNotEmpty) {
-        final canonicalLabel = _canonicalNet22AudioValue(label);
-        if (canonicalLabel.isNotEmpty) {
-          out.putIfAbsent(canonicalLabel, () => track);
-        }
-      }
-      if (language.isNotEmpty) {
-        final canonicalLanguage = _canonicalNet22AudioValue(language);
-        if (canonicalLanguage.isNotEmpty) {
-          out.putIfAbsent(canonicalLanguage, () => track);
-        }
-      }
-    }
-    return out;
-  }
-
-  List<PopupMenuEntry<String>> _buildNet22AudioMenuItems() {
-    final options = _buildNet22AudioOptions();
-    if (options.isEmpty) {
-      return const [
-        PopupMenuItem<String>(
-          enabled: false,
-          value: '',
-          child: Text('No audio options found'),
-        ),
-      ];
-    }
-
-    final selectedPref = ref.read(net22AudioLanguageProvider).trim();
-    final selectedCurrent = (_streamResult?.selectedAudio ?? '').trim();
-    final selectedAsmsTrack =
-        _betterPlayerController?.betterPlayerAsmsAudioTrack;
-    final selectedAsms =
-        (selectedAsmsTrack?.label ?? selectedAsmsTrack?.language ?? '').trim();
-    final selectedPrefCanonical = _canonicalNet22AudioValue(selectedPref);
-    final selectedCurrentCanonical = _canonicalNet22AudioValue(selectedCurrent);
-    final selectedAsmsCanonical = _canonicalNet22AudioValue(selectedAsms);
-    final selected = selectedPref.isNotEmpty && selectedPref != 'auto'
-        ? selectedPrefCanonical
-        : (selectedAsmsCanonical.isNotEmpty
-              ? selectedAsmsCanonical
-              : selectedCurrentCanonical);
-
-    return options.entries.map((entry) {
-      final value = entry.key.trim();
-      final isSelected = value.toLowerCase() == selected.toLowerCase();
-      return PopupMenuItem<String>(
-        value: value,
-        child: Row(
-          children: [
-            Icon(
-              isSelected ? Icons.check_circle : Icons.circle_outlined,
-              color: isSelected
-                  ? NivioTheme.accentColorOf(context)
-                  : Colors.white70,
-              size: 18,
-            ),
-            const SizedBox(width: 12),
-            Flexible(
-              child: Text(
-                entry.value,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  color: isSelected
-                      ? NivioTheme.accentColorOf(context)
-                      : Colors.white,
-                  fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-                ),
-              ),
-            ),
-          ],
-        ),
-      );
-    }).toList();
-  }
-
-  Future<void> _switchNet22Audio(String audio) async {
-    final target = _canonicalNet22AudioValue(audio.trim());
-    if (target.isEmpty) return;
-
-    final displayMap = _buildNet22AudioOptions();
-    final targetLabel = displayMap[target] ?? target.toUpperCase();
-
-    final asmsTrackMap = _net22AsmsAudioTrackMap();
-    final asmsTrack = asmsTrackMap[target];
-
-    if (asmsTrack != null && _betterPlayerController != null) {
-      _betterPlayerController!.setAudioTrack(asmsTrack);
-      await ref.read(net22AudioLanguageProvider.notifier).setPreference(target);
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Audio changed to $targetLabel'),
-            duration: const Duration(seconds: 2),
-            backgroundColor: NivioTheme.accentColorOf(context),
-          ),
-        );
-      }
-      setState(() {});
-      return;
-    }
-
-    final currentPref = ref.read(net22AudioLanguageProvider).trim();
-    final currentResult = (_streamResult?.selectedAudio ?? '').trim();
-    final currentAsmsTrack =
-        _betterPlayerController?.betterPlayerAsmsAudioTrack;
-    final currentAsms =
-        (currentAsmsTrack?.label ?? currentAsmsTrack?.language ?? '').trim();
-    final currentPrefCanonical = _canonicalNet22AudioValue(currentPref);
-    final currentResultCanonical = _canonicalNet22AudioValue(currentResult);
-    final currentAsmsCanonical = _canonicalNet22AudioValue(currentAsms);
-    if (target == currentPrefCanonical ||
-        target == currentResultCanonical ||
-        target == currentAsmsCanonical) {
-      return;
-    }
-
-    final currentPosition =
-        _betterPlayerController?.videoPlayerController?.value.position;
-    await _saveProgress();
-    await ref.read(net22AudioLanguageProvider.notifier).setPreference(target);
-    ref.read(selectedQualityProvider.notifier).state = null;
-
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Switching audio to $targetLabel'),
-          duration: const Duration(seconds: 2),
-          backgroundColor: NivioTheme.accentColorOf(context),
-        ),
-      );
-    }
-
-    _disposePlayer();
-    setState(() {
-      _isLoading = true;
-      _error = null;
-      _retryCount = 0;
-      _streamResult = null;
-    });
-
-    await _initializePlayer();
-
-    if (!mounted ||
-        currentPosition == null ||
-        _betterPlayerController?.isVideoInitialized() != true) {
-      return;
-    }
-    await _betterPlayerController!.seekTo(currentPosition);
-    await _betterPlayerController!.play();
-  }
 
   List<PopupMenuEntry<String>> _buildAnimeModeMenuItems() {
     final selected = ref.read(animeSubDubProvider).toLowerCase();
@@ -2186,41 +1761,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
   }
 
   // ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ WebView progress helpers ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬
-  Future<void> _saveWebViewProgress(double currentTime, double duration) async {
-    final media = ref.read(selectedMediaProvider);
-    if (media == null) return;
-    final historyService = ref.read(watchHistoryServiceProvider);
-    await historyService.updateProgress(
-      tmdbId: widget.mediaId,
-      mediaType: media.mediaType,
-      title: media.title ?? media.name ?? 'Unknown',
-      posterPath: media.posterPath,
-      currentSeason: widget.season,
-      currentEpisode: _currentEpisode,
-      totalSeasons: 1,
-      totalEpisodes: null,
-      lastPosition: Duration(seconds: currentTime.toInt()),
-      totalDuration: Duration(seconds: duration.toInt()),
-    );
-  }
 
-  Future<void> _markWebViewAsCompleted(double duration) async {
-    final media = ref.read(selectedMediaProvider);
-    if (media == null) return;
-    final historyService = ref.read(watchHistoryServiceProvider);
-    await historyService.updateProgress(
-      tmdbId: widget.mediaId,
-      mediaType: media.mediaType,
-      title: media.title ?? media.name ?? 'Unknown',
-      posterPath: media.posterPath,
-      currentSeason: widget.season,
-      currentEpisode: _currentEpisode,
-      totalSeasons: 1,
-      totalEpisodes: null,
-      lastPosition: Duration(seconds: duration.toInt()),
-      totalDuration: Duration(seconds: duration.toInt()),
-    );
-  }
 
   // ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ Formatting & progress ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬
   String _formatDuration(Duration duration) {
@@ -2421,8 +1962,8 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
                       backgroundColor: Colors.black.withValues(alpha: 0.7),
                       elevation: 0,
                       leading: IconButton(
-                        icon: const PhosphorIcon(
-                          PhosphorIconsRegular.caretLeft,
+                        icon: const Icon(
+                          Icons.chevron_left,
                           color: Colors.white,
                           size: 20,
                         ),
@@ -2517,8 +2058,8 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
                           IconButton(
                             tooltip: 'Watch Party',
                             onPressed: _showWatchPartyDetailsSheet,
-                            icon: const PhosphorIcon(
-                              PhosphorIconsRegular.users,
+                            icon: const Icon(
+                              Icons.group,
                               color: Colors.white,
                               size: 20,
                             ),
@@ -2534,18 +2075,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
                             itemBuilder: _buildAnimeModeMenuItems,
                             onSelected: _switchAnimeMode,
                           ),
-                        if (_isNet22DirectStream())
-                          _buildTopActionMenuButton<String>(
-                            menuId: 'top-audio-menu',
-                            icon: Icon(
-                              Icons.record_voice_over,
-                              color: Colors.white,
-                            ),
-                            tooltip: 'Audio Language',
-                            itemBuilder: _buildNet22AudioMenuItems,
-                            onSelected: _switchNet22Audio,
-                          ),
-                        if (_isDirectStream &&
+if (_isDirectStream &&
                             _buildQualityOptions().length > 1)
                           _buildTopActionMenuButton<String>(
                             menuId: 'top-quality-menu',
@@ -2557,8 +2087,8 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
                         // Switch Server
                         _buildTopActionMenuButton<int>(
                           menuId: 'top-server-menu',
-                          icon: const PhosphorIcon(
-                            PhosphorIconsRegular.arrowsClockwise,
+                          icon: const Icon(
+                            Icons.sync,
                             color: Colors.white,
                             size: 21,
                           ),
@@ -2580,11 +2110,115 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
   Widget _buildPlayerBody(bool isPortrait) {
     if (_isLoading) return _buildLoadingState();
     if (_error != null) return _buildErrorState();
-    if (_streamResult != null && !_isDirectStream) return _buildWebViewPlayer();
+    if (_streamResult != null && !_isDirectStream) return _buildDirectStreamLayout(isPortrait);
     if (_betterPlayerController == null) return _buildLoadingState();
 
     return _buildDirectStreamLayout(isPortrait);
   }
+
+  
+  // ─── WebView player (embed fallback) ───────────────────────────────────────
+  Widget _buildWebViewPlayer() {
+    return RepaintBoundary(
+      child: Center(
+        child: AspectRatio(
+          aspectRatio: 16 / 9,
+          child: Stack(
+            children: [
+              Positioned.fill(
+                child: WebViewPlayer(
+                  key: ValueKey(_streamResult!.url),
+                  streamUrl: _streamResult!.url,
+                  headers: _streamResult!.headers,
+                  title:
+                      ref.read(selectedMediaProvider)?.title ??
+                      ref.read(selectedMediaProvider)?.name ??
+                      'Video',
+                  onPlayerEvent: _handlePlayerEvent,
+                  onEpisodeChanged: (season, episode) {
+                    if (!mounted) return;
+                    if (_currentEpisode != episode) {
+                      setState(() {
+                        _currentEpisode = episode;
+                      });
+                    }
+                  },
+                  onError: (errorMessage) {
+                    if (!mounted) return;
+                    debugPrint("WebView failed with error: \$errorMessage, trying next provider...");
+                    if (_currentProviderIndex < _maxProviders - 1) {
+                      setState(() {
+                        _currentProviderIndex++;
+                        _error = 'Provider unavailable, switching to next...';
+                      });
+                      Future.delayed(const Duration(milliseconds: 500), () {
+                        if (mounted) _initializePlayer();
+                      });
+                    } else {
+                      setState(() {
+                        _error = 'All providers failed. Video unavailable.';
+                      });
+                    }
+                  },
+                  onEnterFullscreen: () {
+                    _setFullscreenTopBarVisibility(true);
+                  },
+                  onExitFullscreen: () {
+                    _setFullscreenTopBarVisibility(false);
+                  },
+                  onShowEpisodesRequested: () {
+                    _showEpisodesBottomSheet();
+                  },
+                ),
+              ),
+              if (ref.read(selectedMediaProvider)?.mediaType == 'tv')
+                Positioned(
+                  top: 12,
+                  right: 12,
+                  child: _buildEpisodesFloatingButton(),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildEpisodesFloatingButton() {
+    return Material(
+      color: Colors.black54,
+      borderRadius: BorderRadius.circular(8),
+      child: InkWell(
+        onTap: () {
+          _setFullscreenTopBarVisibility(false); // Hide if we were in fullscreen
+          _showEpisodesBottomSheet();
+        },
+        borderRadius: BorderRadius.circular(8),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: const [
+              Icon(Icons.list, color: Colors.white, size: 20),
+              SizedBox(width: 6),
+              Text('Episodes', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _handlePlayerEvent(String event, double currentTime, double duration) {
+    if (!mounted) return;
+    
+    if (event == 'timeupdate') {
+      // Handle progress update from webview if needed
+    } else if (event == 'ended') {
+      // Handle video end
+    }
+  }
+
 
   Widget _buildDirectStreamLayout(bool isPortrait) {
     final safeAspectRatio = _resolvedVideoAspectRatio();
@@ -2607,7 +2241,9 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
                 child: SizedBox(
                   width: fittedWidth,
                   height: fittedHeight,
-                  child: _buildVideoPlayer(),
+                  child: (!_isDirectStream && _streamResult != null) 
+                      ? _buildWebViewPlayer() 
+                      : _buildVideoPlayer(),
                 ),
               );
             },
@@ -2669,8 +2305,8 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
                         minWidth: 28,
                         minHeight: 28,
                       ),
-                      icon: const PhosphorIcon(
-                        PhosphorIconsRegular.caretLeft,
+                      icon: const Icon(
+                        Icons.chevron_left,
                         color: Colors.white,
                         size: 18,
                       ),
@@ -2729,12 +2365,25 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
                         scrollDirection: Axis.horizontal,
                         child: Row(
                           children: [
+                            if (ref.read(selectedMediaProvider)?.mediaType == 'tv')
+                              IconButton(
+                                tooltip: 'Episodes',
+                                onPressed: () {
+                                  _setFullscreenTopBarVisibility(false);
+                                  _showEpisodesBottomSheet();
+                                },
+                                icon: const Icon(
+                                  Icons.list,
+                                  color: Colors.white,
+                                  size: 20,
+                                ),
+                              ),
                             if (watchPartySession != null)
                               IconButton(
                                 tooltip: 'Watch Party',
                                 onPressed: _showWatchPartyDetailsSheet,
-                                icon: const PhosphorIcon(
-                                  PhosphorIconsRegular.users,
+                                icon: const Icon(
+                                  Icons.group,
                                   color: Colors.white,
                                   size: 20,
                                 ),
@@ -2750,18 +2399,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
                                 itemBuilder: _buildAnimeModeMenuItems,
                                 onSelected: _switchAnimeMode,
                               ),
-                            if (_isNet22DirectStream())
-                              _buildTopActionMenuButton<String>(
-                                menuId: 'fs-audio-menu',
-                                icon: Icon(
-                                  Icons.record_voice_over,
-                                  color: Colors.white,
-                                ),
-                                tooltip: 'Audio Language',
-                                itemBuilder: _buildNet22AudioMenuItems,
-                                onSelected: _switchNet22Audio,
-                              ),
-                            if (_isDirectStream &&
+if (_isDirectStream &&
                                 _buildQualityOptions().length > 1)
                               _buildTopActionMenuButton<String>(
                                 menuId: 'fs-quality-menu',
@@ -2772,8 +2410,8 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
                               ),
                             _buildTopActionMenuButton<int>(
                               menuId: 'fs-server-menu',
-                              icon: const PhosphorIcon(
-                                PhosphorIconsRegular.arrowsClockwise,
+                              icon: const Icon(
+                                Icons.sync,
                                 color: Colors.white,
                                 size: 20,
                               ),
@@ -2797,6 +2435,10 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
 
   void _syncFullscreenTopBarVisibility() {
     final shouldShow = _isInFullscreen && _arePlayerControlsVisible;
+    _setFullscreenTopBarVisibility(shouldShow);
+  }
+
+  void _setFullscreenTopBarVisibility(bool shouldShow) {
     if (_fullscreenTopBarVisibleNotifier.value != shouldShow) {
       _fullscreenTopBarVisibleNotifier.value = shouldShow;
     }
@@ -3111,9 +2753,12 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
   Widget _buildErrorState() {
     return Container(
       color: Colors.black,
+      width: double.infinity,
+      height: double.infinity,
       padding: const EdgeInsets.all(32),
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
+        crossAxisAlignment: CrossAxisAlignment.center,
         children: [
           Container(
             padding: const EdgeInsets.all(20),
@@ -3219,24 +2864,6 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
   }
 
   // ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ WebView player (embed fallback) ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬
-  Widget _buildWebViewPlayer() {
-    return RepaintBoundary(
-      child: Center(
-        child: AspectRatio(
-          aspectRatio: 16 / 9,
-          child: WebViewPlayer(
-            key: ValueKey(_streamResult!.url),
-            streamUrl: _streamResult!.url,
-            title:
-                ref.read(selectedMediaProvider)?.title ??
-                ref.read(selectedMediaProvider)?.name ??
-                'Video',
-            onPlayerEvent: _handlePlayerEvent,
-          ),
-        ),
-      ),
-    );
-  }
 
   // ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ BetterPlayer widget ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬
   Widget _buildVideoPlayer() {

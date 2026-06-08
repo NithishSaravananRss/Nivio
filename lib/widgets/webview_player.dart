@@ -1,21 +1,33 @@
+import 'dart:collection';
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import 'package:nivio/core/theme.dart';
+// unused
 
-import 'package:nivio/core/debug_log.dart';
-
-/// WebView-based player for embedding vidsrc iframe streams using flutter_inappwebview
+/// WebView-based player for embedding streams using flutter_inappwebview
 class WebViewPlayer extends StatefulWidget {
   final String streamUrl;
-  final String title;
-  final Function(String event, double currentTime, double duration)?
-  onPlayerEvent;
+  final String? title;
+  final Map<String, String>? headers;
+  final Function(String event, double currentTime, double duration)? onPlayerEvent;
+  final Function(int season, int episode)? onEpisodeChanged;
+  final Function(String errorMessage)? onError;
+  final VoidCallback? onEnterFullscreen;
+  final VoidCallback? onExitFullscreen;
+  final VoidCallback? onShowEpisodesRequested;
 
   const WebViewPlayer({
     super.key,
     required this.streamUrl,
-    required this.title,
+    this.headers,
+    this.title,
+    this.onEpisodeChanged,
     this.onPlayerEvent,
+    this.onError,
+    this.onEnterFullscreen,
+    this.onExitFullscreen,
+    this.onShowEpisodesRequested,
   });
 
   @override
@@ -25,412 +37,386 @@ class WebViewPlayer extends StatefulWidget {
 class _WebViewPlayerState extends State<WebViewPlayer> {
   bool _isLoading = true;
   double _progress = 0;
+  int _internalErrorCount = 0;
 
   @override
   Widget build(BuildContext context) {
     return Stack(
       children: [
         InAppWebView(
-          initialUrlRequest: URLRequest(url: WebUri(widget.streamUrl)),
+          initialUrlRequest: URLRequest(
+            url: WebUri(widget.streamUrl),
+            headers: widget.headers,
+          ),
+          initialUserScripts: UnmodifiableListView([
+            UserScript(
+              source: """
+                // 1. Completely neuter popups
+                window.open = function() { console.log('BLOCKED POPUP'); return null; };
+                
+                // 2. Mock document.referrer for anti-hotlinking bypass
+                Object.defineProperty(document, 'referrer', {get : function(){ return "https://7reels.cc/"; }});
+                
+                // 3. Intercept ad clicks that redirect the main window
+                document.addEventListener('click', function(e) {
+                  const target = e.target.closest('a');
+                  if (target && target.href) {
+                    // If it's a known ad network redirect
+                    if (target.href.includes('offertomynewbid') || target.href.includes('zrlqm')) {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      return false;
+                    }
+                  }
+                }, true);
+              """,
+              injectionTime: UserScriptInjectionTime.AT_DOCUMENT_START,
+            ),
+            UserScript(
+              source: """
+                setInterval(function() {
+                   var fs = document.fullscreenElement || document.webkitFullscreenElement || document.mozFullScreenElement || document.msFullscreenElement;
+                   var btn = document.getElementById('nivio-fs-btn');
+                   
+                   if (fs) {
+                       var target = fs;
+                       if (fs.tagName && fs.tagName.toLowerCase() === 'video') {
+                           target = fs.parentNode || document.body;
+                       }
+                       
+                       if (!btn) {
+                           btn = document.createElement('div');
+                           btn.id = 'nivio-fs-btn';
+                           btn.innerHTML = '&#9776; Episodes';
+                           btn.style.position = 'fixed';
+                           btn.style.top = '20px';
+                           btn.style.right = '20px';
+                           btn.style.zIndex = '2147483647';
+                           btn.style.backgroundColor = 'rgba(0,0,0,0.8)';
+                           btn.style.color = 'white';
+                           btn.style.padding = '10px 16px';
+                           btn.style.borderRadius = '8px';
+                           btn.style.fontFamily = 'sans-serif';
+                           btn.style.fontWeight = 'bold';
+                           btn.style.fontSize = '14px';
+                           btn.style.cursor = 'pointer';
+                           btn.style.boxShadow = '0 4px 6px rgba(0,0,0,0.5)';
+                           btn.style.pointerEvents = 'auto';
+                           btn.style.transition = 'opacity 0.3s ease-in-out';
+                           btn.onclick = function(e) {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              window.flutter_inappwebview.callHandler('ShowEpisodes', 'click');
+                           };
+                           
+                           // Auto-hide logic
+                           var hideTimeout;
+                           var wakeUp = function() {
+                               if (btn.style.display !== 'none') {
+                                   btn.style.opacity = '1';
+                                   clearTimeout(hideTimeout);
+                                   hideTimeout = setTimeout(function() {
+                                       btn.style.opacity = '0';
+                                   }, 2500);
+                               }
+                           };
+                           document.addEventListener('mousemove', wakeUp, true);
+                           document.addEventListener('touchstart', wakeUp, true);
+                           btn.wakeUp = wakeUp;
+                       }
+                       
+                       if (btn.parentNode !== target) {
+                           target.appendChild(btn);
+                       }
+                       if (btn.style.display === 'none') {
+                           btn.style.display = 'block';
+                           if (btn.wakeUp) btn.wakeUp();
+                       }
+                   } else {
+                       if (btn) {
+                           btn.style.display = 'none';
+                       }
+                   }
+                }, 500);
+              """,
+              injectionTime: UserScriptInjectionTime.AT_DOCUMENT_END,
+              forMainFrameOnly: false,
+            ),
+          ]),
           initialSettings: InAppWebViewSettings(
             javaScriptEnabled: true,
             mediaPlaybackRequiresUserGesture: false,
             allowsInlineMediaPlayback: true,
             useOnLoadResource: true,
             useShouldOverrideUrlLoading: true,
-            useShouldInterceptRequest:
-                true, // Enable request interception for ad blocking
-            // userAgent: Use device default for proper mobile detection
+            useShouldInterceptRequest: true,
+            supportMultipleWindows: false, // BLOCK ALL POPUPS
+            javaScriptCanOpenWindowsAutomatically: false,
+            userAgent: 'Mozilla/5.0 (Linux; Android 13; SM-S901B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/112.0.0.0 Mobile Safari/537.36',
             transparentBackground: true,
-            // Additional settings for better ad blocking
             blockNetworkImage: false,
             blockNetworkLoads: false,
             cacheEnabled: false,
-            clearCache: true,
-            disableContextMenu: true,
-            supportZoom: false,
-            // Enable fullscreen support
-            javaScriptCanOpenWindowsAutomatically: true,
-            // Performance optimizations for smoother playback
-            hardwareAcceleration: true,
-            useWideViewPort: true,
-            loadWithOverviewMode: true,
-            layoutAlgorithm: LayoutAlgorithm.NORMAL,
           ),
-          onWebViewCreated: (controller) {
-            appDebugLog('Ã°Å¸Å’Â WebView created for: ${widget.streamUrl}');
-
-            // Add JavaScript handler to receive player events from vidsrc.cc
-            controller.addJavaScriptHandler(
-              handlerName: 'playerEvent',
-              callback: (args) {
-                if (args.isNotEmpty) {
-                  final data = args[0] as Map<String, dynamic>;
-                  final event = data['event'] as String?;
-                  final currentTime =
-                      (data['currentTime'] as num?)?.toDouble() ?? 0.0;
-                  final duration =
-                      (data['duration'] as num?)?.toDouble() ?? 0.0;
-
-                  if (event != null && widget.onPlayerEvent != null) {
-                    widget.onPlayerEvent!(event, currentTime, duration);
-                    appDebugLog(
-                      'Ã°Å¸â€œÂº Player event: $event at ${currentTime.toInt()}s / ${duration.toInt()}s',
-                    );
-                  }
-                }
-              },
-            );
-          },
-          onLoadStart: (controller, url) {
-            setState(() {
-              _isLoading = true;
-            });
-            appDebugLog('Ã°Å¸â€â€ž Loading started: $url');
-          },
-          onLoadStop: (controller, url) async {
-            setState(() {
-              _isLoading = false;
-            });
-            appDebugLog('Ã¢Å“â€¦ Loading completed: $url');
-
-            // Inject ultra-aggressive ad-blocking
-            await controller.evaluateJavascript(
-              source: '''
-              (function() {
-                console.log('Ã°Å¸â€ºÂ¡Ã¯Â¸Â Ultra ad-blocking activated');
-                
-                // Block ALL popups and redirects
-                window.open = function() { console.log('Ã°Å¸Å¡Â« Blocked popup'); return null; };
-                window.alert = function() { return true; };
-                window.confirm = function() { return true; };
-                window.prompt = function() { return null; };
-                
-                // Prevent only known ad/tracker redirects; allow normal player/CDN navigation.
-                try {
-                  const blockedNavPatterns = [
-                    'doubleclick', 'googlesyndication', 'googleadservices',
-                    'adservice', 'adserver', 'adnxs', 'taboola', 'outbrain',
-                    'revcontent', 'mgid', 'exoclick', 'propellerads',
-                    'popcash', 'popads', 'clickadu', 'adsterra',
-                    'facebook.com/tr'
-                  ];
-                  const isBlockedNav = (url) => {
-                    const normalized = String(url || '').toLowerCase();
-                    return blockedNavPatterns.some((p) => normalized.includes(p));
-                  };
-
-                  let currentHref = window.location.href;
-                  let descriptor = Object.getOwnPropertyDescriptor(window.location, 'href');
-                  if (descriptor && descriptor.configurable) {
-                    Object.defineProperty(window.location, 'href', {
-                      set: function(val) {
-                        if (val !== currentHref && isBlockedNav(val)) {
-                          console.log('Ã°Å¸Å¡Â« Blocked redirect to:', val);
-                          return;
-                        }
-                        currentHref = val;
-                      },
-                      get: function() { return currentHref; }
-                    });
-                  }
-                } catch(e) {
-                  // If redefine fails, just intercept assign
-                  Object.defineProperty(window.location, 'assign', {
-                    value: function(url) {
-                      if (isBlockedNav(url)) {
-                        console.log('Ã°Å¸Å¡Â« Blocked location.assign:', url);
-                        return;
-                      }
-                    }
-                  });
-                  Object.defineProperty(window.location, 'replace', {
-                    value: function(url) {
-                      if (isBlockedNav(url)) {
-                        console.log('Ã°Å¸Å¡Â« Blocked location.replace:', url);
-                        return;
-                      }
-                    }
-                  });
-                }
-                
-                // Aggressive ad element removal
-                function removeAds() {
-                  try {
-                    // Expanded selector list
-                    const selectors = [
-                      '[class*="ad-"]', '[class*="ads-"]', '[class*="advert"]', '[class*="banner"]',
-                      '[id*="ad-"]', '[id*="ads-"]', '[id*="advert"]', '[id*="banner"]',
-                      '[class*="popup"]', '[id*="popup"]', '[class*="modal"]:not([class*="player"])',
-                      '[class*="overlay"]:not([class*="player"])', '[id*="overlay"]:not([id*="player"])',
-                      'ins.adsbygoogle', '.advertisement', '.ad-container', '.ad-wrapper',
-                      '[data-ad-slot]', '[data-ad-client]', '[data-ad-unit]',
-                      'iframe[src*="doubleclick"]', 'iframe[src*="googlesyndication"]',
-                      'iframe[src*="adservice"]', 'div[style*="z-index: 2147483647"]',
-                      'div[style*="position: fixed"][style*="top: 0"]'
-                    ];
-                    
-                    selectors.forEach(sel => {
-                      document.querySelectorAll(sel).forEach(el => {
-                        const isPlayer = el.closest('[class*="player"]') || 
-                                        el.closest('[class*="video"]') ||
-                                        el.closest('[class*="episode"]') ||
-                                        el.closest('[id*="player"]') ||
-                                        el.id === 'vidsrc-player';
-                        if (!isPlayer) {
-                          el.remove();
-                          console.log('Ã°Å¸â€”â€˜Ã¯Â¸Â Removed ad element:', sel);
-                        }
-                      });
-                    });
-                    
-                    // Remove suspicious fixed/absolute positioned overlays
-                    document.querySelectorAll('div, section').forEach(el => {
-                      const style = window.getComputedStyle(el);
-                      const zIndex = parseInt(style.zIndex) || 0;
-                      const position = style.position;
-                      
-                      if ((position === 'fixed' || position === 'absolute') && zIndex > 999999) {
-                        const isPlayer = el.closest('[class*="player"]') || 
-                                        el.closest('[id*="player"]') ||
-                                        el.querySelector('video') ||
-                                        el.querySelector('[class*="episode"]');
-                        if (!isPlayer && el.offsetHeight > 100 && el.offsetWidth > 100) {
-                          el.remove();
-                          console.log('Ã°Å¸â€”â€˜Ã¯Â¸Â Removed suspicious overlay');
-                        }
-                      }
-                    });
-                    
-                    // Force enable interactions
-                    document.body.style.overflow = 'auto !important';
-                    document.body.style.pointerEvents = 'auto !important';
-                    document.documentElement.style.overflow = 'auto !important';
-                  } catch(e) {
-                    console.error('Error removing ads:', e);
-                  }
-                }
-                
-                // Run immediately and repeatedly
-                removeAds();
-                setInterval(removeAds, 500);
-                
-                // MutationObserver to catch dynamically added ads
-                const observer = new MutationObserver(removeAds);
-                observer.observe(document.body, { childList: true, subtree: true });
-                
-                // Block fetch/XHR to ad servers
-                const originalFetch = window.fetch;
-                window.fetch = function() {
-                  const url = String(arguments[0]);
-                  const blockPatterns = ['doubleclick', 'googlesyndication', 'google-analytics', 
-                                        'googletagmanager', 'adservice', 'adsystem', 'facebook.com/tr'];
-                  if (blockPatterns.some(p => url.toLowerCase().includes(p))) {
-                    console.log('Ã°Å¸Å¡Â« Blocked fetch:', url);
-                    return Promise.reject(new Error('Blocked'));
-                  }
-                  return originalFetch.apply(this, arguments);
-                };
-                
-                const originalXHR = XMLHttpRequest.prototype.open;
-                XMLHttpRequest.prototype.open = function() {
-                  const url = String(arguments[1]);
-                  const blockPatterns = ['doubleclick', 'googlesyndication', 'adservice'];
-                  if (blockPatterns.some(p => url.toLowerCase().includes(p))) {
-                    console.log('Ã°Å¸Å¡Â« Blocked XHR:', url);
-                    throw new Error('Blocked');
-                  }
-                  return originalXHR.apply(this, arguments);
-                };
-                
-                console.log('Ã¢Å“â€¦ Ultra ad-blocking initialized');
-                
-                // Listen for VidSrc player events via postMessage
-                window.addEventListener('message', function(event) {
-                  if (event.origin !== 'https://vidsrc.cc') return;
-                  
-                  if (event.data && event.data.type === 'PLAYER_EVENT') {
-                    const eventData = event.data.data;
-                    console.log('Ã°Å¸â€œÂº VidSrc event:', eventData.event, 'at', eventData.currentTime, '/', eventData.duration);
-                    
-                    // Send to Flutter via JavaScript handler
-                    if (window.flutter_inappwebview) {
-                      window.flutter_inappwebview.callHandler('playerEvent', {
-                        event: eventData.event,
-                        currentTime: eventData.currentTime || 0,
-                        duration: eventData.duration || 0,
-                        tmdbId: eventData.tmdbId,
-                        mediaType: eventData.mediaType,
-                        season: eventData.season,
-                        episode: eventData.episode
-                      });
-                    }
-                  }
-                });
-                
-                console.log('Ã¢Å“â€¦ VidSrc player event listener initialized');
-              })();
-            ''',
-            );
-          },
-          onProgressChanged: (controller, progress) {
-            setState(() {
-              _progress = progress / 100;
-            });
-          },
-          onReceivedError: (controller, request, error) {
-            appDebugLog('Ã¢ÂÅ’ WebView error: ${error.description}');
-          },
-          shouldInterceptRequest: (controller, request) async {
-            final url = request.url.toString().toLowerCase();
-
-            // Comprehensive ad blocking patterns
-            final adPatterns = [
-              // Google ads
-              'doubleclick',
-              'googlesyndication',
-              'googleadservices',
-              'google-analytics',
-              'googletagmanager', 'googletagservices', 'pagead',
-              // Facebook
-              'facebook.com/tr', 'facebook.net', 'connect.facebook',
-              // General ad keywords
-              'ad.', 'ads.', 'advert', 'advertising', 'advertisement',
-              '/ad/', '/ads/', 'adserver', 'adservice', 'adsystem', 'adtech',
-              // Analytics & tracking
-              'analytics', 'tracking', 'tracker', 'track.', 'telemetry',
-              // Ad networks
-              'taboola', 'outbrain', 'revcontent', 'mgid', 'criteo',
-              'pubmatic', 'openx', 'rubiconproject', 'smartadserver',
-              'appnexus', 'adnxs', 'moatads', 'adsafeprotected',
-              // Popup/redirect networks
-              'exoclick', 'propellerads', 'popcash', 'popads', 'pop-ad',
-              'clickadu', 'hilltopads', 'adsterra', 'popunder',
-              // Banner & sponsor
-              'banner', 'sponsor', 'promo.',
-              // Video ad platforms
-              'imasdk', 'doubleclick.net/instream',
-              // Specific ad script domains
-              'adform', 'advertising.com', 'adnxs.com', 'adsrvr.org',
-            ];
-
-            // Check if URL contains any ad pattern
-            for (final pattern in adPatterns) {
-              if (url.contains(pattern)) {
-                appDebugLog('Ã°Å¸Å¡Â« Blocked: $url');
-                return null; // Block the request
-              }
-            }
-
-            return null; // Allow
+          onCreateWindow: (controller, createWindowAction) async {
+            // Drop any window creation requests (popups) into the void
+            return false;
           },
           shouldOverrideUrlLoading: (controller, navigationAction) async {
             final url = navigationAction.request.url;
-
             if (url != null) {
-              final urlString = url.toString();
-              final urlStringLower = urlString.toLowerCase();
-              final scheme = url.scheme.toLowerCase();
+              final urlString = url.toString().toLowerCase();
               final host = url.host.toLowerCase();
-
-              // BLOCK non-HTTP/HTTPS schemes (app deep links, malware redirects)
-              if (scheme != 'http' && scheme != 'https') {
-                appDebugLog('Ã°Å¸Å¡Â« Blocked non-HTTP scheme: $urlString');
-                return NavigationActionPolicy.CANCEL;
+              
+              // If the main frame tries to navigate AWAY from the stream URL
+              if (navigationAction.isForMainFrame) {
+                 final isMainProvider = host.contains('vidsrc') || 
+                                        host.contains('vidcore') || 
+                                        host.contains('vidup') ||
+                                        host.contains('videasy') ||
+                                        host.contains('vidplus');
+                 
+                 if (!isMainProvider && !urlString.contains('google.com/recaptcha')) {
+                    debugPrint('Ã°Å¸Å¡Â« Blocked top-level redirect to: \$urlString');
+                    return NavigationActionPolicy.CANCEL;
+                 } else if (isMainProvider && widget.onEpisodeChanged != null) {
+                    // Try to parse season and episode from URL: /tv/id/season/episode
+                    final RegExp regex = RegExp(r'/tv/[^/]+/(\d+)/(\d+)');
+                    final match = regex.firstMatch(urlString);
+                    if (match != null) {
+                      final season = int.tryParse(match.group(1)!);
+                      final episode = int.tryParse(match.group(2)!);
+                      if (season != null && episode != null) {
+                        widget.onEpisodeChanged!(season, episode);
+                      }
+                    }
+                 }
               }
 
-              // Block specific ad/malware domains
+              // Known aggressive ad domains seen in logs
               final blockedDomains = [
+                'offertomynewbid.com',
                 'zrlqm.com',
-                'enalibaba.com',
-                'taobao.com',
-                'alibaba.com',
-                'doubleclick.net',
-                'googlesyndication.com',
-                'googleadservices.com',
-                'exoclick.com',
-                'propellerads.com',
                 'popcash.net',
                 'popads.net',
                 'clickadu.com',
                 'adsterra.com',
-                'hilltopads.net',
-                'adcash.com',
-                'facebook.com',
-                'facebook.net',
-                'fbcdn.net',
-                'outbrain.com',
-                'taboola.com',
-                'revcontent.com',
-                'mgid.com',
               ];
 
               for (final domain in blockedDomains) {
                 if (host.contains(domain)) {
-                  appDebugLog('Ã°Å¸Å¡Â« Blocked domain: $urlString');
+                  debugPrint('Ã°Å¸Å¡Â« Blocked domain: \$urlString');
                   return NavigationActionPolicy.CANCEL;
                 }
               }
-
-              // Block URLs with ad/tracking patterns
-              final blockedPatterns = [
-                '/ad/',
-                '/ads/',
-                '/advert',
-                '/banner',
-                '/popup',
-                '/track/',
-                '/tracker',
-                '/analytics',
-                '/telemetry',
-                'click.',
-                'clk.',
-                'redirect',
-                'redir',
-              ];
-
-              for (final pattern in blockedPatterns) {
-                if (urlStringLower.contains(pattern) &&
-                    !host.contains('vidsrc')) {
-                  appDebugLog(
-                    'Ã°Å¸Å¡Â« Blocked pattern "$pattern": $urlString',
-                  );
-                  return NavigationActionPolicy.CANCEL;
-                }
-              }
-
-              // Do not enforce a strict domain allowlist here:
-              // embed providers often redirect to third-party video/CDN hosts.
             }
-
             return NavigationActionPolicy.ALLOW;
           },
+          shouldInterceptRequest: (controller, request) async {
+            final url = request.url.toString().toLowerCase();
+            final adPatterns = [
+              'google-analytics', 'googletagmanager', 'pagead', 'doubleclick',
+              'popcash', 'popads', 'adsterra', 'offertomynewbid',
+              '/ad/', '/ads/', 'banner', 'tracker', 'telemetry'
+            ];
+            for (final pattern in adPatterns) {
+              if (url.contains(pattern)) {
+                return WebResourceResponse(
+                  contentType: 'text/plain',
+                  data: Uint8List.fromList([]), // Empty response
+                  statusCode: 200,
+                  reasonPhrase: 'OK',
+                );
+              }
+            }
+            return null;
+          },
+          onLoadStart: (controller, url) {
+            if (mounted) {
+              setState(() {
+                _isLoading = true;
+                _progress = 0;
+              });
+            }
+          },
+          onEnterFullscreen: (controller) async {
+            widget.onEnterFullscreen?.call();
+          },
+          onExitFullscreen: (controller) async {
+            widget.onExitFullscreen?.call();
+          },
+          onWebViewCreated: (controller) {
+            controller.addJavaScriptHandler(
+              handlerName: 'VideoErrorDetector',
+              callback: (args) {
+                if (!mounted) return;
+                final message = args.isNotEmpty ? args[0].toString() : "Unknown Body Error";
+                debugPrint("Ã°Å¸Å¡Â¨ JS Detector found error: \$message");
+                widget.onError?.call(message);
+              },
+            );
+            controller.addJavaScriptHandler(
+              handlerName: 'ShowEpisodes',
+              callback: (args) async {
+                if (!mounted) return;
+                debugPrint("Ã°Å¸Å¡Â¨ Requesting episodes from Fullscreen!");
+                await controller.evaluateJavascript(source: "if(document.exitFullscreen) document.exitFullscreen(); else if(document.webkitExitFullscreen) document.webkitExitFullscreen();");
+                widget.onShowEpisodesRequested?.call();
+              },
+            );
+          },
+          onConsoleMessage: (controller, consoleMessage) {
+            debugPrint("WebView Console [" + consoleMessage.messageLevel.toString() + "]: " + consoleMessage.message);
+          },
+          onTitleChanged: (controller, title) {
+            debugPrint("WebView Title Changed: " + (title ?? "null"));
+            if (title != null) {
+              final t = title.toLowerCase();
+              if (t.contains('404') || t.contains('not found') || t.contains('error')) {
+                debugPrint("Ã°Å¸Å¡Â¨ Detected 404 in Title: " + title);
+                widget.onError?.call("Title Error: " + title);
+              }
+            }
+          },
+          onProgressChanged: (controller, progress) {
+            if (mounted) {
+              setState(() {
+                _progress = progress / 100;
+                if (_progress >= 1.0) {
+                  _isLoading = false;
+                }
+              });
+            }
+          },
+          onReceivedError: (controller, request, error) {
+            debugPrint("WebView Load Error: " + error.description + " on " + request.url.toString());
+            if (mounted) {
+              setState(() {
+                _isLoading = false;
+              });
+            }
+            if (request.isForMainFrame ?? true) {
+              debugPrint("Ã°Å¸Å¡Â¨ Main frame load error: " + error.description);
+              widget.onError?.call(error.description);
+            }
+          },
+          onReceivedHttpError: (controller, request, errorResponse) async {
+            final statusCode = errorResponse.statusCode;
+            final url = request.url.toString().toLowerCase();
+            debugPrint("WebView HTTP Response: " + statusCode.toString() + " on " + url);
+            
+            if (statusCode != null && statusCode >= 400) {
+              final isMain = request.isForMainFrame ?? false;
+              
+              if (isMain || url.contains('.m3u8') || url.contains('.mp4') || url.contains('playlist') || url.contains('/api/')) {
+                debugPrint("Ã°Å¸Å¡Â¨ Critical HTTP Error detected: " + statusCode.toString() + " on " + url);
+                widget.onError?.call("HTTP Error: " + statusCode.toString());
+              } else {
+                // If it's a long encrypted URL returning 404 (common when server has no sources)
+                if (url.length > 50 && !url.endsWith('.png') && !url.endsWith('.jpg') && !url.endsWith('.css') && !url.endsWith('.js')) {
+                  _internalErrorCount++;
+                  if (_internalErrorCount >= 4) {
+                    debugPrint("Ã°Å¸Å¡Â¨ Multiple internal 404s detected! Server is likely dead.");
+                    widget.onError?.call("Multiple Internal HTTP Errors");
+                  }
+                }
+              }
+            }
+          },
+          onUpdateVisitedHistory: (controller, url, isReload) {
+            if (url != null && widget.onEpisodeChanged != null) {
+              final urlString = url.toString().toLowerCase();
+              // Try to parse season and episode from URL: /tv/id/season/episode or /embed/tv/id/season/episode
+              final RegExp regex = RegExp(r'/tv/[^/]+/(\d+)/(\d+)');
+              final match = regex.firstMatch(urlString);
+              if (match != null) {
+                final season = int.tryParse(match.group(1)!);
+                final episode = int.tryParse(match.group(2)!);
+                if (season != null && episode != null) {
+                  debugPrint("Ã°Å¸Å¡Â¨ Detected episode change from SPA navigation: S\$season E\$episode");
+                  widget.onEpisodeChanged!(season, episode);
+                }
+              }
+            }
+          },
+          onLoadStop: (controller, url) async {
+            debugPrint("WebView Load Stop: " + (url?.toString() ?? "null"));
+            if (url != null && widget.onEpisodeChanged != null) {
+              final urlString = url.toString().toLowerCase();
+              final RegExp regex = RegExp(r'/tv/[^/]+/(\d+)/(\d+)');
+              final match = regex.firstMatch(urlString);
+              if (match != null) {
+                final season = int.tryParse(match.group(1)!);
+                final episode = int.tryParse(match.group(2)!);
+                if (season != null && episode != null) {
+                  widget.onEpisodeChanged!(season, episode);
+                }
+              }
+            }
+            if (mounted) {
+              setState(() {
+                _isLoading = false;
+                _progress = 1.0;
+              });
+            }
+            
+            try {
+              // Inject a periodic checker because React/Next.js sites show "FETCHING DATA..." 
+              // and only change to an error message seconds later.
+              final js = """
+                (function() {
+                  if (window.errorDetectorInterval) clearInterval(window.errorDetectorInterval);
+                  window.errorDetectorInterval = setInterval(function() {
+                    if (!document.body) return;
+                    var text = document.body.innerText.toLowerCase();
+                    if (
+                      text.includes('404 not found') || 
+                      text.includes('video not found') || 
+                      text.includes('file was deleted') ||
+                      text.includes('page not found') ||
+                      text.includes('no stream found') ||
+                      text.includes("we couldn't find") ||
+                      text.includes("could not find") ||
+                      text.includes('no results') ||
+                      text.includes('not available') ||
+                      text.includes('video is unavailable') ||
+                      text.includes('movie not found') ||
+                      text.includes('episode not found') ||
+                      (text.includes('error') && text.includes('loading'))
+                    ) {
+                       window.flutter_inappwebview.callHandler('VideoErrorDetector', 'Body Error Detected');
+                       clearInterval(window.errorDetectorInterval);
+                    }
+                  }, 1000);
+                })();
+              """;
+              await controller.evaluateJavascript(source: js);
+            } catch (e) {
+              debugPrint("Error evaluating javascript: " + e.toString());
+            }
+          },
         ),
-
-        // Loading indicator
         if (_isLoading)
           Container(
-            color: Colors.black,
+            color: const Color(0xFF0D0F14),
             child: Center(
               child: Column(
-                mainAxisSize: MainAxisSize.min,
+                mainAxisAlignment: MainAxisAlignment.center,
                 children: [
                   CircularProgressIndicator(
-                    color: NivioTheme.accentColorOf(context),
+                    valueColor: AlwaysStoppedAnimation<Color>(
+                      NivioTheme.accentColorOf(context),
+                    ),
+                    value: _progress > 0 ? _progress : null,
                   ),
                   const SizedBox(height: 16),
                   Text(
-                    'Loading player...',
-                    style: TextStyle(color: Colors.white70),
-                  ),
-                  if (_progress > 0 && _progress < 1)
-                    Padding(
-                      padding: const EdgeInsets.only(top: 8),
-                      child: Text(
-                        '${(_progress * 100).toInt()}%',
-                        style: TextStyle(color: Colors.white54, fontSize: 12),
-                      ),
+                    'Loading \${widget.title}...',
+                    style: const TextStyle(
+                      color: Colors.white70,
+                      fontSize: 14,
                     ),
+                  ),
                 ],
               ),
             ),

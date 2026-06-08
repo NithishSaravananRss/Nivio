@@ -15,7 +15,7 @@ import 'package:nivio/providers/watchlist_provider.dart';
 import 'package:nivio/services/episode_check_service.dart';
 import 'package:nivio/widgets/content_row.dart';
 import 'package:nivio/widgets/continue_watching_row.dart';
-import 'package:phosphor_flutter/phosphor_flutter.dart';
+import 'package:phosphoricons_flutter/phosphoricons_flutter.dart';
 
 class HomeScreen extends ConsumerStatefulWidget {
   const HomeScreen({super.key});
@@ -182,6 +182,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
               ),
             ),
           ),
+          _buildProviderSelectionRow(),
           SliverToBoxAdapter(
             child: Container(
               height: 40,
@@ -291,6 +292,99 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             error: (error, stackTrace) => const SizedBox.shrink(),
           );
         },
+      ),
+    );
+  }
+
+
+  Widget _buildProviderSelectionRow() {
+    final providers = [
+      {'id': 8, 'name': 'Netflix', 'asset': 'assets/images/netflix.png', 'color': Color(0xFFE50914)},
+      {'id': 9, 'name': 'Prime', 'asset': 'assets/images/prime.png', 'color': Color(0xFF00A8E1)},
+      {'id': 337, 'name': 'Disney+', 'asset': 'assets/images/disney.png', 'color': Color(0xFF113CCF)},
+      {'id': 350, 'name': 'Apple TV+', 'asset': 'assets/images/appletv.png', 'color': Color(0xFF000000)},
+      {'id': 15, 'name': 'Hulu', 'asset': 'assets/images/hulu.png', 'color': Color(0xFF1CE783)},
+      {'id': 384, 'name': 'Max', 'asset': 'assets/images/max.png', 'color': Color(0xFF002BE7)},
+      {'id': 531, 'name': 'Paramount+', 'asset': 'assets/images/paramount.png', 'color': Color(0xFF0064FF)},
+      {'id': 283, 'name': 'Crunchyroll', 'asset': 'assets/images/crunchyroll.png', 'color': Color(0xFFF47521)},
+    ];
+
+    return SliverToBoxAdapter(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Padding(
+            padding: EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+            child: Text(
+              'Explore by Provider',
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ),
+          SizedBox(
+            height: 90,
+            child: ListView.builder(
+              scrollDirection: Axis.horizontal,
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+              itemCount: providers.length,
+              itemBuilder: (context, index) {
+                final provider = providers[index];
+                return GestureDetector(
+                  onTap: () {
+                    context.push('/provider/${provider['id']}?name=${Uri.encodeComponent(provider['name'] as String)}');
+                  },
+                  child: Container(
+                    width: 70,
+                    margin: const EdgeInsets.symmetric(horizontal: 4),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF22252A),
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(color: Colors.white10),
+                    ),
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Container(
+                          width: 40,
+                          height: 40,
+                          decoration: BoxDecoration(
+                            color: provider['color'] as Color,
+                            shape: BoxShape.circle,
+                          ),
+                          child: Center(
+                            child: Text(
+                              (provider['name'] as String).substring(0, 1),
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.bold,
+                                fontSize: 20,
+                              ),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          provider['name'] as String,
+                          style: const TextStyle(
+                            color: Colors.white70,
+                            fontSize: 11,
+                            fontWeight: FontWeight.w500,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+          const SizedBox(height: 24),
+        ],
       ),
     );
   }

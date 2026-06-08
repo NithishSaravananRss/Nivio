@@ -1,56 +1,26 @@
-import 'package:dio/dio.dart';
 import 'package:nivio/models/search_result.dart';
 import 'package:nivio/models/stream_result.dart';
-import 'package:nivio/services/aimi_anime_service.dart';
-import 'package:nivio/services/flixhq_scraper_service.dart';
-import 'package:nivio/services/net22_scraper_service.dart';
-
 import 'package:nivio/core/debug_log.dart';
 
-/// Service for fetching streaming URLs.
-/// Anime primary: aimi_lib direct providers.
-/// Non-anime primary: native Net22 scraper.
-/// Next direct fallback: native FlixHQ scraper.
-/// Fallback: vidsrc.cc, vidsrc.to, vidlink.pro (embed/WebView).
 class StreamingService {
-  static const Duration _net22PrimaryTimeout = Duration(seconds: 6);
-  static const Duration _net22AnimeFallbackTimeout = Duration(seconds: 4);
-
-  final AimiAnimeService _aimiAnimeService = AimiAnimeService();
-  final Net22ScraperService _net22ScraperService = Net22ScraperService();
-  final FlixhqScraperService _flixhqScraperService = FlixhqScraperService();
-  final Dio _probeDio = Dio(
-    BaseOptions(
-      connectTimeout: const Duration(seconds: 8),
-      receiveTimeout: const Duration(seconds: 8),
-    ),
-  );
-
   StreamingService();
 
-  /// Embed fallback providers (used only if direct extraction fails)
-  static final List<Map<String, String>> _embedProviders = [
-    {'name': 'vidsrc.cc', 'url': 'https://vidsrc.cc/v2/embed'},
-    {'name': 'vidsrc.to', 'url': 'https://vidsrc.to/embed'},
-    {'name': 'vidlink', 'url': 'https://vidlink.pro'},
-  ];
-  static const List<String> _animeDirectProviders = [
-    'animepahe',
-    'net22 (direct)',
-    'flix (direct)',
-  ];
-  static const List<String> _defaultDirectProviders = [
-    'net22 (direct)',
-    'flix (direct)',
+  static const List<String> _premiumProviders = [
+    'VidUp (FAST)',
+    'VidLink',
+    'VidCore (ACTIVE)',
+    'VidPlus',
   ];
 
-  /// Fetch streaming URL - tries direct chain first, then embeds.
+  static const List<String> _standardProviders = [];
+
+  static List<String> get _allProviders => [..._premiumProviders, ..._standardProviders];
+
   Future<StreamResult?> fetchStreamUrl({
     required SearchResult media,
     int season = 1,
     int episode = 1,
     String? preferredQuality,
-    String? preferredNet22Audio,
     int providerIndex = 0,
     bool autoSkipIntro = true,
     String subDubPreference = 'sub',
@@ -59,310 +29,92 @@ class StreamingService {
       appDebugLog(
         'fetchStreamUrl: media=${media.id}, S${season}E$episode, providerIdx=$providerIndex',
       );
-      final isAnime = _isAnimeCandidate(media);
-      final directProviders = isAnime
-          ? _animeDirectProviders
-          : _defaultDirectProviders;
-      final directCount = directProviders.length;
 
-      // Direct providers are listed as independent selectable indices.
-      if (providerIndex < directCount) {
-        // Map selected index to canonical direct slot:
-        // anime: 0=animepahe, 1=net22, 2=flix
-        // non-anime: 0=net22, 1=flix
-        final directSlot = isAnime ? providerIndex : providerIndex + 1;
-
-        if (directSlot == 0) {
-          final animeResult = await _aimiAnimeService.fetchAnimeStream(
-            media: media,
-            episode: media.mediaType == 'movie' ? 1 : episode,
-            subDubPreference: subDubPreference,
-            preferredQuality: preferredQuality,
-          );
-
-          if (animeResult != null) {
-            appDebugLog('AIMI anime stream acquired: ${animeResult.quality}');
-            return animeResult;
-          }
-
-          appDebugLog('AIMI anime failed');
-          return null;
-        }
-
-        if (directSlot == 1) {
-          final net22Result = await _fetchNet22WithAnimeFallback(
-            media: media,
-            season: season,
-            episode: episode,
-            preferredNet22Audio: preferredNet22Audio,
-            isAnime: isAnime,
-          );
-
-          if (net22Result != null) {
-            final normalizedHeaders = _buildDirectHeaders(net22Result.headers);
-            final normalizedResult = StreamResult(
-              url: net22Result.url,
-              quality: net22Result.quality,
-              provider: net22Result.provider,
-              subtitles: net22Result.subtitles,
-              availableQualities: net22Result.availableQualities,
-              availableAudios: net22Result.availableAudios,
-              selectedAudio: net22Result.selectedAudio,
-              isM3U8: net22Result.isM3U8,
-              headers: normalizedHeaders,
-              sources: net22Result.sources,
-            );
-
-            final isPlayable = await _probeDirectHls(normalizedResult);
-            if (!isPlayable) {
-              appDebugLog(
-                'Net22 source probe failed, attempting direct playback anyway...',
-              );
-            }
-
-            appDebugLog('Net22 stream acquired: ${normalizedResult.quality}');
-            return normalizedResult;
-          }
-
-          appDebugLog('Net22 failed');
-          return null;
-        }
-
-        final flixhqResult = await _flixhqScraperService.fetchStream(
-          mediaType: media.mediaType,
-          season: season,
-          episode: episode,
-          title: media.title ?? media.name ?? '',
-          year: _extractYear(media),
-        );
-
-        if (flixhqResult != null) {
-          final normalizedHeaders = _buildDirectHeaders(flixhqResult.headers);
-          final normalizedResult = StreamResult(
-            url: flixhqResult.url,
-            quality: flixhqResult.quality,
-            provider: flixhqResult.provider,
-            subtitles: flixhqResult.subtitles,
-            availableQualities: flixhqResult.availableQualities,
-            isM3U8: flixhqResult.isM3U8,
-            headers: normalizedHeaders,
-            sources: flixhqResult.sources,
-          );
-
-          final isPlayable = await _probeDirectHls(normalizedResult);
-          if (!isPlayable) {
-            appDebugLog(
-              'FlixHQ source probe failed, attempting direct playback anyway...',
-            );
-          }
-
-          appDebugLog('FlixHQ stream acquired: ${normalizedResult.quality}');
-          return normalizedResult;
-        }
-
-        appDebugLog('FlixHQ failed');
+      if (providerIndex < 0 || providerIndex >= _allProviders.length) {
+        appDebugLog('All providers exhausted or removed');
         return null;
       }
 
-      // Fallback to embed providers after direct providers.
-      final embedIdx = providerIndex - directCount;
-      if (embedIdx >= _embedProviders.length) {
-        appDebugLog('All providers exhausted');
-        return null;
+      final providerName = _allProviders[providerIndex];
+      final isTv = media.mediaType.toLowerCase() == 'tv' || 
+                   media.firstAirDate != null || 
+                   (media.name != null && media.name!.isNotEmpty && (media.title == null || media.title!.isEmpty));
+      final id = media.id.toString();
+
+      String url = '';
+
+      switch (providerName) {
+        case 'VidUp (FAST)':
+          url = isTv ? 'https://vidup.to/tv/$id/$season/$episode' : 'https://vidup.to/movie/$id';
+          break;
+        case 'VidCore (ACTIVE)':
+          url = isTv ? 'https://vidcore.net/tv/$id/$season/$episode' : 'https://vidcore.net/movie/$id';
+          break;
+        case 'VidEasy (HD)':
+          url = isTv ? 'https://videasy.net/tv/$id/$season/$episode' : 'https://videasy.net/movie/$id';
+          break;
+        case 'VidPlus':
+          url = isTv ? 'https://player.vidplus.to/embed/tv/$id/$season/$episode' : 'https://player.vidplus.to/embed/movie/$id';
+          break;
+        case 'VidsrcO':
+          url = isTv ? 'https://vidsrco.net/embed/tv?tmdb=$id&season=$season&episode=$episode' : 'https://vidsrco.net/embed/movie?tmdb=$id';
+          break;
+        case 'AdRock':
+          url = isTv ? 'https://vidrock.net/embed/tv/$id/$season/$episode' : 'https://vidrock.net/embed/movie/$id';
+          break;
+        case 'VidNest':
+          url = isTv ? 'https://vidnest.fun/embed/tv/$id/$season/$episode' : 'https://vidnest.fun/embed/movie/$id';
+          break;
+        case 'VidLink':
+          url = isTv ? 'https://vidlink.pro/tv/$id/$season/$episode' : 'https://vidlink.pro/movie/$id';
+          break;
+        case 'Vidify':
+          url = isTv ? 'https://vidify.top/embed/tv/$id/$season/$episode' : 'https://vidify.top/embed/movie/$id';
+          break;
+        case 'Vidzee':
+          url = isTv ? 'https://player.vidzee.net/embed/tv/$id/$season/$episode' : 'https://player.vidzee.net/embed/movie/$id';
+          break;
+        case 'MoviesClub':
+          url = isTv ? 'https://moviesapi.club/tv/$id-$season-$episode' : 'https://moviesapi.club/movie/$id';
+          break;
+        case '2Embed':
+          url = isTv ? 'https://www.2embed.cc/embedtv/$id&s=$season&e=$episode' : 'https://www.2embed.cc/embed/$id';
+          break;
+        case 'MultiEmbed':
+          url = isTv ? 'https://multiembed.mo/embed/tv/$id/$season/$episode' : 'https://multiembed.mo/embed/movie/$id';
+          break;
+        default:
+          return null;
       }
 
-      final provider = _embedProviders[embedIdx];
-      final String streamUrl;
-
-      if (media.mediaType == 'movie') {
-        if (provider['name'] == 'vidlink') {
-          streamUrl = '${provider['url']}/movie/${media.id}?nextbutton=true';
-        } else if (provider['name'] == 'vidsrc.cc') {
-          streamUrl = '${provider['url']}/movie/${media.id}?autoPlay=true';
-        } else {
-          streamUrl = '${provider['url']}/movie/${media.id}';
-        }
-      } else {
-        if (provider['name'] == 'vidsrc.cc') {
-          streamUrl =
-              '${provider['url']}/tv/${media.id}/$season/$episode?autoPlay=true';
-        } else if (provider['name'] == 'vidlink') {
-          streamUrl =
-              '${provider['url']}/tv/${media.id}/$season/$episode?nextbutton=true';
-        } else {
-          streamUrl = '${provider['url']}/tv/${media.id}/$season/$episode';
-        }
-      }
-
-      appDebugLog('Embed fallback: ${provider['name']} -> $streamUrl');
+      appDebugLog('Generated Iframe URL: $url');
 
       return StreamResult(
-        url: streamUrl,
-        quality: preferredQuality ?? 'auto',
-        provider: provider['name']!,
+        url: url,
+        quality: 'Auto',
+        provider: providerName,
+        headers: {},
       );
+
     } catch (e) {
       appDebugLog('Error in fetchStreamUrl: $e');
       return null;
     }
   }
 
-  Future<StreamResult?> _fetchNet22WithAnimeFallback({
-    required SearchResult media,
-    required int season,
-    required int episode,
-    required String? preferredNet22Audio,
-    required bool isAnime,
-  }) async {
-    final title = media.title ?? media.name ?? '';
-    final year = _extractYear(media);
-
-    final primary = await _fetchNet22WithTimeout(
-      mediaType: media.mediaType,
-      season: season,
-      episode: episode,
-      title: title,
-      year: year,
-      preferredAudio: preferredNet22Audio,
-      timeout: _net22PrimaryTimeout,
-      attemptLabel: 'primary',
-    );
-    if (primary != null) return primary;
-
-    if (!isAnime || season <= 1) return null;
-
-    appDebugLog(
-      'Net22 anime fallback: retrying with season=1 for media=${media.id}, original S${season}E$episode',
-    );
-
-    return _fetchNet22WithTimeout(
-      mediaType: media.mediaType,
-      season: 1,
-      episode: episode,
-      title: title,
-      year: year,
-      preferredAudio: preferredNet22Audio,
-      timeout: _net22AnimeFallbackTimeout,
-      attemptLabel: 'anime-season-fallback',
-    );
-  }
-
-  Future<StreamResult?> _fetchNet22WithTimeout({
-    required String mediaType,
-    required int season,
-    required int episode,
-    required String title,
-    required String? year,
-    required String? preferredAudio,
-    required Duration timeout,
-    required String attemptLabel,
-  }) async {
-    final result = await _net22ScraperService
-        .fetchStream(
-          mediaType: mediaType,
-          season: season,
-          episode: episode,
-          title: title,
-          year: year,
-          preferredAudio: preferredAudio,
-        )
-        .timeout(timeout, onTimeout: () => null);
-
-    if (result == null) {
-      appDebugLog(
-        'Net22 $attemptLabel attempt failed or timed out after ${timeout.inSeconds}s',
-      );
-    }
-
-    return result;
-  }
-
-  /// Get the total number of available providers (direct + embeds).
   static int totalProvidersFor({required bool isAnime}) {
-    final directCount = isAnime
-        ? _animeDirectProviders.length
-        : _defaultDirectProviders.length;
-    return directCount + _embedProviders.length;
+    // Currently relying only on the TMDB/IMDB iframe providers.
+    return _allProviders.length;
   }
 
-  /// Get provider name by index.
   static String getProviderName(int index, {required bool isAnime}) {
-    final directProviders = isAnime
-        ? _animeDirectProviders
-        : _defaultDirectProviders;
-    if (index >= 0 && index < directProviders.length) {
-      return directProviders[index];
-    }
-
-    final embedIdx = index - directProviders.length;
-    if (embedIdx < _embedProviders.length) {
-      return _embedProviders[embedIdx]['name']!;
+    if (index >= 0 && index < _allProviders.length) {
+      return _allProviders[index];
     }
     return 'Unknown';
   }
 
-  /// Check if a provider index uses direct streaming (vs embed/WebView).
   static bool isDirectStream(int providerIndex, {required bool isAnime}) {
-    final directCount = isAnime
-        ? _animeDirectProviders.length
-        : _defaultDirectProviders.length;
-    return providerIndex < directCount;
-  }
-
-  bool _isAnimeCandidate(SearchResult media) {
-    final language = (media.originalLanguage ?? '').toLowerCase();
-    return media.mediaType == 'tv' && language == 'ja';
-  }
-
-  String? _extractYear(SearchResult media) {
-    final date = media.releaseDate ?? media.firstAirDate;
-    if (date == null || date.length < 4) return null;
-    return date.substring(0, 4);
-  }
-
-  Future<bool> _probeDirectHls(StreamResult result) async {
-    if (!result.isM3U8 || result.url.trim().isEmpty) {
-      return true;
-    }
-
-    final requestHeaders = _buildDirectHeaders(result.headers);
-
-    try {
-      final response = await _probeDio.get<String>(
-        result.url,
-        options: Options(
-          headers: requestHeaders,
-          responseType: ResponseType.plain,
-          followRedirects: true,
-          validateStatus: (status) => status != null && status < 500,
-        ),
-      );
-
-      if (response.statusCode != null &&
-          response.statusCode! >= 200 &&
-          response.statusCode! < 300 &&
-          (response.data?.contains('#EXTM3U') ?? false)) {
-        return true;
-      }
-
-      appDebugLog(
-        'Direct probe status=${response.statusCode}, playlistValid=${response.data?.contains('#EXTM3U') ?? false}',
-      );
-      return false;
-    } catch (e) {
-      appDebugLog('Direct probe exception: $e');
-      return false;
-    }
-  }
-
-  Map<String, String> _buildDirectHeaders(Map<String, String> incoming) {
-    final headers = <String, String>{
-      'User-Agent':
-          'Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36',
-      ...incoming,
-    };
-
-    headers.putIfAbsent('Accept', () => '*/*');
-    return headers;
+    return false; // All 7reels providers are iframe based
   }
 }

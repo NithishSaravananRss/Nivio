@@ -37,8 +37,6 @@ dependencies:
 
   # UI & Images
   cached_network_image: ^3.4.1
-  phosphor_flutter: ^2.1.0
-
   # Navigation
   go_router: ^14.6.2
 
@@ -60,6 +58,8 @@ dependencies:
   shorebird_code_push: ^2.0.5
   supabase_flutter: ^2.8.0
   flutter_dotenv: ^6.0.0
+  phosphoricons_flutter: ^1.0.0
+  adblocker_webview: ^2.3.0
 
 
 dev_dependencies:
