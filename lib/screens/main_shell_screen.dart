@@ -4,17 +4,19 @@ import 'package:go_router/go_router.dart';
 import 'package:nivio/core/theme.dart';
 import 'package:phosphoricons_flutter/phosphoricons_flutter.dart';
 import 'package:nivio/services/scrapers/animepahe/cloudflare_bypass_widget.dart';
+import 'package:nivio/services/scrapers/newtv/newtv_bypass_widget.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-class MainShellScreen extends StatefulWidget {
+class MainShellScreen extends ConsumerStatefulWidget {
   final StatefulNavigationShell navigationShell;
 
   const MainShellScreen({super.key, required this.navigationShell});
 
   @override
-  State<MainShellScreen> createState() => _MainShellScreenState();
+  ConsumerState<MainShellScreen> createState() => _MainShellScreenState();
 }
 
-class _MainShellScreenState extends State<MainShellScreen> {
+class _MainShellScreenState extends ConsumerState<MainShellScreen> {
   DateTime? _lastBackPressAt;
   DateTime? _lastBackHandledAt;
 
@@ -94,6 +96,10 @@ class _MainShellScreenState extends State<MainShellScreen> {
             const Positioned.fill(
               child: CloudflareBypassWidget(),
             ),
+            // Background physical WebView for NewTV.cc auth/harvesting (drawn on top when needed)
+            const Positioned.fill(
+              child: NewTvBypassWidget(),
+            ),
           ],
         ),
         bottomNavigationBar: Container(
@@ -129,19 +135,7 @@ class _MainShellScreenState extends State<MainShellScreen> {
                 ),
                 label: 'Home',
               ),
-              BottomNavigationBarItem(
-                icon: PhosphorIcon(
-                  PhosphorIconsRegular.magnifyingGlass,
-                  color: NivioTheme.netflixGrey,
-                  size: 22,
-                ),
-                activeIcon: PhosphorIcon(
-                  PhosphorIconsFill.magnifyingGlass,
-                  color: accentColor,
-                  size: 22,
-                ),
-                label: 'Discover',
-              ),
+
               BottomNavigationBarItem(
                 icon: PhosphorIcon(
                   PhosphorIconsRegular.calendarBlank,

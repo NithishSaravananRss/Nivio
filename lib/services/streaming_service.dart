@@ -2,13 +2,29 @@ import 'package:nivio/models/search_result.dart';
 import 'package:nivio/models/stream_result.dart';
 import 'package:nivio/core/debug_log.dart';
 import 'package:nivio/services/scrapers/animepahe/animepahe_scraper.dart';
+import 'package:nivio/services/scrapers/newtv/newtv_scraper.dart';
 
 class StreamingService {
   final AnimepaheScraperService animepaheScraper;
+  final NewTvScraperService newTvNetflixScraper;
+  final NewTvScraperService newTvPrimeScraper;
+  final NewTvScraperService newTvHotstarScraper;
+  final NewTvScraperService newTvDisneyScraper;
 
-  StreamingService(this.animepaheScraper);
+  StreamingService({
+    required this.animepaheScraper,
+    required this.newTvNetflixScraper,
+    required this.newTvPrimeScraper,
+    required this.newTvHotstarScraper,
+    required this.newTvDisneyScraper,
+  });
 
   static const List<String> _premiumProviders = [
+    'NewTV (Auto)',
+    'NewTV (Netflix)',
+    'NewTV (Hotstar)',
+    'NewTV (Prime Video)',
+    'NewTV (Disney+)',
     'VidUp (FAST)',
     'VidLink',
     'VidCore (ACTIVE)',
@@ -59,6 +75,35 @@ class StreamingService {
         );
         
         return streamResult; // AnimepaheScraper natively returns StreamResult
+      }
+
+      // Handle NewTV
+      if (providerName.startsWith('NewTV')) {
+        final tmdbId = media.id.toString();
+        final title = media.title ?? media.name ?? '';
+        final type = _isAnimeMedia(media) ? 'tv' : media.mediaType;
+        final year = media.releaseDate?.split('-').firstOrNull ?? media.firstAirDate?.split('-').firstOrNull;
+        final audio = subDubPreference == 'dub' ? 'english' : 'japanese';
+
+        if (providerName == 'NewTV (Auto)') {
+          // Parallel fetch from all 4 providers
+          final results = await Future.wait([
+            newTvNetflixScraper.fetchStreamUrl(tmdbId: tmdbId, title: title, mediaType: type, year: year, season: season, episode: episode, preferredAudio: audio),
+            newTvHotstarScraper.fetchStreamUrl(tmdbId: tmdbId, title: title, mediaType: type, year: year, season: season, episode: episode, preferredAudio: audio),
+            newTvPrimeScraper.fetchStreamUrl(tmdbId: tmdbId, title: title, mediaType: type, year: year, season: season, episode: episode, preferredAudio: audio),
+            newTvDisneyScraper.fetchStreamUrl(tmdbId: tmdbId, title: title, mediaType: type, year: year, season: season, episode: episode, preferredAudio: audio),
+          ]);
+          // Return the first successful result
+          return results.firstWhere((r) => r != null, orElse: () => null);
+        } else if (providerName == 'NewTV (Netflix)') {
+          return await newTvNetflixScraper.fetchStreamUrl(tmdbId: tmdbId, title: title, mediaType: type, year: year, season: season, episode: episode, preferredAudio: audio);
+        } else if (providerName == 'NewTV (Hotstar)') {
+          return await newTvHotstarScraper.fetchStreamUrl(tmdbId: tmdbId, title: title, mediaType: type, year: year, season: season, episode: episode, preferredAudio: audio);
+        } else if (providerName == 'NewTV (Prime Video)') {
+          return await newTvPrimeScraper.fetchStreamUrl(tmdbId: tmdbId, title: title, mediaType: type, year: year, season: season, episode: episode, preferredAudio: audio);
+        } else if (providerName == 'NewTV (Disney+)') {
+          return await newTvDisneyScraper.fetchStreamUrl(tmdbId: tmdbId, title: title, mediaType: type, year: year, season: season, episode: episode, preferredAudio: audio);
+        }
       }
 
       // Handle standard 7reels providers
@@ -146,6 +191,8 @@ class StreamingService {
   }
 
   static bool isDirectStream(int providerIndex, {required bool isAnime}) {
-    return false; // All providers, including Animepahe, now use WebView fallback for stability
+    final providerName = getProviderName(providerIndex, isAnime: isAnime);
+    if (providerName.startsWith('NewTV')) return true;
+    return false; // All other providers, including Animepahe, now use WebView fallback for stability
   }
 }

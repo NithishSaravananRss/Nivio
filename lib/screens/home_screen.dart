@@ -1,13 +1,13 @@
 import 'dart:async';
-import 'dart:ui';
+
 
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/scheduler.dart';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:nivio/core/constants.dart';
-import 'package:nivio/core/debug_log.dart';
+
 import 'package:nivio/core/providers_data.dart';
 import 'package:nivio/core/theme.dart';
 import 'package:nivio/models/watchlist_item.dart';
@@ -17,9 +17,12 @@ import 'package:nivio/providers/watch_history_provider.dart';
 import 'package:nivio/providers/watchlist_provider.dart';
 import 'package:nivio/services/episode_check_service.dart';
 import 'package:nivio/services/scrapers/animepahe/cloudflare_bypass_service.dart';
+import 'package:nivio/services/scrapers/newtv/newtv_bypass_service.dart';
 import 'package:nivio/widgets/content_row.dart';
 import 'package:nivio/widgets/continue_watching_row.dart';
 import 'package:phosphoricons_flutter/phosphoricons_flutter.dart';
+
+import 'package:palette_generator/palette_generator.dart';
 
 class HomeScreen extends ConsumerStatefulWidget {
   const HomeScreen({super.key});
@@ -50,32 +53,13 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   int _currentBannerPage = 0;
   Timer? _bannerTimer;
   final Map<int, bool> _pendingWatchlistState = <int, bool>{};
+  final Map<int, Color> _ambientColors = {};
+  Color _currentAmbientColor = const Color(0xFF0D0F14);
 
-  int _frameCount = 0;
-  DateTime _lastFpsLogTime = DateTime.now();
-
-  void _onFrameTiming(List<FrameTiming> timings) {
-    if (!mounted) return;
-    _frameCount += timings.length;
-    final now = DateTime.now();
-    if (now.difference(_lastFpsLogTime).inSeconds >= 1) {
-      appDebugLog('📊 HomeScreen FPS: $_frameCount');
-      _frameCount = 0;
-      _lastFpsLogTime = now;
-    }
-
-    for (final timing in timings) {
-      final ms = timing.totalSpan.inMilliseconds;
-      if (ms > 16) {
-        appDebugLog('⚠️ JANK DETECTED: Frame took ${ms}ms');
-      }
-    }
-  }
 
   @override
   void initState() {
     super.initState();
-    SchedulerBinding.instance.addTimingsCallback(_onFrameTiming);
     _scrollController.addListener(() {
       if (_scrollController.offset > 50 && !_showAppBarBackground) {
         setState(() => _showAppBarBackground = true);
@@ -111,9 +95,34 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     ]);
   }
 
+  Future<void> _extractColorForIndex(List<dynamic> items, int index) async {
+    if (items.isEmpty || index >= items.length) return;
+    
+    if (_ambientColors.containsKey(index)) return;
+    
+    final content = items[index];
+    final posterPath = content['poster_path'] ?? content['backdrop_path'];
+    if (posterPath == null) return;
+    
+    try {
+      final provider = CachedNetworkImageProvider('$tmdbImageBaseUrl/w200$posterPath');
+      final palette = await PaletteGenerator.fromImageProvider(provider);
+      
+      final color = palette.darkVibrantColor?.color ?? palette.dominantColor?.color ?? const Color(0xFF0D0F14);
+      
+      if (mounted) {
+        setState(() {
+          _ambientColors[index] = color;
+          if (_currentBannerIndex == index) {
+            _currentAmbientColor = color;
+          }
+        });
+      }
+    } catch (_) {}
+  }
+
   @override
   void dispose() {
-    SchedulerBinding.instance.removeTimingsCallback(_onFrameTiming);
     _scrollController.dispose();
     _pageController.dispose();
     _bannerTimer?.cancel();
@@ -166,7 +175,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             ),
           ),
           actions: [
-            _buildCloudflareIndicator(context),
+            _buildBypassIndicator(context),
             Padding(
               padding: const EdgeInsets.only(top: 8),
               child: IconButton(
@@ -175,7 +184,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                   color: Colors.white,
                   size: 22,
                 ),
-                onPressed: () => context.go('/search'),
+                onPressed: () => context.push('/search'),
               ),
             ),
             Padding(
@@ -190,7 +199,22 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           ],
         ),
       ),
-      body: CustomScrollView(
+      body: AnimatedContainer(
+        duration: const Duration(milliseconds: 800),
+        curve: Curves.easeInOut,
+        decoration: BoxDecoration(
+          color: const Color(0xFF0D0F14),
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [
+              _currentAmbientColor.withOpacity(0.6),
+              const Color(0xFF0D0F14),
+            ],
+            stops: const [0.0, 0.6],
+          ),
+        ),
+        child: CustomScrollView(
         controller: _scrollController,
         cacheExtent: 300,
         slivers: [
@@ -204,17 +228,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             ),
           ),
           _buildProviderSelectionRow(),
-          SliverToBoxAdapter(
-            child: Container(
-              height: 40,
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
-                  colors: [Color(0xFF141414), Color(0xFF0D0F14)],
-                ),
-              ),
-            ),
+          const SliverToBoxAdapter(
+            child: SizedBox(height: 40),
           ),
           SliverToBoxAdapter(
             child: Consumer(
@@ -300,6 +315,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           const SliverToBoxAdapter(child: SizedBox(height: 50)),
         ],
       ),
+      ),
     );
   }
 
@@ -338,7 +354,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 const Text(
-                  'Explore by Provider',
+                  'Studios',
                   style: TextStyle(
                     color: Colors.white,
                     fontSize: 18,
@@ -362,10 +378,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             ),
           ),
           SizedBox(
-            height: 140,
+            height: 90,
             child: ListView.builder(
               scrollDirection: Axis.horizontal,
-              padding: const EdgeInsets.symmetric(horizontal: 12),
+              padding: const EdgeInsets.symmetric(horizontal: 10),
               itemCount: providers.length,
               itemBuilder: (context, index) {
                 final provider = providers[index];
@@ -374,52 +390,30 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                     context.push('/provider/${provider['id']}?name=${Uri.encodeComponent(provider['name'] as String)}');
                   },
                   child: Container(
-                    width: 105,
+                    width: 160,
                     margin: const EdgeInsets.symmetric(horizontal: 6),
                     decoration: BoxDecoration(
-                      color: const Color(0xFF22252A),
-                      borderRadius: BorderRadius.circular(20),
+                      color: const Color(0xFF1E1E24), // Sleek dark mode color
+                      borderRadius: BorderRadius.circular(6), // Reduced roundness
                       border: Border.all(color: Colors.white10),
                     ),
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Container(
-                          width: 75,
-                          height: 75,
-                          decoration: BoxDecoration(
-                            shape: BoxShape.circle,
-                            boxShadow: [
-                              BoxShadow(
-                                color: Colors.black.withValues(alpha: 0.3),
-                                blurRadius: 4,
-                                offset: const Offset(0, 2),
-                              )
-                            ],
-                          ),
-                          clipBehavior: Clip.antiAlias,
-                          child: CachedNetworkImage(
-                            imageUrl: '$tmdbImageBaseUrl/w200${provider['logo_path']}',
-                            fit: BoxFit.cover,
-                            errorWidget: (context, url, error) => const Icon(Icons.error, color: Colors.white),
-                          ),
-                        ),
-                        const SizedBox(height: 12),
-                        Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 4),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 16.0),
+                      child: CachedNetworkImage(
+                        imageUrl: '$tmdbImageBaseUrl/w500${provider['logo_path']}',
+                        fit: BoxFit.contain,
+                        errorWidget: (context, url, error) => Center(
                           child: Text(
                             provider['name'] as String,
                             style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 13,
-                              fontWeight: FontWeight.w600,
+                              color: Colors.white70,
+                              fontSize: 14,
+                              fontWeight: FontWeight.bold,
                             ),
-                            maxLines: 1,
                             textAlign: TextAlign.center,
-                            overflow: TextOverflow.ellipsis,
                           ),
                         ),
-                      ],
+                      ),
                     ),
                   ),
                 );
@@ -441,12 +435,21 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         .toSet();
     final itemCount = items.length + 1;
 
+    if (!_ambientColors.containsKey(0) && items.isNotEmpty) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _extractColorForIndex(items, 0);
+      });
+    }
+
     return SizedBox(
       height: 600,
       child: PageView.builder(
         controller: _pageController,
         itemCount: itemCount,
         onPageChanged: (index) {
+          final actualIndex = index % items.length;
+          _extractColorForIndex(items, actualIndex);
+
           if (index == items.length) {
             setState(() {
               _currentBannerIndex = 0;
@@ -465,6 +468,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           setState(() {
             _currentBannerPage = index;
             _currentBannerIndex = index % items.length;
+            if (_ambientColors.containsKey(_currentBannerIndex)) {
+              _currentAmbientColor = _ambientColors[_currentBannerIndex]!;
+            }
           });
         },
         itemBuilder: (context, index) {
@@ -508,18 +514,29 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 
           return Stack(
             children: [
-              AnimatedOpacity(
-                opacity: 1,
-                duration: const Duration(milliseconds: 500),
-                child: Container(
-                  decoration: BoxDecoration(
-                    image: backdropUrl != null
-                        ? DecorationImage(
-                            image: CachedNetworkImageProvider(backdropUrl),
-                            fit: BoxFit.cover,
-                          )
-                        : null,
-                    color: backdropUrl == null ? const Color(0xFF2F2F2F) : null,
+              ShaderMask(
+                shaderCallback: (rect) {
+                  return const LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: [Colors.black, Colors.black, Colors.transparent],
+                    stops: [0.0, 0.6, 1.0],
+                  ).createShader(rect);
+                },
+                blendMode: BlendMode.dstIn,
+                child: AnimatedOpacity(
+                  opacity: 1,
+                  duration: const Duration(milliseconds: 500),
+                  child: Container(
+                    decoration: BoxDecoration(
+                      image: backdropUrl != null
+                          ? DecorationImage(
+                              image: CachedNetworkImageProvider(backdropUrl),
+                              fit: BoxFit.cover,
+                            )
+                          : null,
+                      color: backdropUrl == null ? const Color(0xFF2F2F2F) : null,
+                    ),
                   ),
                 ),
               ),
@@ -530,8 +547,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                     end: Alignment.bottomCenter,
                     colors: [
                       Colors.transparent,
-                      Colors.black.withValues(alpha: 0.5),
-                      const Color(0xFF141414),
+                      Colors.black.withValues(alpha: 0.4),
+                      Colors.transparent,
                     ],
                     stops: const [0.0, 0.7, 1.0],
                   ),
@@ -675,45 +692,92 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     );
   }
 
-  Widget _buildCloudflareIndicator(BuildContext context) {
+  Widget _buildBypassIndicator(BuildContext context) {
     return Consumer(
       builder: (context, ref, child) {
-        final bypassService = ref.watch(cloudflareBypassProvider);
-        final languagePreferences = ref.watch(languagePreferencesProvider);
+        final cfBypass = ref.watch(cloudflareBypassProvider);
+        final newTvBypass = ref.watch(newTvBypassProvider);
         
-        if (!languagePreferences.showAnime) return const SizedBox.shrink();
+        final isBypassing = cfBypass.isBypassing || newTvBypass.isBypassing;
+        final isReady = cfBypass.isReady && newTvBypass.isReady;
         
         Widget icon;
         String tooltip;
-        if (bypassService.isBypassing) {
+        if (isBypassing) {
            icon = SizedBox(
              width: 18, height: 18,
              child: CircularProgressIndicator(strokeWidth: 2, color: NivioTheme.accentColorOf(context)),
            );
-           tooltip = 'Bypassing Anime Protection...';
-        } else if (bypassService.isReady) {
+           tooltip = 'Bypassing Protections...';
+        } else if (isReady) {
            icon = const PhosphorIcon(PhosphorIconsFill.shieldCheck, color: Colors.green, size: 22);
-           tooltip = 'Anime Protection Bypassed';
+           tooltip = 'All Protections Bypassed';
         } else {
            icon = const PhosphorIcon(PhosphorIconsRegular.shieldWarning, color: Colors.amber, size: 22);
-           tooltip = 'Anime Protection Pending';
+           tooltip = 'Protection Bypass Pending';
         }
         
-        return Tooltip(
-          message: tooltip,
-          child: Padding(
-            padding: const EdgeInsets.only(top: 8, right: 4),
-            child: IconButton(
-              icon: icon,
-              onPressed: () {
-                 if (!bypassService.isBypassing) {
-                   bypassService.forceRefresh();
-                   ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Retrying Anime Protection Bypass...')));
-                 } else {
-                   ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(tooltip)));
-                 }
-              },
-            ),
+        return Padding(
+          padding: const EdgeInsets.only(top: 8, right: 4),
+          child: PopupMenuButton<int>(
+            icon: icon,
+            tooltip: tooltip,
+            position: PopupMenuPosition.under,
+            color: const Color(0xFF1E2126),
+            itemBuilder: (context) => [
+              PopupMenuItem(
+                value: 0,
+                child: Row(
+                  children: [
+                    cfBypass.isBypassing
+                      ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))
+                      : cfBypass.isReady
+                        ? const PhosphorIcon(PhosphorIconsFill.shieldCheck, color: Colors.green, size: 20)
+                        : const PhosphorIcon(PhosphorIconsRegular.shieldWarning, color: Colors.amber, size: 20),
+                    const SizedBox(width: 12),
+                    const Text('Animepahe', style: TextStyle(color: Colors.white)),
+                  ],
+                ),
+              ),
+              PopupMenuItem(
+                value: 1,
+                child: Row(
+                  children: [
+                    newTvBypass.isBypassing
+                      ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))
+                      : newTvBypass.isReady
+                        ? const PhosphorIcon(PhosphorIconsFill.shieldCheck, color: Colors.green, size: 20)
+                        : const PhosphorIcon(PhosphorIconsRegular.shieldWarning, color: Colors.amber, size: 20),
+                    const SizedBox(width: 12),
+                    const Text('NewTV', style: TextStyle(color: Colors.white)),
+                  ],
+                ),
+              ),
+              const PopupMenuDivider(),
+              PopupMenuItem(
+                value: 2,
+                child: Row(
+                  children: [
+                    const PhosphorIcon(PhosphorIconsRegular.arrowsClockwise, size: 20, color: Colors.white),
+                    const SizedBox(width: 12),
+                    const Text('Refresh Both', style: TextStyle(color: Colors.white)),
+                  ],
+                ),
+              ),
+            ],
+            onSelected: (value) {
+              if (value == 0) {
+                cfBypass.forceRefresh();
+                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Retrying Animepahe Bypass...')));
+              } else if (value == 1) {
+                newTvBypass.forceRefresh();
+                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Retrying NewTV Bypass...')));
+              } else if (value == 2) {
+                cfBypass.forceRefresh();
+                newTvBypass.forceRefresh();
+                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Retrying All Bypasses...')));
+              }
+            },
           ),
         );
       }

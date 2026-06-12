@@ -1,12 +1,14 @@
 import 'dart:async';
+import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:nivio/core/theme.dart';
 import 'package:nivio/models/search_result.dart';
-import 'package:nivio/providers/home_providers.dart';
 import 'package:nivio/providers/search_provider.dart';
 import 'package:nivio/providers/service_providers.dart';
 import 'package:nivio/widgets/search_result_card.dart';
+import 'package:go_router/go_router.dart';
+import 'package:phosphoricons_flutter/phosphoricons_flutter.dart';
 
 class SearchScreen extends ConsumerStatefulWidget {
   const SearchScreen({super.key});
@@ -348,17 +350,23 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
       behavior: HitTestBehavior.translucent,
       onTap: () => FocusScope.of(context).unfocus(),
       child: Scaffold(
+        backgroundColor: Colors.transparent,
+        extendBodyBehindAppBar: true,
         appBar: AppBar(
-          backgroundColor: NivioTheme.netflixBlack,
-          surfaceTintColor: Colors.transparent,
+          backgroundColor: Colors.transparent,
+          elevation: 0,
           toolbarHeight: 76,
-          titleSpacing: 12,
+          titleSpacing: 0,
+          leading: IconButton(
+            icon: const PhosphorIcon(PhosphorIconsRegular.caretLeft, color: Colors.white),
+            onPressed: () => context.pop(),
+          ),
           title: _buildSearchField(),
           actions: [
             Stack(
               children: [
                 IconButton(
-                  icon: Icon(Icons.tune_rounded, color: Colors.white),
+                  icon: const Icon(Icons.tune_rounded, color: Colors.white),
                   onPressed: _showFilterDialog,
                 ),
                 if (hasFilters)
@@ -380,31 +388,31 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
             const SizedBox(width: 4),
           ],
         ),
-        body: Container(
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topCenter,
-              end: Alignment.bottomCenter,
-              colors: [
-                const Color(0xFF1A1A1A),
-                NivioTheme.netflixBlack,
-                NivioTheme.netflixBlack,
-              ],
+        body: ClipRect(
+          child: BackdropFilter(
+            filter: ImageFilter.blur(sigmaX: 12.0, sigmaY: 12.0),
+            child: SizedBox.expand(
+              child: Container(
+                color: const Color(0xFF0D0F14).withOpacity(0.65),
+                child: SafeArea(
+                  child: AnimatedSwitcher(
+                    duration: const Duration(milliseconds: 220),
+                    child: query.isEmpty
+                        ? const SizedBox.expand(key: ValueKey('empty_state'))
+                        : _isInitialLoading
+                        ? Center(
+                            key: const ValueKey('loading'),
+                            child: CircularProgressIndicator(
+                              color: NivioTheme.accentColorOf(context),
+                            ),
+                          )
+                        : _allResults.isEmpty
+                        ? _buildNoResultsState(query)
+                        : _buildResultsState(query, languageFilter, sortBy),
+                  ),
+                ),
+              ),
             ),
-          ),
-          child: AnimatedSwitcher(
-            duration: const Duration(milliseconds: 220),
-            child: query.isEmpty
-                ? _buildDefaultResultsState()
-                : _isInitialLoading
-                ? Center(
-                    child: CircularProgressIndicator(
-                      color: NivioTheme.accentColorOf(context),
-                    ),
-                  )
-                : _allResults.isEmpty
-                ? _buildNoResultsState(query)
-                : _buildResultsState(query, languageFilter, sortBy),
           ),
         ),
       ),
@@ -423,14 +431,17 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
         controller: _controller,
         autofocus: true,
         textInputAction: TextInputAction.search,
-        style: TextStyle(color: Colors.white, fontSize: 15),
+        textAlignVertical: TextAlignVertical.center,
+        style: const TextStyle(color: Colors.white, fontSize: 15),
         decoration: InputDecoration(
           hintText: 'Search titles...',
+          isDense: true,
           hintStyle: TextStyle(color: Colors.white.withValues(alpha: 0.45)),
           border: InputBorder.none,
-          contentPadding: const EdgeInsets.symmetric(
-            horizontal: 14,
-            vertical: 10,
+          contentPadding: const EdgeInsets.only(
+            left: 14,
+            right: 14,
+            bottom: 2, // Shifts text slightly up
           ),
           prefixIcon: IconButton(
             icon: Icon(
@@ -470,104 +481,6 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
         ),
         onChanged: _onQueryChanged,
         onSubmitted: _onSearch,
-      ),
-    );
-  }
-
-  Widget _buildDefaultResultsState() {
-    final trendingAsync = ref.watch(trendingMoviesProvider);
-
-    return trendingAsync.when(
-      data: (items) {
-        final defaultResults = items.whereType<Map>().map((item) {
-          final map = Map<String, dynamic>.from(item.cast<String, dynamic>());
-          map['media_type'] = map['media_type'] ?? 'movie';
-          return SearchResult.fromJson(map);
-        }).toList();
-
-        if (defaultResults.isEmpty) {
-          return Center(
-            child: Text(
-              'No default results available',
-              style: TextStyle(color: Colors.white70),
-            ),
-          );
-        }
-
-        return LayoutBuilder(
-          builder: (context, constraints) {
-            final columns = _getGridColumns(constraints.maxWidth);
-            return Column(
-              children: [
-                Container(
-                  margin: const EdgeInsets.fromLTRB(14, 10, 14, 8),
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 14,
-                    vertical: 10,
-                  ),
-                  decoration: BoxDecoration(
-                    color: Colors.white.withValues(alpha: 0.05),
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(
-                      color: Colors.white.withValues(alpha: 0.1),
-                    ),
-                  ),
-                  child: Row(
-                    children: [
-                      const Text(
-                        'Trending Now',
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontSize: 13,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                      const Spacer(),
-                      Text(
-                        '${defaultResults.length} results',
-                        style: TextStyle(
-                          color: Colors.white.withValues(alpha: 0.72),
-                          fontSize: 12,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                Expanded(
-                  child: GridView.builder(
-                    key: const PageStorageKey<String>('default_search_grid'),
-                    padding: const EdgeInsets.fromLTRB(14, 6, 14, 20),
-                    gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                      crossAxisCount: columns,
-                      childAspectRatio: _getGridAspectRatio(columns),
-                      crossAxisSpacing: 12,
-                      mainAxisSpacing: 14,
-                    ),
-                    itemCount: defaultResults.length,
-                    itemBuilder: (context, index) {
-                      final item = defaultResults[index];
-                      return SearchResultCard(
-                        key: ValueKey('default_${item.mediaType}_${item.id}'),
-                        media: item,
-                      );
-                    },
-                  ),
-                ),
-              ],
-            );
-          },
-        );
-      },
-      loading: () => Center(
-        child: CircularProgressIndicator(
-          color: NivioTheme.accentColorOf(context),
-        ),
-      ),
-      error: (error, stackTrace) => Center(
-        child: Text(
-          'Failed to load default results',
-          style: TextStyle(color: Colors.white70),
-        ),
       ),
     );
   }

@@ -335,6 +335,27 @@ class TmdbService {
     }
   }
 
+  Future<List<dynamic>> getByProviderAndGenre(int providerId, int genreId, {String mediaType = 'movie', int page = 1}) async {
+    try {
+      final response = await _dio.get(
+        '/3/discover/$mediaType',
+        queryParameters: {
+          'with_watch_providers': providerId.toString(),
+          'with_genres': genreId.toString(),
+          'watch_region': 'US',
+          'sort_by': 'popularity.desc',
+          'page': page.toString(),
+        },
+      );
+      if (response.statusCode == 200) {
+        return (response.data['results'] as List<dynamic>?) ?? [];
+      }
+      return [];
+    } catch (e) {
+      return [];
+    }
+  }
+
   Future<List<dynamic>> getTrending(String mediaType, String timeWindow) async {
     final cacheKey = 'trending_${mediaType}_$timeWindow';
 

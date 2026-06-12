@@ -34,6 +34,7 @@ import 'package:nivio/screens/watch_party_screen.dart';
 import 'package:nivio/services/watch_party/watch_party_models.dart';
 import 'package:nivio/services/watch_party/watch_party_supabase_config.dart';
 import 'package:nivio/services/scrapers/animepahe/cloudflare_bypass_service.dart';
+import 'package:nivio/services/scrapers/newtv/newtv_bypass_service.dart';
 
 void main() async {
   WidgetsBinding widgetsBinding = WidgetsFlutterBinding.ensureInitialized();
@@ -122,6 +123,17 @@ final _router = GoRouter(
   },
   routes: [
     GoRoute(path: '/auth', builder: (context, state) => const AuthScreen()),
+    GoRoute(
+      path: '/search',
+      pageBuilder: (context, state) => CustomTransitionPage(
+        opaque: false,
+        transitionDuration: const Duration(milliseconds: 300),
+        transitionsBuilder: (context, animation, secondaryAnimation, child) {
+          return FadeTransition(opacity: animation, child: child);
+        },
+        child: const SearchScreen(),
+      ),
+    ),
     GoRoute(path: '/all-providers', builder: (context, state) => const AllProvidersScreen()),
     GoRoute(path: '/', redirect: (context, state) => '/home'),
     StatefulShellRoute.indexedStack(
@@ -133,14 +145,6 @@ final _router = GoRouter(
             GoRoute(
               path: '/home',
               builder: (context, state) => const HomeScreen(),
-            ),
-          ],
-        ),
-        StatefulShellBranch(
-          routes: [
-            GoRoute(
-              path: '/search',
-              builder: (context, state) => const SearchScreen(),
             ),
           ],
         ),
@@ -257,6 +261,7 @@ class _NivioAppState extends ConsumerState<NivioApp> {
     Future.delayed(const Duration(seconds: 4), () {
       if (mounted) {
         ref.read(cloudflareBypassProvider).init();
+        ref.read(newTvBypassProvider).init();
       }
     });
   }
