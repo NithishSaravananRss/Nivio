@@ -14,6 +14,7 @@ class CustomPlayerControls extends StatefulWidget {
   final VoidCallback? onBack;
   final VoidCallback? onSettings;
   final VoidCallback? onServerChange;
+  final VoidCallback? onEpisodes;
 
   const CustomPlayerControls({
     super.key,
@@ -26,6 +27,7 @@ class CustomPlayerControls extends StatefulWidget {
     this.onBack,
     this.onSettings,
     this.onServerChange,
+    this.onEpisodes,
   });
 
   @override
@@ -218,7 +220,9 @@ class _CustomPlayerControlsState extends State<CustomPlayerControls> {
                                   overflow: TextOverflow.ellipsis,
                                 ),
                                 if (widget.subtitle != null || widget.providerName != null)
-                                  Row(
+                                  Wrap(
+                                    spacing: 6,
+                                    runSpacing: 4,
                                     children: [
                                       if (widget.subtitle != null)
                                         Container(
@@ -232,8 +236,6 @@ class _CustomPlayerControlsState extends State<CustomPlayerControls> {
                                             style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.white),
                                           ),
                                         ),
-                                      if (widget.subtitle != null && widget.providerName != null)
-                                        const SizedBox(width: 6),
                                       if (widget.providerName != null)
                                         Container(
                                           padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
@@ -251,6 +253,14 @@ class _CustomPlayerControlsState extends State<CustomPlayerControls> {
                               ],
                             ),
                           ),
+                          if (widget.onEpisodes != null)
+                            IconButton(
+                              icon: const Icon(Icons.list, color: Colors.white, size: 28),
+                              onPressed: () {
+                                _startHideTimer();
+                                widget.onEpisodes?.call();
+                              },
+                            ),
                           IconButton(
                             icon: const Icon(Icons.sync, color: Colors.white, size: 28),
                             onPressed: () {

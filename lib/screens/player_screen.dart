@@ -94,7 +94,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
   bool _arePlayerControlsVisible = true;
   bool _autoFullscreenTriggeredForCurrentLoad = false;
   String? _openTopActionMenuId;
-  String _selectedDisplayFitKey = 'bestFit';
+  String _selectedDisplayFitKey = 'cover';
   final ValueNotifier<bool> _fullscreenTopBarVisibleNotifier = ValueNotifier(
     false,
   );
@@ -405,7 +405,15 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
           autoPlay: true,
           looping: false,
           fullScreenByDefault: false,
-          fit: _displayFitOptions[_selectedDisplayFitKey] ?? BoxFit.contain,
+          deviceOrientationsAfterFullScreen: const [
+            DeviceOrientation.landscapeLeft,
+            DeviceOrientation.landscapeRight,
+          ],
+          deviceOrientationsOnFullScreen: const [
+            DeviceOrientation.landscapeLeft,
+            DeviceOrientation.landscapeRight,
+          ],
+          fit: _displayFitOptions[_selectedDisplayFitKey] ?? BoxFit.cover,
           autoDispose: false,
           handleLifecycle: true,
           startAt: startAt,
@@ -454,6 +462,9 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
                 onSettings: () {
                   _showSettingsOverlayPanel();
                 },
+                onEpisodes: (media?.mediaType == 'tv') ? () {
+                  _showEpisodesBottomSheet();
+                } : null,
               );
             },
             overflowMenuCustomItems: [

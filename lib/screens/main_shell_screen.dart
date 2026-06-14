@@ -4,7 +4,6 @@ import 'package:go_router/go_router.dart';
 import 'package:nivio/core/theme.dart';
 import 'package:phosphoricons_flutter/phosphoricons_flutter.dart';
 import 'package:nivio/services/scrapers/animepahe/cloudflare_bypass_widget.dart';
-import 'package:nivio/services/scrapers/newtv/newtv_bypass_widget.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 class MainShellScreen extends ConsumerStatefulWidget {
@@ -95,10 +94,6 @@ class _MainShellScreenState extends ConsumerState<MainShellScreen> {
             // Background physical WebView for Cloudflare Turnstile bypass (drawn on top when needed)
             const Positioned.fill(
               child: CloudflareBypassWidget(),
-            ),
-            // Background physical WebView for NewTV.cc auth/harvesting (drawn on top when needed)
-            const Positioned.fill(
-              child: NewTvBypassWidget(),
             ),
           ],
         ),

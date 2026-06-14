@@ -19,7 +19,7 @@ class NewTvScraperService {
 
   NewTvScraperService(this.bypassService, {this.ott = 'nf', this.providerName = 'NewTV (Netflix)'});
 
-  static const String _apiUrl = 'https://net11.cc';
+  static const String _apiUrl = 'https://net52.cc';
   static const String _defaultUserAgent =
       'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:136.0) Gecko/20100101 Firefox/136.0 /OS.GatuNewTV v1.0';
 
@@ -60,7 +60,11 @@ class NewTvScraperService {
   ];
 
   static String _resolvedApiUrl = '';
-  String get _basePath => ott == 'nf' ? '/mobile' : '/mobile/$ott';
+  String get _basePath {
+    if (ott == 'nf') return '/mobile';
+    if (ott == 'dp') return '/mobile/hs';
+    return '/mobile/$ott';
+  }
 
   Future<String> _resolveNewTvApi() async {
     if (_resolvedApiUrl.isNotEmpty) return _resolvedApiUrl;
@@ -318,7 +322,7 @@ class NewTvScraperService {
           "X-Requested-With": "NetmirrorNewTV v1.0",
           "User-Agent": userAgent,
           "Accept": "application/json, text/plain, */*",
-          "Ott": ott,
+          "Ott": ott == 'dp' ? 'hs' : ott,
           "Usertoken": "",
         },
       ),
@@ -331,8 +335,8 @@ class NewTvScraperService {
 
     final data = _asMap(response.data);
     final status = data?['status']?.toString();
-    final videoLink = data?['video_link']?.toString();
-    final referer = data?['referer']?.toString() ?? apiBase;
+    final videoLink = data?['video_link']?.toString().trim();
+    final referer = data?['referer']?.toString().trim() ?? apiBase;
 
     if (status != 'ok' || videoLink == null || videoLink.isEmpty) {
       appDebugLog('NewTvScraper: NewTV API returned invalid response: $data');
@@ -540,10 +544,14 @@ class NewTvScraperService {
     required String referer,
     required String userAgent,
   }) {
+    // Append the required cookies as done in the Kotlin extension.
+    // The Kotlin extension uses: mapOf("t_hash_t" to cookie_value, "hd" to "on", "ott" to ott)
+    final finalCookie = '$cookie; hd=on; ott=$ott';
+
     return {
       'X-Requested-With': 'XMLHttpRequest',
       'Referer': referer,
-      'Cookie': cookie,
+      'Cookie': finalCookie,
       'User-Agent': userAgent,
     };
   }

@@ -1,6 +1,6 @@
 import 'dart:async';
+import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
-import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:nivio/core/debug_log.dart';
 
@@ -9,10 +9,8 @@ final newTvBypassProvider = ChangeNotifierProvider<NewTvBypassService>((ref) {
 });
 
 class NewTvBypassService extends ChangeNotifier {
-  InAppWebViewController? Function()? _controllerGetter;
-  
-  String _userAgent = 'Mozilla/5.0 (Linux; Android 13; Pixel 7 Pro) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Mobile Safari/537.36';
-  Map<String, String> _cookies = {};
+  final String _userAgent = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:136.0) Gecko/20100101 Firefox/136.0 /OS.GatuNewTV v1.0';
+  final Map<String, String> _cookies = {};
   
   bool _isBypassing = false;
   bool _isBypassed = false;
@@ -25,10 +23,6 @@ class NewTvBypassService extends ChangeNotifier {
   
   String get cookieString {
     return _cookies.entries.map((e) => '${e.key}=${e.value}').join('; ');
-  }
-
-  void registerWebViewController({required InAppWebViewController? Function() controllerGetter}) {
-    _controllerGetter = controllerGetter;
   }
 
   Future<void> init() async {
@@ -46,113 +40,84 @@ class NewTvBypassService extends ChangeNotifier {
     if (_isBypassing && !forceRefresh) return;
     _isBypassing = true;
     _bypassCompleter = Completer<void>();
-    Future.microtask(() => notifyListeners()); // Tell the Widget to render the WebView
+    notifyListeners();
     
-    appDebugLog('🛡️ Triggering invisible WebView widget to bypass on net11.cc...');
+    appDebugLog('🛡️ Triggering NewTV verify.php bypass...');
     
     try {
-      CookieManager cookieManager = CookieManager.instance();
       if (forceRefresh) {
-        await cookieManager.deleteAllCookies();
+        _cookies.clear();
         _isBypassed = false;
       }
       
-      final cookies = await cookieManager.getCookies(url: WebUri('https://net11.cc/'));
-      if (cookies.isNotEmpty && !forceRefresh) {
-        appDebugLog('🛡️ Found existing NewTV cookies!');
-        _cookies.clear();
-        for (var cookie in cookies) {
-          _cookies[cookie.name] = cookie.value.toString();
+      final dio = Dio(BaseOptions(
+        validateStatus: (status) => true,
+        followRedirects: false,
+      ));
+
+      final response = await dio.post(
+        'https://net52.cc/verify.php',
+        data: 'g-recaptcha-response=5a6f2c2b-6b71-41f2-8c1a-2b3c4d5e6f7g',
+        options: Options(
+          headers: {
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
+            'Accept-Encoding': 'gzip, deflate, br, zstd',
+            'Accept-Language': 'en-US,en;q=0.9',
+            'Cache-Control': 'max-age=0',
+            'Connection': 'keep-alive',
+            'Content-Type': 'application/x-www-form-urlencoded',
+            'Origin': 'https://net52.cc',
+            'Referer': 'https://net52.cc/verify2',
+            'sec-ch-ua': '"Google Chrome";v="147", "Not.A/Brand";v="8", "Chromium";v="147"',
+            'sec-ch-ua-mobile': '?0',
+            'sec-ch-ua-platform': '"Windows"',
+            'Sec-Fetch-Dest': 'document',
+            'Sec-Fetch-Mode': 'navigate',
+            'Sec-Fetch-Site': 'same-origin',
+            'Sec-Fetch-User': '?1',
+            'Upgrade-Insecure-Requests': '1',
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36',
+          },
+        ),
+      );
+
+      final setCookies = response.headers['set-cookie'];
+      if (setCookies != null && setCookies.isNotEmpty) {
+        for (final c in setCookies) {
+          final parts = c.split(';');
+          if (parts.isNotEmpty) {
+            final firstPart = parts[0];
+            final eqIdx = firstPart.indexOf('=');
+            if (eqIdx != -1) {
+              final key = firstPart.substring(0, eqIdx).trim();
+              final val = firstPart.substring(eqIdx + 1).trim();
+              _cookies[key] = val;
+            }
+          }
         }
+      }
+
+      if (_cookies.containsKey('t_hash_t')) {
+        appDebugLog('🛡️ NewTV bypass successful! t_hash_t obtained.');
         _isBypassed = true;
-        _isBypassing = false;
-        Future.microtask(() => notifyListeners());
-        _bypassCompleter?.complete();
-        return;
+      } else {
+        appDebugLog('🛡️ NewTV bypass failed: t_hash_t not found in response.');
+        _isBypassed = false;
       }
       
-      final controller = _controllerGetter?.call();
-      if (controller != null) {
-         await controller.loadUrl(urlRequest: URLRequest(url: WebUri('https://net11.cc/')));
-      }
+      _isBypassing = false;
+      notifyListeners();
+      _bypassCompleter?.complete();
       
     } catch (e) {
       appDebugLog('🛡️ NewTV Bypass error: $e');
       _isBypassing = false;
-      Future.microtask(() => notifyListeners());
-      
+      notifyListeners();
       if (_bypassCompleter != null && !_bypassCompleter!.isCompleted) {
         final completer = _bypassCompleter;
         _bypassCompleter = null;
         completer?.completeError(e);
       }
-    }
-  }
-
-  Future<void> onBypassSuccess(String url) async {
-    appDebugLog('🛡️ NewTV bypass successful! URL: $url');
-    await _extractCookies(url);
-    
-    _isBypassed = true;
-    _isBypassing = false;
-    Future.microtask(() => notifyListeners()); // Hide the WebView
-    
-    if (_bypassCompleter != null && !_bypassCompleter!.isCompleted) {
-      _bypassCompleter!.complete();
-    }
-  }
-
-  Future<String?> fetchViaWebView(String url) async {
-    final controller = _controllerGetter?.call();
-    if (controller == null) return null;
-    
-    try {
-      appDebugLog('🛡️ Executing Fetch via NewTV WebView for: $url');
-      final result = await controller.callAsyncJavaScript(functionBody: """
-        return fetch(url, {
-          headers: {
-            'Accept': 'application/json, text/javascript, */*; q=0.01',
-            'X-Requested-With': 'XMLHttpRequest'
-          }
-        })
-        .then(response => {
-          if (!response.ok) {
-            return response.text().then(text => 'ERROR: HTTP ' + response.status + ' - ' + text).catch(e => 'ERROR: HTTP ' + response.status);
-          }
-          return response.text();
-        })
-        .catch(err => {
-          return 'ERROR: Fetch failed - ' + err.toString();
-        });
-      """, arguments: {'url': url}).timeout(const Duration(seconds: 20));
-      
-      appDebugLog('🛡️ Fetch completed. Value starts with: ${(result?.value as String?)?.substring(0, (result?.value as String?)?.length.clamp(0, 50) ?? 0)}...');
-      return result?.value as String?;
-    } catch (e) {
-      appDebugLog('🛡️ fetchViaWebView threw an exception: $e');
-      return null;
-    }
-  }
-
-  Future<void> _extractCookies(String url) async {
-    try {
-      await Future.delayed(const Duration(seconds: 2));
-      
-      CookieManager cookieManager = CookieManager.instance();
-      final uri = WebUri(url);
-      List<Cookie> cookies = await cookieManager.getCookies(url: uri);
-      
-      if (cookies.isEmpty) {
-        cookies = await cookieManager.getCookies(url: WebUri('https://net11.cc'));
-      }
-      
-      _cookies.clear();
-      for (var cookie in cookies) {
-        _cookies[cookie.name] = cookie.value.toString();
-      }
-      appDebugLog('🛡️ Extracted ${_cookies.length} cookies from $url');
-    } catch (e) {
-      appDebugLog('🛡️ Error extracting cookies: $e');
     }
   }
 }
