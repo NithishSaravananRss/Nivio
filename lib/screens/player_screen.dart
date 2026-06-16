@@ -3699,14 +3699,18 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
                         ),
                       ),
                       const SizedBox(width: 8),
-                      Text(
-                        _loadingMessage ?? (_currentProvider.isNotEmpty
-                            ? _currentProvider
-                            : _providerSelectorLabel(_currentProviderIndex)),
-                        style: TextStyle(
-                          color: Colors.white60,
-                          fontSize: 12,
-                          fontWeight: FontWeight.w500,
+                      Flexible(
+                        child: Text(
+                          _loadingMessage ?? (_currentProvider.isNotEmpty
+                              ? _currentProvider
+                              : _providerSelectorLabel(_currentProviderIndex)),
+                          style: TextStyle(
+                            color: Colors.white60,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w500,
+                          ),
+                          overflow: TextOverflow.ellipsis,
+                          maxLines: 1,
                         ),
                       ),
                     ],

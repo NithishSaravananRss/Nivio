@@ -220,16 +220,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         duration: const Duration(milliseconds: 800),
         curve: Curves.easeInOut,
         decoration: BoxDecoration(
-          color: const Color(0xFF0D0F14),
-          gradient: LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: [
-              _currentAmbientColor.withOpacity(0.6),
-              const Color(0xFF0D0F14),
-            ],
-            stops: const [0.0, 0.6],
-          ),
+          color: Color.lerp(const Color(0xFF0D0F14), _currentAmbientColor, 0.15),
         ),
         child: CustomScrollView(
         controller: _scrollController,

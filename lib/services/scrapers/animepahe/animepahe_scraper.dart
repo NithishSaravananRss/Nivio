@@ -25,98 +25,132 @@ class AnimepaheScraperService {
       String? animeSession;
       int? absoluteEpisodeNumber;
 
-      // --- 1. MAPPING PHASE ---
-      try {
-        final queryTitle = season > 1 ? '$title Season $season' : title;
-        onStatusUpdate?.call('Mapping: Querying AniList for "$queryTitle"...');
-        
-        final aniListReq = await http.post(
-          Uri.parse('https://graphql.anilist.co'),
-          headers: {'Content-Type': 'application/json'},
-          body: jsonEncode({
-            'query': 'query { Media(search: "$queryTitle", type: ANIME) { id idMal title { romaji english } } }'
-          }),
-        ).timeout(const Duration(seconds: 5));
-
-        if (aniListReq.statusCode == 200) {
-          final aniData = jsonDecode(aniListReq.body);
-          final media = aniData['data']?['Media'];
-          if (media != null) {
-            final int? idMal = media['idMal'];
-            final int? idAni = media['id'];
+      // --- 1. SEARCH PHASE (Prioritized for Exact Matches) ---
+      onStatusUpdate?.call('Searching Animepahe for exact title match...');
+      appDebugLog('🎌 Animepahe: Searching for "$title"');
+      final searchUrl = 'https://animepahe.pw/api?m=search&q=${Uri.encodeComponent(title)}';
+      final searchBody = await _bypassService.fetchViaWebView(searchUrl);
+      
+      if (searchBody != null) {
+        try {
+          final searchJson = jsonDecode(searchBody);
+          final data = searchJson['data'] as List?;
+          if (data != null && data.isNotEmpty) {
+            Map<String, dynamic>? bestMatch;
+            final expectedTitle = season > 1 ? '$title Season $season' : title;
             
-            if (idMal != null) {
-              onStatusUpdate?.call('Mapping: Resolving Session via MAL-Sync...');
-              final malReq = await http.get(
-                Uri.parse('https://api.malsync.moe/mal/anime/$idMal')
-              ).timeout(const Duration(seconds: 5));
+            // 1st Pass: Exact title match AND type == TV
+            for (var item in data) {
+              final itemTitle = (item['title'] as String).toLowerCase();
+              final itemType = (item['type'] as String?)?.toUpperCase() ?? '';
+              if ((itemTitle == title.toLowerCase() || itemTitle == expectedTitle.toLowerCase()) && itemType == 'TV') {
+                bestMatch = item as Map<String, dynamic>;
+                break;
+              }
+            }
+            
+            // 2nd Pass: Just exact title match (if TV wasn't found)
+            if (bestMatch == null) {
+              for (var item in data) {
+                final itemTitle = (item['title'] as String).toLowerCase();
+                if (itemTitle == title.toLowerCase() || itemTitle == expectedTitle.toLowerCase()) {
+                  bestMatch = item as Map<String, dynamic>;
+                  break;
+                }
+              }
+            }
+            
+            if (bestMatch != null) {
+              animeSession = bestMatch['session'] as String;
+              appDebugLog('🎌 Animepahe: Found exact title match in Search Phase: $animeSession');
+            }
+          }
+        } catch (e) {
+          appDebugLog('🎌 Animepahe: Search Phase failed: $e');
+        }
+      }
 
-              if (malReq.statusCode == 200) {
-                final malData = jsonDecode(malReq.body);
-                final paheData = malData['Sites']?['animepahe'];
-                if (paheData != null && paheData.isNotEmpty) {
-                  animeSession = paheData.values.first['identifier'] as String?;
-                  
-                  // MAL-Sync sometimes returns legacy integer IDs (e.g., "888").
-                  // Animepahe API requires the UUID session. Resolve it via redirect.
-                  if (animeSession != null && int.tryParse(animeSession) != null) {
-                    onStatusUpdate?.call('Mapping: Resolving legacy Animepahe ID...');
-                    final finalUrl = await _bypassService.getFinalUrlViaWebView('https://animepahe.pw/a/$animeSession');
-                    if (finalUrl != null && finalUrl.contains('/anime/')) {
-                      animeSession = finalUrl.split('/anime/').last;
-                      appDebugLog('🎌 Animepahe: Resolved legacy ID to UUID session: $animeSession');
+      // --- 2. MAPPING PHASE (Fallback if Search yields no exact match) ---
+      if (animeSession == null) {
+        try {
+          final queryTitle = season > 1 ? '$title Season $season' : title;
+          onStatusUpdate?.call('Mapping: Querying AniList for "$queryTitle"...');
+          
+          final aniListReq = await http.post(
+            Uri.parse('https://graphql.anilist.co'),
+            headers: {'Content-Type': 'application/json'},
+            body: jsonEncode({
+              'query': 'query { Media(search: "$queryTitle", type: ANIME) { id idMal title { romaji english } } }'
+            }),
+          ).timeout(const Duration(seconds: 5));
+
+          if (aniListReq.statusCode == 200) {
+            final aniData = jsonDecode(aniListReq.body);
+            final media = aniData['data']?['Media'];
+            if (media != null) {
+              final int? idMal = media['idMal'];
+              final int? idAni = media['id'];
+              
+              if (idMal != null) {
+                onStatusUpdate?.call('Mapping: Resolving Session via MAL-Sync...');
+                final malReq = await http.get(
+                  Uri.parse('https://api.malsync.moe/mal/anime/$idMal')
+                ).timeout(const Duration(seconds: 5));
+
+                if (malReq.statusCode == 200) {
+                  final malData = jsonDecode(malReq.body);
+                  final paheData = malData['Sites']?['animepahe'];
+                  if (paheData != null && paheData.isNotEmpty) {
+                    animeSession = paheData.values.first['identifier'] as String?;
+                    
+                    if (animeSession != null && int.tryParse(animeSession!) != null) {
+                      onStatusUpdate?.call('Mapping: Resolving legacy Animepahe ID...');
+                      final finalUrl = await _bypassService.getFinalUrlViaWebView('https://animepahe.pw/a/$animeSession');
+                      if (finalUrl != null && finalUrl.contains('/anime/')) {
+                        animeSession = finalUrl.split('/anime/').last;
+                        appDebugLog('🎌 Animepahe: Resolved legacy ID to UUID session: $animeSession');
+                      } else {
+                        animeSession = null;
+                      }
                     } else {
-                      appDebugLog('🎌 Animepahe: Failed to resolve legacy ID. Falling back.');
-                      animeSession = null;
+                      appDebugLog('🎌 Animepahe: Successfully mapped to session $animeSession via MAL-Sync.');
                     }
-                  } else {
-                    appDebugLog('🎌 Animepahe: Successfully mapped to session $animeSession via MAL-Sync.');
+                  }
+                }
+              }
+
+              if (animeSession != null && idAni != null) {
+                onStatusUpdate?.call('Mapping: Resolving Episode via AniZip...');
+                final zipReq = await http.get(
+                  Uri.parse('https://api.ani.zip/mappings?anilist_id=$idAni')
+                ).timeout(const Duration(seconds: 5));
+
+                if (zipReq.statusCode == 200) {
+                  final zipData = jsonDecode(zipReq.body);
+                  final epData = zipData['episodes']?['$episode'];
+                  if (epData != null) {
+                    absoluteEpisodeNumber = epData['absoluteEpisodeNumber'] as int?;
+                    appDebugLog('🎌 Animepahe: Resolved absolute episode number $absoluteEpisodeNumber via AniZip.');
                   }
                 }
               }
             }
-
-            if (animeSession != null && idAni != null) {
-              onStatusUpdate?.call('Mapping: Resolving Episode via AniZip...');
-              final zipReq = await http.get(
-                Uri.parse('https://api.ani.zip/mappings?anilist_id=$idAni')
-              ).timeout(const Duration(seconds: 5));
-
-              if (zipReq.statusCode == 200) {
-                final zipData = jsonDecode(zipReq.body);
-                final epData = zipData['episodes']?['$episode'];
-                if (epData != null) {
-                  absoluteEpisodeNumber = epData['absoluteEpisodeNumber'] as int?;
-                  appDebugLog('🎌 Animepahe: Resolved absolute episode number $absoluteEpisodeNumber via AniZip.');
-                }
-              }
-            }
           }
+        } catch (e) {
+          appDebugLog('🎌 Animepahe: Mapping failed. Error: $e');
         }
-      } catch (e) {
-        appDebugLog('🎌 Animepahe: Mapping failed. Falling back to title search. Error: $e');
       }
-
-      // --- 2. SEARCH PHASE (Fallback) ---
-      if (animeSession == null) {
-        onStatusUpdate?.call('Searching Animepahe for "$title"...');
-        appDebugLog('🎌 Animepahe: Searching for "$title"');
-        final searchUrl = 'https://animepahe.pw/api?m=search&q=${Uri.encodeComponent(title)}';
-        final searchBody = await _bypassService.fetchViaWebView(searchUrl);
-        
-        if (searchBody == null) {
-          appDebugLog('🎌 Animepahe: Search failed to return data');
-          return null;
-        }
-        
-        final searchJson = jsonDecode(searchBody);
-        final data = searchJson['data'] as List?;
-        if (data == null || data.isEmpty) {
-          appDebugLog('🎌 Animepahe: No search results found');
-          return null;
-        }
-        
-        animeSession = data[0]['session'] as String;
+      
+      // --- 3. FINAL SEARCH FALLBACK (If everything else failed, just take the first search result) ---
+      if (animeSession == null && searchBody != null) {
+        try {
+          final searchJson = jsonDecode(searchBody);
+          final data = searchJson['data'] as List?;
+          if (data != null && data.isNotEmpty) {
+            animeSession = data[0]['session'] as String;
+            appDebugLog('🎌 Animepahe: Fallback to first search result: $animeSession');
+          }
+        } catch (_) {}
       }
       
       // --- 3. FETCH EPISODES PHASE ---
