@@ -15,6 +15,7 @@ class CustomPlayerControls extends StatefulWidget {
   final VoidCallback? onSettings;
   final VoidCallback? onServerChange;
   final VoidCallback? onEpisodes;
+  final bool isLive;
 
   const CustomPlayerControls({
     super.key,
@@ -28,6 +29,7 @@ class CustomPlayerControls extends StatefulWidget {
     this.onSettings,
     this.onServerChange,
     this.onEpisodes,
+    this.isLive = false,
   });
 
   @override
@@ -309,8 +311,7 @@ class _CustomPlayerControlsState extends State<CustomPlayerControls> {
                         mainAxisSize: MainAxisSize.min,
                         children: [
                         // Time & Progress Bar
-                        // Time & Progress Bar
-                          if (widget.controller.videoPlayerController != null)
+                          if (!widget.isLive && widget.controller.videoPlayerController != null)
                             ValueListenableBuilder<VideoPlayerValue>(
                               valueListenable: widget.controller.videoPlayerController!,
                               builder: (context, value, child) {

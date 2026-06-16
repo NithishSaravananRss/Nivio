@@ -38,6 +38,7 @@ import 'package:nivio/screens/profile_screen.dart';
 import 'package:nivio/screens/provider_content_screen.dart';
 import 'package:nivio/screens/main_shell_screen.dart';
 import 'package:nivio/screens/watch_party_screen.dart';
+import 'package:nivio/screens/iptv_screen.dart';
 import 'package:nivio/services/watch_party/watch_party_models.dart';
 import 'package:nivio/services/watch_party/watch_party_supabase_config.dart';
 import 'package:nivio/services/scrapers/animepahe/cloudflare_bypass_service.dart';
@@ -180,6 +181,14 @@ final appRouter = GoRouter(
         StatefulShellBranch(
           routes: [
             GoRoute(
+              path: '/iptv',
+              builder: (context, state) => const IptvScreen(),
+            ),
+          ],
+        ),
+        StatefulShellBranch(
+          routes: [
+            GoRoute(
               path: '/library',
               builder: (context, state) {
                 final tab = state.uri.queryParameters['tab'];
@@ -262,6 +271,9 @@ final appRouter = GoRouter(
           state.uri.queryParameters['partyRole'],
         );
         final localPath = state.uri.queryParameters['localPath'];
+        final directStreamUrl = state.uri.queryParameters['directStreamUrl'];
+        final directStreamTitle = state.uri.queryParameters['directStreamTitle'];
+        final isLive = state.uri.queryParameters['isLive'] == 'true';
         return PlayerScreen(
           mediaId: int.parse(id),
           season: season,
@@ -271,6 +283,9 @@ final appRouter = GoRouter(
           watchPartyCode: partyCode,
           watchPartyRole: partyRole,
           localPath: localPath,
+          directStreamUrl: directStreamUrl,
+          directStreamTitle: directStreamTitle,
+          isLive: isLive,
         );
       },
     ),

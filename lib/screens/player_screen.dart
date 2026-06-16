@@ -39,6 +39,9 @@ class PlayerScreen extends ConsumerStatefulWidget {
   final String? watchPartyCode;
   final WatchPartyRole? watchPartyRole;
   final String? localPath;
+  final String? directStreamUrl;
+  final String? directStreamTitle;
+  final bool isLive;
 
   const PlayerScreen({
     super.key,
@@ -50,6 +53,9 @@ class PlayerScreen extends ConsumerStatefulWidget {
     this.watchPartyCode,
     this.watchPartyRole,
     this.localPath,
+    this.directStreamUrl,
+    this.directStreamTitle,
+    this.isLive = false,
   });
 
   @override
@@ -284,7 +290,14 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
           media.id == widget.mediaId &&
           (widget.mediaType == null || media.mediaType == widget.mediaType);
 
-      if (!hasMatchingSelectedMedia) {
+      if (widget.directStreamUrl != null) {
+        media = null;
+        Future.microtask(() {
+          if (mounted) {
+            ref.read(selectedMediaProvider.notifier).state = null;
+          }
+        });
+      } else if (!hasMatchingSelectedMedia) {
         setState(() => _currentProvider = 'Loading media details...');
         final tmdbService = ref.read(tmdbServiceProvider);
         if (widget.mediaType == 'tv') {
@@ -301,7 +314,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
         ref.read(selectedMediaProvider.notifier).state = media;
       }
 
-      if (media.mediaType == 'tv') {
+      if (media?.mediaType == 'tv') {
         _fetchSeasonData();
       }
 
@@ -348,7 +361,21 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
         _localAudioLang = getLangName(downloadItem.selectedAudioLanguage);
       }
 
-      if (_effectiveLocalPath != null && _effectiveLocalPath!.isNotEmpty) {
+      if (widget.directStreamUrl != null) {
+        final lowerUrl = widget.directStreamUrl!.toLowerCase();
+        final isHls = lowerUrl.contains('.m3u8') || lowerUrl.contains('.m3u') || widget.isLive;
+        
+        result = StreamResult(
+          url: widget.directStreamUrl!,
+          quality: 'Live',
+          provider: 'IPTV',
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept': '*/*',
+          },
+          isM3U8: isHls,
+        );
+      } else if (_effectiveLocalPath != null && _effectiveLocalPath!.isNotEmpty) {
         final String srtPath = _effectiveLocalPath!.replaceAll(RegExp(r'\.[a-zA-Z0-9]+$'), '.srt');
         final bool hasSrt = await File(srtPath).exists();
 
@@ -366,7 +393,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
         );
       } else {
         result = await streamingService.fetchStreamUrl(
-          media: media,
+          media: media!,
           season: widget.season,
           episode: _currentEpisode,
           preferredQuality: preferredQuality,
@@ -394,7 +421,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
       _streamResult = result;
       _currentProvider = result.provider;
       // A local downloaded file is always played directly (never via WebView).
-      _isDirectStream = (_effectiveLocalPath != null && _effectiveLocalPath!.isNotEmpty)
+      _isDirectStream = (widget.directStreamUrl != null || (_effectiveLocalPath != null && _effectiveLocalPath!.isNotEmpty))
           ? true
           : StreamingService.isDirectStream(
               _currentProviderIndex,
@@ -592,6 +619,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
                 title: title,
                 subtitle: subtitle,
                 providerName: _streamResult?.provider ?? _currentProvider,
+                isLive: widget.isLive,
                 onBack: _handleBackNavigation,
                 onServerChange: () {
                   _showServerOverlayPanel();
@@ -611,7 +639,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
                   'Display',
                   _showDisplaySelectionBottomSheet,
                 ),
-              if (media.mediaType == 'tv')
+              if (media?.mediaType == 'tv')
                 BetterPlayerOverflowMenuItem(
                   Icons.list,
                   'Episodes',
@@ -629,8 +657,9 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
           ),
           errorBuilder: (context, errorMessage) {
             return Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
                 children: [
                   Icon(
                     Icons.error_outline,
@@ -666,6 +695,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
                   ),
                 ],
               ),
+             ),
             );
           },
         ),
@@ -3292,18 +3322,38 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          Row(
-                            children: [
-                              Expanded(
-                                child: Text(
-                                  ref.read(selectedMediaProvider)?.title ??
-                                      ref.read(selectedMediaProvider)?.name ??
-                                      'Playing',
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: titleStyle,
-                                ),
-                              ),
+                              Row(
+                                children: [
+                                  if (widget.isLive) ...[
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                      decoration: BoxDecoration(
+                                        color: Colors.red.withValues(alpha: 0.8),
+                                        borderRadius: BorderRadius.circular(4),
+                                      ),
+                                      child: const Text(
+                                        'LIVE',
+                                        style: TextStyle(
+                                          color: Colors.white,
+                                          fontSize: 10,
+                                          fontWeight: FontWeight.bold,
+                                          letterSpacing: 0.5,
+                                        ),
+                                      ),
+                                    ),
+                                    const SizedBox(width: 8),
+                                  ],
+                                  Expanded(
+                                    child: Text(
+                                      widget.directStreamTitle ??
+                                          ref.read(selectedMediaProvider)?.title ??
+                                          ref.read(selectedMediaProvider)?.name ??
+                                          'Playing',
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: titleStyle,
+                                    ),
+                                  ),
                               if (watchPartySession != null) ...[
                                 const SizedBox(width: 8),
                                 Flexible(
@@ -3510,34 +3560,36 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
             return Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Row(
-                  children: [
-                    Text(
-                      _formatDuration(position),
-                      style: TextStyle(fontSize: 11, color: Colors.white),
-                    ),
-                    const Spacer(),
-                    Text(
-                      _formatDuration(duration),
-                      style: TextStyle(fontSize: 11, color: Colors.white),
-                    ),
-                  ],
-                ),
-                Slider(
-                  value: sliderValue,
-                  min: 0,
-                  max: maxMs,
-                  activeColor: NivioTheme.accentColorOf(context),
-                  inactiveColor: Colors.white30,
-                  onChanged: durationMs > 0 ? (_) {} : null,
-                  onChangeEnd: durationMs > 0
-                      ? (newValue) {
-                          controller.seekTo(
-                            Duration(milliseconds: newValue.round()),
-                          );
-                        }
-                      : null,
-                ),
+                if (!widget.isLive) ...[
+                  Row(
+                    children: [
+                      Text(
+                        _formatDuration(position),
+                        style: TextStyle(fontSize: 11, color: Colors.white),
+                      ),
+                      const Spacer(),
+                      Text(
+                        _formatDuration(duration),
+                        style: TextStyle(fontSize: 11, color: Colors.white),
+                      ),
+                    ],
+                  ),
+                  Slider(
+                    value: sliderValue,
+                    min: 0,
+                    max: maxMs,
+                    activeColor: NivioTheme.accentColorOf(context),
+                    inactiveColor: Colors.white30,
+                    onChanged: durationMs > 0 ? (_) {} : null,
+                    onChangeEnd: durationMs > 0
+                        ? (newValue) {
+                            controller.seekTo(
+                              Duration(milliseconds: newValue.round()),
+                            );
+                          }
+                        : null,
+                  ),
+                ],
                 Row(
                   children: [
                     IconButton(

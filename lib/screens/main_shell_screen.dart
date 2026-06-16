@@ -130,7 +130,19 @@ class _MainShellScreenState extends ConsumerState<MainShellScreen> {
                 ),
                 label: 'Home',
               ),
-
+              BottomNavigationBarItem(
+                icon: PhosphorIcon(
+                  PhosphorIconsRegular.television,
+                  color: NivioTheme.netflixGrey,
+                  size: 22,
+                ),
+                activeIcon: PhosphorIcon(
+                  PhosphorIconsFill.television,
+                  color: accentColor,
+                  size: 22,
+                ),
+                label: 'Live TV',
+              ),
               BottomNavigationBarItem(
                 icon: PhosphorIcon(
                   PhosphorIconsRegular.calendarBlank,
