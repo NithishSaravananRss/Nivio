@@ -4,7 +4,10 @@ import 'package:nivio/core/debug_log.dart';
 import 'package:nivio/services/scrapers/animepahe/animepahe_scraper.dart';
 import 'package:nivio/services/scrapers/newtv/newtv_scraper.dart';
 
+import 'package:nivio/services/tmdb_service.dart';
+
 class StreamingService {
+  final TmdbService tmdbService;
   final AnimepaheScraperService animepaheScraper;
   final NewTvScraperService newTvNetflixScraper;
   final NewTvScraperService newTvPrimeScraper;
@@ -12,6 +15,7 @@ class StreamingService {
   final NewTvScraperService newTvDisneyScraper;
 
   StreamingService({
+    required this.tmdbService,
     required this.animepaheScraper,
     required this.newTvNetflixScraper,
     required this.newTvPrimeScraper,
@@ -88,15 +92,37 @@ class StreamingService {
         final audio = subDubPreference == 'dub' ? 'english' : 'japanese';
 
         if (providerName == 'NewTV (Auto)') {
-          // Parallel fetch from all 4 providers
-          final results = await Future.wait([
-            newTvNetflixScraper.fetchStreamUrl(tmdbId: tmdbId, title: title, mediaType: type, year: year, season: season, episode: episode, preferredAudio: audio),
-            newTvHotstarScraper.fetchStreamUrl(tmdbId: tmdbId, title: title, mediaType: type, year: year, season: season, episode: episode, preferredAudio: audio),
-            newTvPrimeScraper.fetchStreamUrl(tmdbId: tmdbId, title: title, mediaType: type, year: year, season: season, episode: episode, preferredAudio: audio),
-            newTvDisneyScraper.fetchStreamUrl(tmdbId: tmdbId, title: title, mediaType: type, year: year, season: season, episode: episode, preferredAudio: audio),
-          ]);
-          // Return the first successful result
-          return results.firstWhere((r) => r != null, orElse: () => null);
+          String? primaryOtt;
+          try {
+            final tmdbInt = int.tryParse(tmdbId);
+            if (tmdbInt != null) {
+              primaryOtt = await tmdbService.getPrimaryNewTvProvider(tmdbInt, type);
+              appDebugLog('NewTV (Auto): TMDB primary OTT resolved to $primaryOtt');
+            }
+          } catch (e) {
+            appDebugLog('NewTV (Auto): Failed to resolve TMDB primary OTT: $e');
+          }
+
+          if (primaryOtt == 'nf') {
+            return await newTvNetflixScraper.fetchStreamUrl(tmdbId: tmdbId, title: title, mediaType: type, year: year, season: season, episode: episode, preferredAudio: audio);
+          } else if (primaryOtt == 'dp') {
+            return await newTvDisneyScraper.fetchStreamUrl(tmdbId: tmdbId, title: title, mediaType: type, year: year, season: season, episode: episode, preferredAudio: audio);
+          } else if (primaryOtt == 'pv') {
+            return await newTvPrimeScraper.fetchStreamUrl(tmdbId: tmdbId, title: title, mediaType: type, year: year, season: season, episode: episode, preferredAudio: audio);
+          } else if (primaryOtt == 'hs') {
+            return await newTvHotstarScraper.fetchStreamUrl(tmdbId: tmdbId, title: title, mediaType: type, year: year, season: season, episode: episode, preferredAudio: audio);
+          } else {
+            appDebugLog('NewTV (Auto): TMDB fallback, doing parallel search');
+            // Fallback to parallel fetch if TMDB doesn't list a supported OTT
+            final results = await Future.wait([
+              newTvNetflixScraper.fetchStreamUrl(tmdbId: tmdbId, title: title, mediaType: type, year: year, season: season, episode: episode, preferredAudio: audio),
+              newTvDisneyScraper.fetchStreamUrl(tmdbId: tmdbId, title: title, mediaType: type, year: year, season: season, episode: episode, preferredAudio: audio),
+              newTvPrimeScraper.fetchStreamUrl(tmdbId: tmdbId, title: title, mediaType: type, year: year, season: season, episode: episode, preferredAudio: audio),
+              newTvHotstarScraper.fetchStreamUrl(tmdbId: tmdbId, title: title, mediaType: type, year: year, season: season, episode: episode, preferredAudio: audio),
+            ]);
+            // Return the first successful result
+            return results.firstWhere((r) => r != null, orElse: () => null);
+          }
         } else if (providerName == 'NewTV (Netflix)') {
           return await newTvNetflixScraper.fetchStreamUrl(tmdbId: tmdbId, title: title, mediaType: type, year: year, season: season, episode: episode, preferredAudio: audio);
         } else if (providerName == 'NewTV (Hotstar)') {

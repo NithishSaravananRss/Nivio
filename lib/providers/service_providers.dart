@@ -22,6 +22,7 @@ final tmdbServiceProvider = Provider((ref) {
 
 // Streaming service provider (direct primary, embed fallback)
 final streamingServiceProvider = Provider((ref) => StreamingService(
+  tmdbService: ref.read(tmdbServiceProvider),
   animepaheScraper: ref.read(animepaheScraperProvider),
   newTvNetflixScraper: ref.read(newTvNetflixScraperProvider),
   newTvPrimeScraper: ref.read(newTvPrimeScraperProvider),

@@ -193,6 +193,55 @@ class TmdbService {
     return false;
   }
 
+  Future<String?> getPrimaryNewTvProvider(int id, String mediaType) async {
+    final cacheKey = 'watch_providers_${mediaType}_$id';
+    
+    Map<String, dynamic>? data;
+    final cached = await _cache.getRaw(cacheKey);
+    if (cached != null) {
+      data = cached;
+    } else {
+      try {
+        final response = await _dio.get('/3/$mediaType/$id/watch/providers');
+        data = response.data['results'] as Map<String, dynamic>?;
+        await _cache.set(cacheKey, data ?? {}, ttl: CacheService.longCache);
+      } catch (e) {
+        return null;
+      }
+    }
+
+    if (data == null) return null;
+
+    // We check the US region first as it's the most canonical, then IN, then fallback to any
+    final regionsToCheck = ['US', 'IN'];
+    final otherRegions = data.keys.where((k) => !regionsToCheck.contains(k)).toList();
+    
+    for (final region in [...regionsToCheck, ...otherRegions]) {
+      final countryData = data[region];
+      if (countryData is Map) {
+        final flatrate = countryData['flatrate'] as List?;
+        final free = countryData['free'] as List?;
+        
+        final allProviders = [
+          ...?flatrate,
+          ...?free,
+        ];
+        
+        for (final provider in allProviders) {
+          if (provider is Map) {
+            final providerId = provider['provider_id'];
+            if (providerId == 8 || providerId == 175) return 'nf'; // Netflix
+            if (providerId == 337 || providerId == 390) return 'dp'; // Disney+
+            if (providerId == 9 || providerId == 119) return 'pv'; // Prime Video
+            if (providerId == 122) return 'hs'; // Hotstar
+          }
+        }
+      }
+    }
+    
+    return null;
+  }
+
   Future<List<SearchResult>> getRecommendations(int mediaId, String mediaType) async {
     final cacheKey = 'recommendations_${mediaType}_$mediaId';
     final cached = await _cache.getRaw(cacheKey);
