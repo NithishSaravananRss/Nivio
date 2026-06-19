@@ -23,6 +23,10 @@ class WatchHistory with _$WatchHistory {
     @JsonKey(fromJson: _dateTimeFromJson, toJson: _dateTimeToJson)
     required DateTime createdAt,
     required bool isCompleted,
+    String? preferredAudioTrack,
+    String? preferredSubtitleTrack,
+    String? preferredResolution,
+    int? preferredProviderIndex,
     @JsonKey(fromJson: _episodesFromJson, toJson: _episodesToJson)
     @Default({})
     Map<String, EpisodeProgress> episodes,
@@ -42,6 +46,10 @@ class EpisodeProgress with _$EpisodeProgress {
     required bool isCompleted,
     @JsonKey(fromJson: _dateTimeFromJson, toJson: _dateTimeToJson)
     required DateTime watchedAt,
+    String? preferredAudioTrack,
+    String? preferredSubtitleTrack,
+    String? preferredResolution,
+    int? preferredProviderIndex,
   }) = _EpisodeProgress;
 
   factory EpisodeProgress.fromJson(Map<String, dynamic> json) =>

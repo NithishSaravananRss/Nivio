@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:nivio/providers/watch_history_provider.dart';
-import 'package:nivio/widgets/media_card.dart';
+import 'package:nivio/widgets/continue_watching_card.dart';
 import 'package:nivio/core/theme.dart';
 
 class ContinueWatchingRow extends ConsumerWidget {
@@ -41,12 +41,12 @@ class ContinueWatchingRow extends ConsumerWidget {
           );
         }
         return SizedBox(
-          height: 240,
+          height: 190,
           child: ListView.builder(
             scrollDirection: Axis.horizontal,
             itemCount: items.length,
             itemBuilder: (context, index) {
-              return MediaCard(history: items[index]);
+              return ContinueWatchingCard(history: items[index]);
             },
           ),
         );

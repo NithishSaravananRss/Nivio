@@ -165,6 +165,28 @@ class WatchHistoryService {
     return null;
   }
 
+  /// Save track preferences (audio, subtitle, resolution) and provider index
+  Future<void> saveTrackPreferences(int tmdbId, {String? audioTrack, String? subtitleTrack, String? resolution, int? providerIndex}) async {
+    if (!_initialized) await init();
+    
+    final id = '${_userId}_$tmdbId';
+    final existingJson = _historyBox.get(id);
+    
+    if (existingJson != null) {
+      final history = WatchHistory.fromJson(Map<String, dynamic>.from(_parseJson(existingJson)));
+      
+      final updated = history.copyWith(
+        preferredAudioTrack: audioTrack ?? history.preferredAudioTrack,
+        preferredSubtitleTrack: subtitleTrack ?? history.preferredSubtitleTrack,
+        preferredResolution: resolution ?? history.preferredResolution,
+        preferredProviderIndex: providerIndex ?? history.preferredProviderIndex,
+      );
+      
+      await _historyBox.put(id, _toJsonString(updated.toJson()));
+      _syncToCloud(updated);
+    }
+  }
+
   /// Delete watch history
   Future<void> deleteHistory(int tmdbId) async {
     if (!_initialized) await init();

@@ -37,6 +37,10 @@ mixin _$WatchHistory {
   @JsonKey(fromJson: _dateTimeFromJson, toJson: _dateTimeToJson)
   DateTime get createdAt => throw _privateConstructorUsedError;
   bool get isCompleted => throw _privateConstructorUsedError;
+  String? get preferredAudioTrack => throw _privateConstructorUsedError;
+  String? get preferredSubtitleTrack => throw _privateConstructorUsedError;
+  String? get preferredResolution => throw _privateConstructorUsedError;
+  int? get preferredProviderIndex => throw _privateConstructorUsedError;
   @JsonKey(fromJson: _episodesFromJson, toJson: _episodesToJson)
   Map<String, EpisodeProgress> get episodes =>
       throw _privateConstructorUsedError;
@@ -71,6 +75,10 @@ abstract class $WatchHistoryCopyWith<$Res> {
       @JsonKey(fromJson: _dateTimeFromJson, toJson: _dateTimeToJson)
       DateTime createdAt,
       bool isCompleted,
+      String? preferredAudioTrack,
+      String? preferredSubtitleTrack,
+      String? preferredResolution,
+      int? preferredProviderIndex,
       @JsonKey(fromJson: _episodesFromJson, toJson: _episodesToJson)
       Map<String, EpisodeProgress> episodes});
 }
@@ -103,6 +111,10 @@ class _$WatchHistoryCopyWithImpl<$Res, $Val extends WatchHistory>
     Object? lastWatchedAt = null,
     Object? createdAt = null,
     Object? isCompleted = null,
+    Object? preferredAudioTrack = freezed,
+    Object? preferredSubtitleTrack = freezed,
+    Object? preferredResolution = freezed,
+    Object? preferredProviderIndex = freezed,
     Object? episodes = null,
   }) {
     return _then(_value.copyWith(
@@ -166,6 +178,22 @@ class _$WatchHistoryCopyWithImpl<$Res, $Val extends WatchHistory>
           ? _value.isCompleted
           : isCompleted // ignore: cast_nullable_to_non_nullable
               as bool,
+      preferredAudioTrack: freezed == preferredAudioTrack
+          ? _value.preferredAudioTrack
+          : preferredAudioTrack // ignore: cast_nullable_to_non_nullable
+              as String?,
+      preferredSubtitleTrack: freezed == preferredSubtitleTrack
+          ? _value.preferredSubtitleTrack
+          : preferredSubtitleTrack // ignore: cast_nullable_to_non_nullable
+              as String?,
+      preferredResolution: freezed == preferredResolution
+          ? _value.preferredResolution
+          : preferredResolution // ignore: cast_nullable_to_non_nullable
+              as String?,
+      preferredProviderIndex: freezed == preferredProviderIndex
+          ? _value.preferredProviderIndex
+          : preferredProviderIndex // ignore: cast_nullable_to_non_nullable
+              as int?,
       episodes: null == episodes
           ? _value.episodes
           : episodes // ignore: cast_nullable_to_non_nullable
@@ -200,6 +228,10 @@ abstract class _$$WatchHistoryImplCopyWith<$Res>
       @JsonKey(fromJson: _dateTimeFromJson, toJson: _dateTimeToJson)
       DateTime createdAt,
       bool isCompleted,
+      String? preferredAudioTrack,
+      String? preferredSubtitleTrack,
+      String? preferredResolution,
+      int? preferredProviderIndex,
       @JsonKey(fromJson: _episodesFromJson, toJson: _episodesToJson)
       Map<String, EpisodeProgress> episodes});
 }
@@ -230,6 +262,10 @@ class __$$WatchHistoryImplCopyWithImpl<$Res>
     Object? lastWatchedAt = null,
     Object? createdAt = null,
     Object? isCompleted = null,
+    Object? preferredAudioTrack = freezed,
+    Object? preferredSubtitleTrack = freezed,
+    Object? preferredResolution = freezed,
+    Object? preferredProviderIndex = freezed,
     Object? episodes = null,
   }) {
     return _then(_$WatchHistoryImpl(
@@ -293,6 +329,22 @@ class __$$WatchHistoryImplCopyWithImpl<$Res>
           ? _value.isCompleted
           : isCompleted // ignore: cast_nullable_to_non_nullable
               as bool,
+      preferredAudioTrack: freezed == preferredAudioTrack
+          ? _value.preferredAudioTrack
+          : preferredAudioTrack // ignore: cast_nullable_to_non_nullable
+              as String?,
+      preferredSubtitleTrack: freezed == preferredSubtitleTrack
+          ? _value.preferredSubtitleTrack
+          : preferredSubtitleTrack // ignore: cast_nullable_to_non_nullable
+              as String?,
+      preferredResolution: freezed == preferredResolution
+          ? _value.preferredResolution
+          : preferredResolution // ignore: cast_nullable_to_non_nullable
+              as String?,
+      preferredProviderIndex: freezed == preferredProviderIndex
+          ? _value.preferredProviderIndex
+          : preferredProviderIndex // ignore: cast_nullable_to_non_nullable
+              as int?,
       episodes: null == episodes
           ? _value._episodes
           : episodes // ignore: cast_nullable_to_non_nullable
@@ -322,6 +374,10 @@ class _$WatchHistoryImpl implements _WatchHistory {
       @JsonKey(fromJson: _dateTimeFromJson, toJson: _dateTimeToJson)
       required this.createdAt,
       required this.isCompleted,
+      this.preferredAudioTrack,
+      this.preferredSubtitleTrack,
+      this.preferredResolution,
+      this.preferredProviderIndex,
       @JsonKey(fromJson: _episodesFromJson, toJson: _episodesToJson)
       final Map<String, EpisodeProgress> episodes = const {}})
       : _episodes = episodes;
@@ -361,6 +417,14 @@ class _$WatchHistoryImpl implements _WatchHistory {
   final DateTime createdAt;
   @override
   final bool isCompleted;
+  @override
+  final String? preferredAudioTrack;
+  @override
+  final String? preferredSubtitleTrack;
+  @override
+  final String? preferredResolution;
+  @override
+  final int? preferredProviderIndex;
   final Map<String, EpisodeProgress> _episodes;
   @override
   @JsonKey(fromJson: _episodesFromJson, toJson: _episodesToJson)
@@ -372,7 +436,7 @@ class _$WatchHistoryImpl implements _WatchHistory {
 
   @override
   String toString() {
-    return 'WatchHistory(id: $id, tmdbId: $tmdbId, mediaType: $mediaType, title: $title, posterPath: $posterPath, currentSeason: $currentSeason, currentEpisode: $currentEpisode, totalSeasons: $totalSeasons, totalEpisodes: $totalEpisodes, lastPositionSeconds: $lastPositionSeconds, totalDurationSeconds: $totalDurationSeconds, progressPercent: $progressPercent, lastWatchedAt: $lastWatchedAt, createdAt: $createdAt, isCompleted: $isCompleted, episodes: $episodes)';
+    return 'WatchHistory(id: $id, tmdbId: $tmdbId, mediaType: $mediaType, title: $title, posterPath: $posterPath, currentSeason: $currentSeason, currentEpisode: $currentEpisode, totalSeasons: $totalSeasons, totalEpisodes: $totalEpisodes, lastPositionSeconds: $lastPositionSeconds, totalDurationSeconds: $totalDurationSeconds, progressPercent: $progressPercent, lastWatchedAt: $lastWatchedAt, createdAt: $createdAt, isCompleted: $isCompleted, preferredAudioTrack: $preferredAudioTrack, preferredSubtitleTrack: $preferredSubtitleTrack, preferredResolution: $preferredResolution, preferredProviderIndex: $preferredProviderIndex, episodes: $episodes)';
   }
 
   @override
@@ -407,29 +471,42 @@ class _$WatchHistoryImpl implements _WatchHistory {
                 other.createdAt == createdAt) &&
             (identical(other.isCompleted, isCompleted) ||
                 other.isCompleted == isCompleted) &&
+            (identical(other.preferredAudioTrack, preferredAudioTrack) ||
+                other.preferredAudioTrack == preferredAudioTrack) &&
+            (identical(other.preferredSubtitleTrack, preferredSubtitleTrack) ||
+                other.preferredSubtitleTrack == preferredSubtitleTrack) &&
+            (identical(other.preferredResolution, preferredResolution) ||
+                other.preferredResolution == preferredResolution) &&
+            (identical(other.preferredProviderIndex, preferredProviderIndex) ||
+                other.preferredProviderIndex == preferredProviderIndex) &&
             const DeepCollectionEquality().equals(other._episodes, _episodes));
   }
 
   @JsonKey(ignore: true)
   @override
-  int get hashCode => Object.hash(
-      runtimeType,
-      id,
-      tmdbId,
-      mediaType,
-      title,
-      posterPath,
-      currentSeason,
-      currentEpisode,
-      totalSeasons,
-      totalEpisodes,
-      lastPositionSeconds,
-      totalDurationSeconds,
-      progressPercent,
-      lastWatchedAt,
-      createdAt,
-      isCompleted,
-      const DeepCollectionEquality().hash(_episodes));
+  int get hashCode => Object.hashAll([
+        runtimeType,
+        id,
+        tmdbId,
+        mediaType,
+        title,
+        posterPath,
+        currentSeason,
+        currentEpisode,
+        totalSeasons,
+        totalEpisodes,
+        lastPositionSeconds,
+        totalDurationSeconds,
+        progressPercent,
+        lastWatchedAt,
+        createdAt,
+        isCompleted,
+        preferredAudioTrack,
+        preferredSubtitleTrack,
+        preferredResolution,
+        preferredProviderIndex,
+        const DeepCollectionEquality().hash(_episodes)
+      ]);
 
   @JsonKey(ignore: true)
   @override
@@ -464,6 +541,10 @@ abstract class _WatchHistory implements WatchHistory {
       @JsonKey(fromJson: _dateTimeFromJson, toJson: _dateTimeToJson)
       required final DateTime createdAt,
       required final bool isCompleted,
+      final String? preferredAudioTrack,
+      final String? preferredSubtitleTrack,
+      final String? preferredResolution,
+      final int? preferredProviderIndex,
       @JsonKey(fromJson: _episodesFromJson, toJson: _episodesToJson)
       final Map<String, EpisodeProgress> episodes}) = _$WatchHistoryImpl;
 
@@ -503,6 +584,14 @@ abstract class _WatchHistory implements WatchHistory {
   @override
   bool get isCompleted;
   @override
+  String? get preferredAudioTrack;
+  @override
+  String? get preferredSubtitleTrack;
+  @override
+  String? get preferredResolution;
+  @override
+  int? get preferredProviderIndex;
+  @override
   @JsonKey(fromJson: _episodesFromJson, toJson: _episodesToJson)
   Map<String, EpisodeProgress> get episodes;
   @override
@@ -524,6 +613,10 @@ mixin _$EpisodeProgress {
   bool get isCompleted => throw _privateConstructorUsedError;
   @JsonKey(fromJson: _dateTimeFromJson, toJson: _dateTimeToJson)
   DateTime get watchedAt => throw _privateConstructorUsedError;
+  String? get preferredAudioTrack => throw _privateConstructorUsedError;
+  String? get preferredSubtitleTrack => throw _privateConstructorUsedError;
+  String? get preferredResolution => throw _privateConstructorUsedError;
+  int? get preferredProviderIndex => throw _privateConstructorUsedError;
 
   Map<String, dynamic> toJson() => throw _privateConstructorUsedError;
   @JsonKey(ignore: true)
@@ -544,7 +637,11 @@ abstract class $EpisodeProgressCopyWith<$Res> {
       int totalDurationSeconds,
       bool isCompleted,
       @JsonKey(fromJson: _dateTimeFromJson, toJson: _dateTimeToJson)
-      DateTime watchedAt});
+      DateTime watchedAt,
+      String? preferredAudioTrack,
+      String? preferredSubtitleTrack,
+      String? preferredResolution,
+      int? preferredProviderIndex});
 }
 
 /// @nodoc
@@ -566,6 +663,10 @@ class _$EpisodeProgressCopyWithImpl<$Res, $Val extends EpisodeProgress>
     Object? totalDurationSeconds = null,
     Object? isCompleted = null,
     Object? watchedAt = null,
+    Object? preferredAudioTrack = freezed,
+    Object? preferredSubtitleTrack = freezed,
+    Object? preferredResolution = freezed,
+    Object? preferredProviderIndex = freezed,
   }) {
     return _then(_value.copyWith(
       season: null == season
@@ -592,6 +693,22 @@ class _$EpisodeProgressCopyWithImpl<$Res, $Val extends EpisodeProgress>
           ? _value.watchedAt
           : watchedAt // ignore: cast_nullable_to_non_nullable
               as DateTime,
+      preferredAudioTrack: freezed == preferredAudioTrack
+          ? _value.preferredAudioTrack
+          : preferredAudioTrack // ignore: cast_nullable_to_non_nullable
+              as String?,
+      preferredSubtitleTrack: freezed == preferredSubtitleTrack
+          ? _value.preferredSubtitleTrack
+          : preferredSubtitleTrack // ignore: cast_nullable_to_non_nullable
+              as String?,
+      preferredResolution: freezed == preferredResolution
+          ? _value.preferredResolution
+          : preferredResolution // ignore: cast_nullable_to_non_nullable
+              as String?,
+      preferredProviderIndex: freezed == preferredProviderIndex
+          ? _value.preferredProviderIndex
+          : preferredProviderIndex // ignore: cast_nullable_to_non_nullable
+              as int?,
     ) as $Val);
   }
 }
@@ -611,7 +728,11 @@ abstract class _$$EpisodeProgressImplCopyWith<$Res>
       int totalDurationSeconds,
       bool isCompleted,
       @JsonKey(fromJson: _dateTimeFromJson, toJson: _dateTimeToJson)
-      DateTime watchedAt});
+      DateTime watchedAt,
+      String? preferredAudioTrack,
+      String? preferredSubtitleTrack,
+      String? preferredResolution,
+      int? preferredProviderIndex});
 }
 
 /// @nodoc
@@ -631,6 +752,10 @@ class __$$EpisodeProgressImplCopyWithImpl<$Res>
     Object? totalDurationSeconds = null,
     Object? isCompleted = null,
     Object? watchedAt = null,
+    Object? preferredAudioTrack = freezed,
+    Object? preferredSubtitleTrack = freezed,
+    Object? preferredResolution = freezed,
+    Object? preferredProviderIndex = freezed,
   }) {
     return _then(_$EpisodeProgressImpl(
       season: null == season
@@ -657,6 +782,22 @@ class __$$EpisodeProgressImplCopyWithImpl<$Res>
           ? _value.watchedAt
           : watchedAt // ignore: cast_nullable_to_non_nullable
               as DateTime,
+      preferredAudioTrack: freezed == preferredAudioTrack
+          ? _value.preferredAudioTrack
+          : preferredAudioTrack // ignore: cast_nullable_to_non_nullable
+              as String?,
+      preferredSubtitleTrack: freezed == preferredSubtitleTrack
+          ? _value.preferredSubtitleTrack
+          : preferredSubtitleTrack // ignore: cast_nullable_to_non_nullable
+              as String?,
+      preferredResolution: freezed == preferredResolution
+          ? _value.preferredResolution
+          : preferredResolution // ignore: cast_nullable_to_non_nullable
+              as String?,
+      preferredProviderIndex: freezed == preferredProviderIndex
+          ? _value.preferredProviderIndex
+          : preferredProviderIndex // ignore: cast_nullable_to_non_nullable
+              as int?,
     ));
   }
 }
@@ -671,7 +812,11 @@ class _$EpisodeProgressImpl implements _EpisodeProgress {
       required this.totalDurationSeconds,
       required this.isCompleted,
       @JsonKey(fromJson: _dateTimeFromJson, toJson: _dateTimeToJson)
-      required this.watchedAt});
+      required this.watchedAt,
+      this.preferredAudioTrack,
+      this.preferredSubtitleTrack,
+      this.preferredResolution,
+      this.preferredProviderIndex});
 
   factory _$EpisodeProgressImpl.fromJson(Map<String, dynamic> json) =>
       _$$EpisodeProgressImplFromJson(json);
@@ -689,10 +834,18 @@ class _$EpisodeProgressImpl implements _EpisodeProgress {
   @override
   @JsonKey(fromJson: _dateTimeFromJson, toJson: _dateTimeToJson)
   final DateTime watchedAt;
+  @override
+  final String? preferredAudioTrack;
+  @override
+  final String? preferredSubtitleTrack;
+  @override
+  final String? preferredResolution;
+  @override
+  final int? preferredProviderIndex;
 
   @override
   String toString() {
-    return 'EpisodeProgress(season: $season, episode: $episode, lastPositionSeconds: $lastPositionSeconds, totalDurationSeconds: $totalDurationSeconds, isCompleted: $isCompleted, watchedAt: $watchedAt)';
+    return 'EpisodeProgress(season: $season, episode: $episode, lastPositionSeconds: $lastPositionSeconds, totalDurationSeconds: $totalDurationSeconds, isCompleted: $isCompleted, watchedAt: $watchedAt, preferredAudioTrack: $preferredAudioTrack, preferredSubtitleTrack: $preferredSubtitleTrack, preferredResolution: $preferredResolution, preferredProviderIndex: $preferredProviderIndex)';
   }
 
   @override
@@ -709,13 +862,31 @@ class _$EpisodeProgressImpl implements _EpisodeProgress {
             (identical(other.isCompleted, isCompleted) ||
                 other.isCompleted == isCompleted) &&
             (identical(other.watchedAt, watchedAt) ||
-                other.watchedAt == watchedAt));
+                other.watchedAt == watchedAt) &&
+            (identical(other.preferredAudioTrack, preferredAudioTrack) ||
+                other.preferredAudioTrack == preferredAudioTrack) &&
+            (identical(other.preferredSubtitleTrack, preferredSubtitleTrack) ||
+                other.preferredSubtitleTrack == preferredSubtitleTrack) &&
+            (identical(other.preferredResolution, preferredResolution) ||
+                other.preferredResolution == preferredResolution) &&
+            (identical(other.preferredProviderIndex, preferredProviderIndex) ||
+                other.preferredProviderIndex == preferredProviderIndex));
   }
 
   @JsonKey(ignore: true)
   @override
-  int get hashCode => Object.hash(runtimeType, season, episode,
-      lastPositionSeconds, totalDurationSeconds, isCompleted, watchedAt);
+  int get hashCode => Object.hash(
+      runtimeType,
+      season,
+      episode,
+      lastPositionSeconds,
+      totalDurationSeconds,
+      isCompleted,
+      watchedAt,
+      preferredAudioTrack,
+      preferredSubtitleTrack,
+      preferredResolution,
+      preferredProviderIndex);
 
   @JsonKey(ignore: true)
   @override
@@ -740,7 +911,11 @@ abstract class _EpisodeProgress implements EpisodeProgress {
       required final int totalDurationSeconds,
       required final bool isCompleted,
       @JsonKey(fromJson: _dateTimeFromJson, toJson: _dateTimeToJson)
-      required final DateTime watchedAt}) = _$EpisodeProgressImpl;
+      required final DateTime watchedAt,
+      final String? preferredAudioTrack,
+      final String? preferredSubtitleTrack,
+      final String? preferredResolution,
+      final int? preferredProviderIndex}) = _$EpisodeProgressImpl;
 
   factory _EpisodeProgress.fromJson(Map<String, dynamic> json) =
       _$EpisodeProgressImpl.fromJson;
@@ -758,6 +933,14 @@ abstract class _EpisodeProgress implements EpisodeProgress {
   @override
   @JsonKey(fromJson: _dateTimeFromJson, toJson: _dateTimeToJson)
   DateTime get watchedAt;
+  @override
+  String? get preferredAudioTrack;
+  @override
+  String? get preferredSubtitleTrack;
+  @override
+  String? get preferredResolution;
+  @override
+  int? get preferredProviderIndex;
   @override
   @JsonKey(ignore: true)
   _$$EpisodeProgressImplCopyWith<_$EpisodeProgressImpl> get copyWith =>

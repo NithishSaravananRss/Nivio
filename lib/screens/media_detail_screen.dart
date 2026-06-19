@@ -82,6 +82,7 @@ class _MediaDetailScreenState extends ConsumerState<MediaDetailScreen> {
   bool _isLoading = true;
   String? _error;
   _TrailerSource? _trailerSource;
+  List<dynamic> _cast = [];
   final ScrollController _scrollController = ScrollController();
 
   @override
@@ -201,6 +202,7 @@ class _MediaDetailScreenState extends ConsumerState<MediaDetailScreen> {
       ref.read(selectedMediaProvider.notifier).state = mediaDetails;
 
       final trailerSource = _extractTrailerSource(detailsWithVideos['videos']);
+      final castData = detailsWithVideos['credits']?['cast'] as List<dynamic>? ?? [];
       final genres = (detailsWithVideos['genres'] as List<dynamic>? ?? [])
           .map((genre) => (genre as Map<String, dynamic>)['name'] as String?)
           .whereType<String>()
@@ -209,6 +211,7 @@ class _MediaDetailScreenState extends ConsumerState<MediaDetailScreen> {
       setState(() {
         _media = mediaDetails;
         _trailerSource = trailerSource;
+        _cast = castData;
         _genres = genres;
         _isLoading = false;
       });
@@ -646,25 +649,42 @@ class _MediaDetailScreenState extends ConsumerState<MediaDetailScreen> {
                                   ),
                                 ],
                               ),
-                              if (_trailerSource != null) ...[
-                                const SizedBox(height: 12),
-                                Align(
-                                  alignment: Alignment.centerLeft,
-                                  child: TextButton.icon(
-                                    onPressed: () =>
-                                        _showTrailerPlayer(context),
-                                    icon: Icon(
-                                      Icons.play_circle_outline,
+                              const SizedBox(height: 12),
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                children: [
+                                  if (_trailerSource != null)
+                                    TextButton.icon(
+                                      onPressed: () => _showTrailerPlayer(context),
+                                      icon: Icon(
+                                        Icons.play_circle_outline,
+                                        size: 17,
+                                        color: accentColor,
+                                      ),
+                                      label: Text(
+                                        'Watch trailer',
+                                        style: TextStyle(color: accentColor),
+                                      ),
+                                    )
+                                  else
+                                    const SizedBox.shrink(),
+                                  TextButton.icon(
+                                    onPressed: () {
+                                      final title = Uri.encodeComponent(media.title ?? media.name ?? '');
+                                      context.push('/similar/${media.id}?type=${media.mediaType}&title=$title');
+                                    },
+                                    icon: PhosphorIcon(
+                                      PhosphorIconsRegular.magicWand,
                                       size: 17,
                                       color: accentColor,
                                     ),
                                     label: Text(
-                                      'Watch trailer',
+                                      'More Like This',
                                       style: TextStyle(color: accentColor),
                                     ),
                                   ),
-                                ),
-                              ],
+                                ],
+                              ),
                               const SizedBox(height: 14),
                               Text(
                                 'About',
@@ -681,6 +701,7 @@ class _MediaDetailScreenState extends ConsumerState<MediaDetailScreen> {
                                     : 'No description available for this title yet.',
                                 accentColor: accentColor,
                               ),
+                              if (_cast.isNotEmpty) _buildCastRow(),
                               const SizedBox(height: 26),
                               if (media.mediaType == 'tv')
                                 _buildTVControls(context, media, colors),
@@ -824,6 +845,85 @@ class _MediaDetailScreenState extends ConsumerState<MediaDetailScreen> {
           ),
         ),
       ),
+    );
+  }
+
+  Widget _buildCastRow() {
+    if (_cast.isEmpty) return const SizedBox.shrink();
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const SizedBox(height: 24),
+        Text(
+          'Cast',
+          style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                color: NivioTheme.netflixWhite,
+                fontWeight: FontWeight.w700,
+              ),
+        ),
+        const SizedBox(height: 12),
+        SizedBox(
+          height: 190,
+          child: ListView.separated(
+            scrollDirection: Axis.horizontal,
+            itemCount: _cast.length > 20 ? 20 : _cast.length,
+            separatorBuilder: (_, __) => const SizedBox(width: 12),
+            itemBuilder: (context, index) {
+              final actor = _cast[index];
+              final profilePath = actor['profile_path'] as String?;
+              final name = actor['name'] as String? ?? 'Unknown';
+              final character = actor['character'] as String? ?? '';
+              final tmdbService = ref.read(tmdbServiceProvider);
+
+              return SizedBox(
+                width: 100,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(12),
+                        child: Container(
+                          width: double.infinity,
+                          color: NivioTheme.netflixDarkGrey,
+                          child: profilePath != null
+                              ? CachedNetworkImage(
+                                  imageUrl: tmdbService.getPosterUrl(profilePath),
+                                  fit: BoxFit.cover,
+                                )
+                              : const Icon(Icons.person, color: Colors.white54, size: 40),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      name,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    if (character.isNotEmpty)
+                      Text(
+                        character,
+                        style: TextStyle(
+                          color: Colors.white.withValues(alpha: 0.6),
+                          fontSize: 11,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                  ],
+                ),
+              );
+            },
+          ),
+        ),
+      ],
     );
   }
 

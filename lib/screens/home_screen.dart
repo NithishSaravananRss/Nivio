@@ -11,9 +11,12 @@ import 'package:nivio/core/constants.dart';
 import 'package:nivio/core/providers_data.dart';
 import 'package:nivio/core/theme.dart';
 import 'package:nivio/models/watchlist_item.dart';
+import 'package:nivio/providers/auth_provider.dart';
 import 'package:nivio/providers/changelog_provider.dart';
 import 'package:nivio/providers/home_providers.dart';
 import 'package:nivio/providers/language_preferences_provider.dart';
+import 'package:nivio/providers/recommendations_provider.dart';
+import 'package:nivio/providers/service_providers.dart';
 import 'package:nivio/providers/watch_history_provider.dart';
 import 'package:nivio/providers/watchlist_provider.dart';
 import 'package:nivio/services/episode_check_service.dart';
@@ -299,6 +302,24 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                   },
                   loading: () => const SizedBox.shrink(),
                   error: (error, stackTrace) => const SizedBox.shrink(),
+                );
+              },
+            ),
+          ),
+          SliverToBoxAdapter(
+            child: Consumer(
+              builder: (context, ref, _) {
+                final recsAsync = ref.watch(homeRecommendationsProvider);
+                return recsAsync.when(
+                  data: (recs) {
+                    if (recs == null || recs.items.isEmpty) return const SizedBox.shrink();
+                    final items = recs.items.map((e) => e.toJson()).toList();
+                    return RepaintBoundary(
+                      child: ContentRow(title: 'Recommended for You', items: items),
+                    );
+                  },
+                  loading: () => const SizedBox.shrink(),
+                  error: (_, __) => const SizedBox.shrink(),
                 );
               },
             ),
@@ -689,14 +710,27 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   }
 
   Widget _buildProfileButton(BuildContext context) {
-    return IconButton(
-      icon: const PhosphorIcon(
-        PhosphorIconsRegular.userCircle,
-        color: Colors.white,
-        size: 24,
-      ),
-      tooltip: 'Profile',
-      onPressed: () => context.push('/profile'),
+    return Consumer(
+      builder: (context, ref, child) {
+        final authState = ref.watch(authStateProvider);
+        final user = authState.value;
+
+        return IconButton(
+          icon: user?.photoURL != null
+              ? CircleAvatar(
+                  radius: 14,
+                  backgroundImage: CachedNetworkImageProvider(user!.photoURL!),
+                  backgroundColor: NivioTheme.netflixDarkGrey,
+                )
+              : const PhosphorIcon(
+                  PhosphorIconsRegular.userCircle,
+                  color: Colors.white,
+                  size: 24,
+                ),
+          tooltip: 'Profile',
+          onPressed: () => context.push('/profile'),
+        );
+      },
     );
   }
 
@@ -794,6 +828,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 
   Widget _buildNotificationBell(BuildContext context) {
     final unreadCount = EpisodeCheckService.getUnreadCount();
+    
+    if (unreadCount == 0) return const SizedBox.shrink();
 
     return Stack(
       children: [

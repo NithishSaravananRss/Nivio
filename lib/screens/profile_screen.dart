@@ -17,6 +17,8 @@ import 'package:nivio/widgets/changelog_dialog.dart';
 import 'package:nivio/providers/changelog_provider.dart';
 import 'package:nivio/services/episode_check_service.dart';
 import 'package:nivio/services/github_release_update_service.dart';
+import 'package:nivio/services/scrapers/animepahe/cloudflare_bypass_service.dart';
+import 'package:nivio/services/scrapers/newtv/newtv_bypass_service.dart';
 import 'package:nivio/services/shorebird_update_service.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:phosphoricons_flutter/phosphoricons_flutter.dart';
@@ -201,7 +203,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                     ),
                   ),
                 ),
-              if (_matches('watchlist my list saved'))
+              if (_matches('watchlist my list saved') && watchlist.isNotEmpty)
                 SliverToBoxAdapter(
                   child: Padding(
                     padding: const EdgeInsets.fromLTRB(16, 14, 16, 0),
@@ -515,21 +517,13 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
     final name = user.displayName?.trim().isNotEmpty == true
         ? user.displayName!.trim()
         : 'Nivio User';
-    final subtitle = user.isAnonymous
-        ? 'Guest mode'
-        : (user.email ?? 'Signed in');
 
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.06),
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.1)),
-      ),
-      child: Row(
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 20),
+      child: Column(
         children: [
           CircleAvatar(
-            radius: 28,
+            radius: 46,
             backgroundColor: NivioTheme.netflixDarkGrey,
             backgroundImage: (avatarUrl != null && avatarUrl.isNotEmpty)
                 ? CachedNetworkImageProvider(avatarUrl)
@@ -538,37 +532,54 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                 ? const PhosphorIcon(
                     PhosphorIconsRegular.userCircle,
                     color: NivioTheme.netflixWhite,
-                    size: 24,
+                    size: 40,
                   )
                 : null,
           ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  name,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    color: NivioTheme.netflixWhite,
-                    fontSize: 20,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  subtitle,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    color: NivioTheme.netflixLightGrey,
-                    fontSize: 13,
-                  ),
-                ),
-              ],
+          const SizedBox(height: 16),
+          Text(
+            name,
+            style: const TextStyle(
+              color: NivioTheme.netflixWhite,
+              fontSize: 22,
+              fontWeight: FontWeight.bold,
             ),
+          ),
+          const SizedBox(height: 6),
+          Consumer(
+            builder: (context, ref, _) {
+              final cfBypass = ref.watch(cloudflareBypassProvider);
+              final newTvBypass = ref.watch(newTvBypassProvider);
+              
+              final isBypassing = cfBypass.isBypassing || newTvBypass.isBypassing;
+              final isReady = cfBypass.isReady && newTvBypass.isReady;
+              
+              Color dotColor = Colors.grey;
+              String statusText = 'Disconnected';
+              
+              if (isBypassing) {
+                dotColor = Colors.orangeAccent;
+                statusText = 'Bypassing Cloudflare...';
+              } else if (isReady) {
+                dotColor = Colors.greenAccent;
+                statusText = 'Scraping engines ready';
+              }
+
+              return Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  _BlinkingDot(color: dotColor),
+                  const SizedBox(width: 8),
+                  Text(
+                    statusText,
+                    style: const TextStyle(
+                      color: Colors.grey,
+                      fontSize: 13,
+                    ),
+                  ),
+                ],
+              );
+            },
           ),
         ],
       ),
@@ -653,7 +664,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
         border: Border.all(color: Colors.white.withValues(alpha: 0.1)),
       ),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.center,
         children: [
           Text(
             label,
@@ -715,37 +726,39 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
   }
 
   Widget _buildSectionCard({required String title, required Widget child, bool initiallyExpanded = false}) {
-    final bool isExpanded = initiallyExpanded || _query.isNotEmpty;
-    return Container(
-      decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.04),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.1)),
-      ),
-      child: Theme(
-        data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
-        child: ExpansionTile(
-          key: ValueKey('$title-$isExpanded'),
-          initiallyExpanded: isExpanded,
-          iconColor: NivioTheme.netflixWhite,
-          collapsedIconColor: Colors.white70,
-          tilePadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 0),
-          title: Text(
-            title,
+    // We ignore initiallyExpanded now since we removed the collapsible feature
+    if (_query.isNotEmpty && !initiallyExpanded) {
+      // If we're searching and this section isn't matching the query (initiallyExpanded would be true if it matched)
+      // Actually the parent already filters this out using _matches(), so we're good.
+    }
+    
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.only(left: 4, bottom: 8),
+          child: Text(
+            title.toUpperCase(),
             style: const TextStyle(
-              color: NivioTheme.netflixWhite,
-              fontSize: 16,
-              fontWeight: FontWeight.w700,
+              color: Colors.grey,
+              fontSize: 12,
+              fontWeight: FontWeight.bold,
+              letterSpacing: 1.0,
             ),
           ),
-          children: [
-            Padding(
-              padding: const EdgeInsets.only(left: 4, right: 4, bottom: 8),
-              child: child,
-            ),
-          ],
         ),
-      ),
+        Container(
+          decoration: BoxDecoration(
+            color: Colors.white.withValues(alpha: 0.04),
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: Colors.white.withValues(alpha: 0.1)),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 8),
+            child: child,
+          ),
+        ),
+      ],
     );
   }
 
@@ -1042,7 +1055,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
     Color? titleColor,
   }) {
     return ListTile(
-      contentPadding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
       leading: Icon(
         icon,
         color: titleColor ?? NivioTheme.netflixWhite,
@@ -1080,7 +1093,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
     final accentColor = Theme.of(context).colorScheme.primary;
 
     return SwitchListTile(
-      contentPadding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
       secondary: Icon(icon, color: NivioTheme.netflixWhite, size: 22),
       title: Text(
         title,
@@ -1205,7 +1218,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
             ].join(' | ');
 
             return ListTile(
-              contentPadding: const EdgeInsets.symmetric(horizontal: 2),
+              contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
               leading: ClipRRect(
                 borderRadius: BorderRadius.circular(8),
                 child: SizedBox(
@@ -2112,4 +2125,47 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
     );
   }
 }
+
+class _BlinkingDot extends StatefulWidget {
+  final Color color;
+  const _BlinkingDot({required this.color});
+
+  @override
+  State<_BlinkingDot> createState() => _BlinkingDotState();
+}
+
+class _BlinkingDotState extends State<_BlinkingDot> with SingleTickerProviderStateMixin {
+  late AnimationController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 800),
+    )..repeat(reverse: true);
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FadeTransition(
+      opacity: Tween<double>(begin: 0.3, end: 1.0).animate(_controller),
+      child: Container(
+        width: 8,
+        height: 8,
+        decoration: BoxDecoration(
+          color: widget.color,
+          shape: BoxShape.circle,
+        ),
+      ),
+    );
+  }
+}
+
 

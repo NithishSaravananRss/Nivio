@@ -132,19 +132,6 @@ class _MainShellScreenState extends ConsumerState<MainShellScreen> {
               ),
               BottomNavigationBarItem(
                 icon: PhosphorIcon(
-                  PhosphorIconsRegular.television,
-                  color: NivioTheme.netflixGrey,
-                  size: 22,
-                ),
-                activeIcon: PhosphorIcon(
-                  PhosphorIconsFill.television,
-                  color: accentColor,
-                  size: 22,
-                ),
-                label: 'Live TV',
-              ),
-              BottomNavigationBarItem(
-                icon: PhosphorIcon(
                   PhosphorIconsRegular.calendarBlank,
                   color: NivioTheme.netflixGrey,
                   size: 22,
@@ -155,6 +142,19 @@ class _MainShellScreenState extends ConsumerState<MainShellScreen> {
                   size: 22,
                 ),
                 label: 'Library',
+              ),
+              BottomNavigationBarItem(
+                icon: PhosphorIcon(
+                  PhosphorIconsRegular.television,
+                  color: NivioTheme.netflixGrey,
+                  size: 22,
+                ),
+                activeIcon: PhosphorIcon(
+                  PhosphorIconsFill.television,
+                  color: accentColor,
+                  size: 22,
+                ),
+                label: 'Live TV',
               ),
               BottomNavigationBarItem(
                 icon: PhosphorIcon(

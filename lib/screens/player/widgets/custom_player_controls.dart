@@ -311,10 +311,21 @@ class _CustomPlayerControlsState extends State<CustomPlayerControls> {
                         mainAxisSize: MainAxisSize.min,
                         children: [
                         // Time & Progress Bar
-                          if (!widget.isLive && widget.controller.videoPlayerController != null)
-                            ValueListenableBuilder<VideoPlayerValue>(
-                              valueListenable: widget.controller.videoPlayerController!,
-                              builder: (context, value, child) {
+                          if (!widget.isLive)
+                            StreamBuilder(
+                              stream: Stream.periodic(const Duration(milliseconds: 500)),
+                              builder: (context, _) {
+                                final vpController = widget.controller.videoPlayerController;
+                                if (vpController == null) return const SizedBox.shrink();
+                                
+                                VideoPlayerValue? value;
+                                try {
+                                  value = vpController.value;
+                                } catch (_) {
+                                  // Controller was disposed during provider switch, ignore.
+                                  return const SizedBox.shrink();
+                                }
+                                
                                 final position = value.position;
                                 final duration = value.duration ?? Duration.zero;
                                 
@@ -350,14 +361,14 @@ class _CustomPlayerControlsState extends State<CustomPlayerControls> {
                                           value: (_dragValue ?? position.inMilliseconds.toDouble()).clamp(0, duration.inMilliseconds.toDouble()),
                                           secondaryTrackValue: maxBuffered.clamp(0, duration.inMilliseconds.toDouble()),
                                           max: duration.inMilliseconds > 0 ? duration.inMilliseconds.toDouble() : 1.0,
-                                          onChanged: (value) {
+                                          onChanged: (val) {
                                             setState(() {
-                                              _dragValue = value;
+                                              _dragValue = val;
                                             });
                                             _hideControlsTimer?.cancel();
                                           },
-                                          onChangeEnd: (value) {
-                                            widget.controller.seekTo(Duration(milliseconds: value.toInt()));
+                                          onChangeEnd: (val) {
+                                            widget.controller.seekTo(Duration(milliseconds: val.toInt()));
                                             setState(() {
                                               _dragValue = null;
                                             });
@@ -369,7 +380,7 @@ class _CustomPlayerControlsState extends State<CustomPlayerControls> {
                                     const SizedBox(width: 16),
                                     Text(
                                       _formatDuration(duration),
-                                      style: const TextStyle(color: Colors.white70, fontWeight: FontWeight.bold),
+                                      style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
                                     ),
                                   ],
                                 );

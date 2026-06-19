@@ -23,6 +23,10 @@ _$WatchHistoryImpl _$$WatchHistoryImplFromJson(Map<String, dynamic> json) =>
       lastWatchedAt: _dateTimeFromJson(json['lastWatchedAt']),
       createdAt: _dateTimeFromJson(json['createdAt']),
       isCompleted: json['isCompleted'] as bool,
+      preferredAudioTrack: json['preferredAudioTrack'] as String?,
+      preferredSubtitleTrack: json['preferredSubtitleTrack'] as String?,
+      preferredResolution: json['preferredResolution'] as String?,
+      preferredProviderIndex: (json['preferredProviderIndex'] as num?)?.toInt(),
       episodes: json['episodes'] == null
           ? const {}
           : _episodesFromJson(json['episodes']),
@@ -45,6 +49,10 @@ Map<String, dynamic> _$$WatchHistoryImplToJson(_$WatchHistoryImpl instance) =>
       'lastWatchedAt': _dateTimeToJson(instance.lastWatchedAt),
       'createdAt': _dateTimeToJson(instance.createdAt),
       'isCompleted': instance.isCompleted,
+      'preferredAudioTrack': instance.preferredAudioTrack,
+      'preferredSubtitleTrack': instance.preferredSubtitleTrack,
+      'preferredResolution': instance.preferredResolution,
+      'preferredProviderIndex': instance.preferredProviderIndex,
       'episodes': _episodesToJson(instance.episodes),
     };
 
@@ -57,6 +65,10 @@ _$EpisodeProgressImpl _$$EpisodeProgressImplFromJson(
       totalDurationSeconds: (json['totalDurationSeconds'] as num).toInt(),
       isCompleted: json['isCompleted'] as bool,
       watchedAt: _dateTimeFromJson(json['watchedAt']),
+      preferredAudioTrack: json['preferredAudioTrack'] as String?,
+      preferredSubtitleTrack: json['preferredSubtitleTrack'] as String?,
+      preferredResolution: json['preferredResolution'] as String?,
+      preferredProviderIndex: (json['preferredProviderIndex'] as num?)?.toInt(),
     );
 
 Map<String, dynamic> _$$EpisodeProgressImplToJson(
@@ -68,4 +80,8 @@ Map<String, dynamic> _$$EpisodeProgressImplToJson(
       'totalDurationSeconds': instance.totalDurationSeconds,
       'isCompleted': instance.isCompleted,
       'watchedAt': _dateTimeToJson(instance.watchedAt),
+      'preferredAudioTrack': instance.preferredAudioTrack,
+      'preferredSubtitleTrack': instance.preferredSubtitleTrack,
+      'preferredResolution': instance.preferredResolution,
+      'preferredProviderIndex': instance.preferredProviderIndex,
     };

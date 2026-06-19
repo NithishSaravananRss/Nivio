@@ -193,6 +193,43 @@ class TmdbService {
     return false;
   }
 
+  Future<List<SearchResult>> getRecommendations(int mediaId, String mediaType) async {
+    final cacheKey = 'recommendations_${mediaType}_$mediaId';
+    final cached = await _cache.getRaw(cacheKey);
+    if (cached != null) {
+      final results = cached['results'] as List?;
+      if (results != null) {
+        return results.map((item) {
+          if (item is Map<String, dynamic>) {
+            item['media_type'] = mediaType;
+            return SearchResult.fromJson(item);
+          }
+          return null;
+        }).whereType<SearchResult>().toList();
+      }
+    }
+
+    try {
+      final response = await _dio.get('/3/$mediaType/$mediaId/recommendations');
+      final data = response.data;
+      await _cache.set(cacheKey, data, ttl: CacheService.longCache);
+      
+      final results = data['results'] as List?;
+      if (results != null) {
+        return results.map((item) {
+          if (item is Map<String, dynamic>) {
+            item['media_type'] = mediaType;
+            return SearchResult.fromJson(item);
+          }
+          return null;
+        }).whereType<SearchResult>().toList();
+      }
+      return [];
+    } catch (e) {
+      return [];
+    }
+  }
+
   Future<List<SearchResult>> searchByProvider(
     String query,
     int providerId,
@@ -709,7 +746,7 @@ class TmdbService {
 
   /// Get movie details with videos (for trailer)
   Future<Map<String, dynamic>> getMovieDetailsWithVideos(int movieId) async {
-    final cacheKey = 'movie_details_videos_$movieId';
+    final cacheKey = 'movie_details_full_$movieId';
 
     // Check for stale cache
     final staleCache = await _cache.getStaleRaw(cacheKey);
@@ -719,7 +756,7 @@ class TmdbService {
       _cache.updateInBackground(cacheKey, () async {
         final response = await _dio.get(
           '/3/movie/$movieId',
-          queryParameters: {'language': 'en', 'append_to_response': 'videos'},
+          queryParameters: {'language': 'en', 'append_to_response': 'credits,videos'},
         );
         return response.data;
       }, CacheService.longCache);
@@ -734,7 +771,7 @@ class TmdbService {
     try {
       final response = await _dio.get(
         '/3/movie/$movieId',
-        queryParameters: {'language': 'en', 'append_to_response': 'videos'},
+        queryParameters: {'language': 'en', 'append_to_response': 'credits,videos'},
       );
 
       // Cache the response
@@ -781,7 +818,7 @@ class TmdbService {
 
   /// Get TV show details with videos (for trailer)
   Future<Map<String, dynamic>> getTVShowDetailsWithVideos(int tvId) async {
-    final cacheKey = 'tv_details_videos_$tvId';
+    final cacheKey = 'tv_details_full_$tvId';
 
     // Check for stale cache
     final staleCache = await _cache.getStaleRaw(cacheKey);
@@ -791,7 +828,7 @@ class TmdbService {
       _cache.updateInBackground(cacheKey, () async {
         final response = await _dio.get(
           '/3/tv/$tvId',
-          queryParameters: {'language': 'en', 'append_to_response': 'videos'},
+          queryParameters: {'language': 'en', 'append_to_response': 'credits,videos'},
         );
         return response.data;
       }, CacheService.longCache);
@@ -806,7 +843,7 @@ class TmdbService {
     try {
       final response = await _dio.get(
         '/3/tv/$tvId',
-        queryParameters: {'language': 'en', 'append_to_response': 'videos'},
+        queryParameters: {'language': 'en', 'append_to_response': 'credits,videos'},
       );
 
       // Cache the response

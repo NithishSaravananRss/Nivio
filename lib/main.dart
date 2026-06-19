@@ -28,6 +28,7 @@ import 'package:nivio/providers/settings_providers.dart';
 import 'package:nivio/screens/home_screen.dart';
 import 'package:nivio/screens/search_screen.dart';
 import 'package:nivio/screens/media_detail_screen.dart';
+import 'package:nivio/screens/similar_content_screen.dart';
 import 'package:nivio/screens/all_providers_screen.dart';
 import 'package:nivio/screens/player_screen.dart';
 import 'package:nivio/screens/auth_screen.dart';
@@ -200,14 +201,6 @@ final appRouter = GoRouter(
         StatefulShellBranch(
           routes: [
             GoRoute(
-              path: '/iptv',
-              builder: (context, state) => const IptvScreen(),
-            ),
-          ],
-        ),
-        StatefulShellBranch(
-          routes: [
-            GoRoute(
               path: '/library',
               builder: (context, state) {
                 final tab = state.uri.queryParameters['tab'];
@@ -216,6 +209,14 @@ final appRouter = GoRouter(
                 if (tab == 'downloads') initialTab = 2;
                 return LibraryScreen(key: ValueKey(state.uri.toString()), initialTab: initialTab);
               },
+            ),
+          ],
+        ),
+        StatefulShellBranch(
+          routes: [
+            GoRoute(
+              path: '/iptv',
+              builder: (context, state) => const IptvScreen(),
             ),
           ],
         ),
@@ -273,6 +274,26 @@ final appRouter = GoRouter(
         final id = state.pathParameters['id']!;
         final mediaType = state.uri.queryParameters['type'];
         return MediaDetailScreen(mediaId: int.parse(id), mediaType: mediaType);
+      },
+    ),
+    GoRoute(
+      path: '/similar/:id',
+      pageBuilder: (context, state) {
+        final id = state.pathParameters['id']!;
+        final mediaType = state.uri.queryParameters['type'] ?? 'movie';
+        final title = state.uri.queryParameters['title'] ?? '';
+        return CustomTransitionPage(
+          opaque: false,
+          transitionDuration: const Duration(milliseconds: 300),
+          transitionsBuilder: (context, animation, secondaryAnimation, child) {
+            return FadeTransition(opacity: animation, child: child);
+          },
+          child: SimilarContentScreen(
+            mediaId: int.parse(id),
+            mediaType: mediaType,
+            title: title,
+          ),
+        );
       },
     ),
     GoRoute(

@@ -19,6 +19,7 @@ import 'package:nivio/models/stream_result.dart';
 import 'package:nivio/services/streaming_service.dart';
 import 'package:nivio/services/watch_party/watch_party_models.dart';
 import 'package:nivio/services/watch_party/watch_party_service_supabase.dart';
+import 'package:nivio/models/watch_history.dart';
 
 import 'dart:async';
 import 'dart:io';
@@ -98,6 +99,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
   int _currentEpisode = 0;
   bool _isInFullscreen = false;
   Duration? _resumePosition;
+  WatchHistory? _currentHistory;
   
   bool _useNativePlayer = false;
   String? _nativeUrl;
@@ -202,7 +204,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
         tmdbId: widget.mediaId,
         mediaType: media.mediaType,
         title: media.title ?? media.name ?? 'Unknown',
-        posterPath: media.posterPath,
+        posterPath: media.backdropPath ?? media.posterPath,
         currentSeason: widget.season,
         currentEpisode: _currentEpisode,
         totalSeasons: 1,
@@ -280,6 +282,15 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     });
 
     try {
+      final historyService = ref.read(watchHistoryServiceProvider);
+      await historyService.init();
+      _currentHistory = await historyService.getHistory(widget.mediaId);
+
+      // If the route didn't explicitly specify a provider, use the saved preference
+      if (widget.providerIndex == null && _currentHistory?.preferredProviderIndex != null) {
+        _currentProviderIndex = _currentHistory!.preferredProviderIndex!;
+      }
+
       var media = ref.read(selectedMediaProvider);
       final hasMatchingSelectedMedia =
           media != null &&
@@ -439,9 +450,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
       }
 
       // —————————————————————————————————————————————————————————————————————————————————————————— Check watch history for resume ——————————————————————————————————————————————————————————————————————————————————————————
-      final historyService = ref.read(watchHistoryServiceProvider);
-      await historyService.init();
-      final history = await historyService.getHistory(widget.mediaId);
+      final history = _currentHistory;
       Duration? startAt;
 
       if (history != null &&
@@ -820,7 +829,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
 
   bool _hasAppliedGlobalTracks = false;
 
-  void _applyGlobalTrackPreferences() {
+  void _applyTrackPreferences() {
     if (_hasAppliedGlobalTracks) return;
     
     final audioTracks = _betterPlayerController?.betterPlayerAsmsAudioTracks ?? [];
@@ -829,13 +838,19 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     // If tracks haven't been parsed yet from the stream, wait for the next event
     if (audioTracks.isEmpty && subtitleTracks.isEmpty) return;
 
-    final preferredAudio = ref.read(preferredAudioLanguageProvider);
-    final preferredSubtitle = ref.read(preferredSubtitleLanguageProvider);
+    // 1. Determine Preferred Audio
+    // Priority: Saved History -> Global Settings
+    String preferredAudio = _currentHistory?.preferredAudioTrack ?? ref.read(preferredAudioLanguageProvider);
+    
+    // 2. Determine Preferred Subtitle
+    // Priority: Saved History -> Global Settings
+    String preferredSubtitle = _currentHistory?.preferredSubtitleTrack ?? ref.read(preferredSubtitleLanguageProvider);
 
     // Apply Audio Language
-    if (preferredAudio != 'Original') {
+    if (preferredAudio != 'Original' && preferredAudio.isNotEmpty) {
       for (final track in audioTracks) {
-        if (_isLanguageMatch(track.label ?? '', preferredAudio) || 
+        if (track.label == preferredAudio || track.language == preferredAudio ||
+            _isLanguageMatch(track.label ?? '', preferredAudio) || 
             _isLanguageMatch(track.language ?? '', preferredAudio)) {
           _betterPlayerController?.setAudioTrack(track);
           break;
@@ -846,10 +861,21 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     // Apply Subtitle Language
     if (preferredSubtitle == 'Off') {
       _betterPlayerController?.setupSubtitleSource(BetterPlayerSubtitlesSource(type: BetterPlayerSubtitlesSourceType.none));
-    } else if (preferredSubtitle != 'Auto') {
+    } else if (preferredSubtitle != 'Auto' && preferredSubtitle.isNotEmpty) {
       for (final track in subtitleTracks) {
-        if (_isLanguageMatch(track.name ?? '', preferredSubtitle)) {
+        if (track.name == preferredSubtitle || _isLanguageMatch(track.name ?? '', preferredSubtitle)) {
           _betterPlayerController?.setupSubtitleSource(track);
+          break;
+        }
+      }
+    }
+    
+    // Apply Saved Resolution Track if it exists
+    if (_currentHistory?.preferredResolution != null && _currentHistory!.preferredResolution!.isNotEmpty) {
+      final asmsTracks = _betterPlayerController?.betterPlayerAsmsTracks ?? [];
+      for (final track in asmsTracks) {
+        if ('${track.height}p' == _currentHistory!.preferredResolution) {
+          _betterPlayerController?.setTrack(track);
           break;
         }
       }
@@ -900,7 +926,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
         unawaited(_broadcastWatchPartyPlayback(force: true));
         break;
       case BetterPlayerEventType.play:
-        _applyGlobalTrackPreferences();
+        _applyTrackPreferences();
         unawaited(_broadcastWatchPartyPlayback(force: true));
         break;
       case BetterPlayerEventType.pause:
@@ -952,7 +978,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
         _syncFullscreenTopBarVisibility();
         break;
       case BetterPlayerEventType.progress:
-        _applyGlobalTrackPreferences();
+        _applyTrackPreferences();
         _checkNextEpisode();
         unawaited(_broadcastWatchPartyPlayback(force: false));
         break;
@@ -1615,7 +1641,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
       tmdbId: widget.mediaId,
       mediaType: media.mediaType,
       title: media.title ?? media.name ?? 'Unknown',
-      posterPath: media.posterPath,
+      posterPath: media.backdropPath ?? media.posterPath,
       currentSeason: widget.season,
       currentEpisode: _currentEpisode,
       totalSeasons: 1,
@@ -1721,6 +1747,8 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
       _retryCount = 0;
       _streamResult = null;
     });
+
+    ref.read(watchHistoryServiceProvider).saveTrackPreferences(widget.mediaId, providerIndex: providerIndex);
 
     await _initializePlayer();
   }
@@ -2346,7 +2374,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
       tmdbId: widget.mediaId,
       mediaType: media.mediaType,
       title: media.title ?? media.name ?? 'Unknown',
-      posterPath: media.posterPath,
+      posterPath: media.backdropPath ?? media.posterPath,
       currentSeason: widget.season,
       currentEpisode: _currentEpisode,
       totalSeasons: totalSeasons,
@@ -2744,6 +2772,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
                                             trailing: currentAsmsTrack == null ? Icon(Icons.check, color: Theme.of(context).primaryColor) : null,
                                             onTap: () {
                                               _betterPlayerController?.setTrack(BetterPlayerAsmsTrack.defaultTrack());
+                                              ref.read(watchHistoryServiceProvider).saveTrackPreferences(widget.mediaId, resolution: 'Auto');
                                               setDialogState(() {});
                                             },
                                           ),
@@ -2756,6 +2785,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
                                                 trailing: isCurrent ? Icon(Icons.check, color: Theme.of(context).primaryColor) : null,
                                                 onTap: () {
                                                   _betterPlayerController?.setTrack(track);
+                                                  ref.read(watchHistoryServiceProvider).saveTrackPreferences(widget.mediaId, resolution: label);
                                                   setDialogState(() {});
                                                 },
                                               );
@@ -2821,6 +2851,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
                                               trailing: isCurrent ? Icon(Icons.check, color: Theme.of(context).primaryColor) : null,
                                               onTap: () {
                                                 _betterPlayerController?.setAudioTrack(track);
+                                                ref.read(watchHistoryServiceProvider).saveTrackPreferences(widget.mediaId, audioTrack: label);
                                                 setDialogState(() {});
                                               },
                                             );
@@ -2842,6 +2873,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
                                             trailing: currentSubtitle?.name == null || currentSubtitle?.type == BetterPlayerSubtitlesSourceType.none ? Icon(Icons.check, color: Theme.of(context).primaryColor) : null,
                                             onTap: () {
                                               _betterPlayerController?.setupSubtitleSource(BetterPlayerSubtitlesSource(type: BetterPlayerSubtitlesSourceType.none));
+                                              ref.read(watchHistoryServiceProvider).saveTrackPreferences(widget.mediaId, subtitleTrack: 'Off');
                                               setDialogState(() {});
                                             },
                                           ),
@@ -2854,6 +2886,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
                                               trailing: isCurrent ? Icon(Icons.check, color: Theme.of(context).primaryColor) : null,
                                               onTap: () {
                                                 _betterPlayerController?.setupSubtitleSource(sub);
+                                                ref.read(watchHistoryServiceProvider).saveTrackPreferences(widget.mediaId, subtitleTrack: label);
                                                 setDialogState(() {});
                                               },
                                             );
