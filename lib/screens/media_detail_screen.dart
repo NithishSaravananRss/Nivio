@@ -13,6 +13,7 @@ import 'package:nivio/models/search_result.dart';
 import 'package:nivio/models/watchlist_item.dart';
 import 'package:nivio/models/download_item.dart';
 import 'package:nivio/providers/dynamic_colors_provider.dart';
+import 'package:nivio/widgets/marquee_text.dart';
 import 'package:nivio/providers/media_provider.dart';
 import 'package:nivio/providers/service_providers.dart';
 import 'package:nivio/providers/watch_party_provider.dart';
@@ -546,14 +547,15 @@ class _MediaDetailScreenState extends ConsumerState<MediaDetailScreen> {
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Text(
-                                mediaName,
+                              MarqueeText(
+                                text: mediaName,
                                 style: Theme.of(context).textTheme.displaySmall
                                     ?.copyWith(
                                       fontWeight: FontWeight.w700,
                                       color: NivioTheme.netflixWhite,
                                       height: 1.2,
                                     ),
+                                blankSpace: 50.0,
                               ),
                               const SizedBox(height: 10),
                               // Genre subtext ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â wraps to next line on overflow
@@ -1108,10 +1110,10 @@ class _MediaDetailScreenState extends ConsumerState<MediaDetailScreen> {
        final seasonData = await ref.read(seasonDataProvider((showId: media.id, seasonNumber: season)).future);
        int count = 0;
        for (final ep in seasonData.episodes) {
-          if (ep.airDate != null && DateTime.tryParse(ep.airDate!)?.isBefore(DateTime.now()) == true) {
-             _downloadEpisode(media, season, ep.episodeNumber, providerIndex, audioLang, subtitleLang);
-             count++;
-          }
+             if (ep.airDate != null && DateTime.tryParse(ep.airDate!)?.isBefore(DateTime.now()) == true) {
+                _downloadEpisode(media, season, ep.episodeNumber, ep.episodeName ?? 'Episode', ep.stillPath, providerIndex, audioLang, subtitleLang);
+                count++;
+             }
        }
        if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -1130,7 +1132,7 @@ class _MediaDetailScreenState extends ConsumerState<MediaDetailScreen> {
           final seasonData = await ref.read(seasonDataProvider((showId: media.id, seasonNumber: s.seasonNumber)).future);
           for (final ep in seasonData.episodes) {
             if (ep.airDate != null && DateTime.tryParse(ep.airDate!)?.isBefore(DateTime.now()) == true) {
-               _downloadEpisode(media, s.seasonNumber, ep.episodeNumber, providerIndex, audioLang, subtitleLang);
+               _downloadEpisode(media, s.seasonNumber, ep.episodeNumber, ep.episodeName ?? 'Episode', ep.stillPath, providerIndex, audioLang, subtitleLang);
                count++;
             }
           }
@@ -1143,7 +1145,7 @@ class _MediaDetailScreenState extends ConsumerState<MediaDetailScreen> {
     });
   }
 
-  Future<void> _downloadEpisode(SearchResult media, int season, int episode, int providerIndex, String? audioLang, String? subtitleLang) async {
+  Future<void> _downloadEpisode(SearchResult media, int season, int episode, String episodeName, String? stillPath, int providerIndex, String? audioLang, String? subtitleLang) async {
     final streamingService = ref.read(streamingServiceProvider);
     final result = await streamingService.fetchStreamUrl(
       media: media,
@@ -1155,11 +1157,11 @@ class _MediaDetailScreenState extends ConsumerState<MediaDetailScreen> {
     if (result != null && result.url.isNotEmpty) {
       await DownloadService.queueDownload(
         mediaId: media.id,
-        title: media.title ?? media.name ?? 'Episode',
+        title: '${media.title ?? media.name ?? 'Episode'}|||$episodeName',
         mediaType: media.mediaType,
         season: season,
         episode: episode,
-        posterPath: media.posterPath,
+        posterPath: '${media.posterPath}|||${stillPath ?? media.posterPath}',
         streamUrl: result.url,
         headers: result.headers,
         selectedAudioLanguage: audioLang,

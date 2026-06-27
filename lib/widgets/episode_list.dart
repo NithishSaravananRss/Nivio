@@ -11,6 +11,7 @@ import 'package:nivio/core/theme.dart';
 import 'package:nivio/models/search_result.dart';
 import 'package:nivio/models/season_info.dart';
 import 'package:nivio/providers/dynamic_colors_provider.dart';
+import 'package:nivio/widgets/marquee_text.dart';
 import 'package:nivio/providers/media_provider.dart';
 import 'package:nivio/providers/service_providers.dart';
 import 'package:nivio/services/streaming_service.dart';
@@ -354,15 +355,13 @@ class _EpisodeListState extends ConsumerState<EpisodeList> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text(
-                            '${episode.episodeNumber}. ${episode.episodeName ?? 'Episode ${episode.episodeNumber}'}',
+                          MarqueeText(
+                            text: '${episode.episodeNumber}. ${episode.episodeName ?? 'Episode ${episode.episodeNumber}'}',
                             style: TextStyle(
                               fontSize: 12,
                               color: NivioTheme.netflixWhite,
                               fontWeight: FontWeight.w700,
                             ),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
                           ),
                           if (relDate.isNotEmpty) ...[
                             const SizedBox(height: 3),
@@ -492,11 +491,11 @@ class _EpisodeListState extends ConsumerState<EpisodeList> {
           ref: ref,
           streamResult: result,
           mediaId: widget.media.id,
-          title: widget.media.title ?? widget.media.name ?? 'Episode',
+          title: '${widget.media.title ?? widget.media.name ?? 'Episode'}|||${episode.episodeName ?? 'Episode ${episode.episodeNumber}'}',
           mediaType: 'tv',
           season: widget.season,
           episode: episode.episodeNumber,
-          posterPath: widget.media.posterPath,
+          posterPath: '${widget.media.posterPath}|||${episode.stillPath ?? widget.media.posterPath}',
         );
       } else {
         if (mounted) {

@@ -6,6 +6,7 @@ import 'package:nivio/services/download_service.dart';
 import 'package:go_router/go_router.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'dart:io';
+import 'package:nivio/widgets/marquee_text.dart';
 
 class DownloadsScreen extends StatefulWidget {
   final bool embedded;
@@ -66,6 +67,12 @@ class _DownloadsScreenState extends State<DownloadsScreen> {
   Widget _buildDownloadGroup(List<DownloadItem> group) {
     final firstItem = group.first;
     
+    final titleParts = firstItem.title.split('|||');
+    final seriesName = titleParts.first;
+    
+    final posterParts = firstItem.posterPath?.split('|||') ?? [];
+    final seriesPoster = posterParts.isNotEmpty ? posterParts.first : null;
+    
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
       decoration: BoxDecoration(
@@ -78,9 +85,9 @@ class _DownloadsScreenState extends State<DownloadsScreen> {
           tilePadding: const EdgeInsets.all(12),
           leading: ClipRRect(
             borderRadius: BorderRadius.circular(8),
-            child: firstItem.posterPath != null
+            child: seriesPoster != null
                 ? CachedNetworkImage(
-                    imageUrl: 'https://image.tmdb.org/t/p/w200${firstItem.posterPath}',
+                    imageUrl: 'https://image.tmdb.org/t/p/w200$seriesPoster',
                     width: 50,
                     height: 75,
                     fit: BoxFit.cover,
@@ -88,11 +95,9 @@ class _DownloadsScreenState extends State<DownloadsScreen> {
                   )
                 : _buildFallbackPoster(),
           ),
-          title: Text(
-            firstItem.title,
-            style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
+          title: MarqueeText(
+            text: seriesName,
+            style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16),
           ),
           subtitle: Text('${group.length} Episodes', style: const TextStyle(color: Colors.white70)),
           children: group.map((item) => _buildDownloadItem(item, isGrouped: true)).toList(),
@@ -115,6 +120,19 @@ class _DownloadsScreenState extends State<DownloadsScreen> {
     final isFailed = item.status == DownloadStatus.failed;
     final isDownloading = item.status == DownloadStatus.downloading;
 
+    final titleParts = item.title.split('|||');
+    final String displayName;
+    if (isGrouped && titleParts.length > 1) {
+      displayName = titleParts.last;
+    } else if (titleParts.length > 1) {
+      displayName = '${titleParts.first} - ${titleParts.last}';
+    } else {
+      displayName = item.title;
+    }
+    
+    final posterParts = item.posterPath?.split('|||') ?? [];
+    final String? itemPoster = posterParts.length > 1 ? posterParts.last : (posterParts.isNotEmpty ? posterParts.first : null);
+
     return Container(
       margin: isGrouped ? EdgeInsets.zero : const EdgeInsets.only(bottom: 12),
       decoration: BoxDecoration(
@@ -125,23 +143,19 @@ class _DownloadsScreenState extends State<DownloadsScreen> {
         contentPadding: const EdgeInsets.all(12),
         leading: ClipRRect(
           borderRadius: BorderRadius.circular(8),
-          child: isGrouped
-              ? const SizedBox(width: 50, child: Icon(Icons.movie, color: Colors.transparent))
-              : (item.posterPath != null
-                  ? CachedNetworkImage(
-                      imageUrl: 'https://image.tmdb.org/t/p/w200${item.posterPath}',
-                      width: 50,
-                      height: 75,
-                      fit: BoxFit.cover,
-                      errorWidget: (_, __, ___) => _buildFallbackPoster(),
-                    )
-                  : _buildFallbackPoster()),
+          child: itemPoster != null
+              ? CachedNetworkImage(
+                  imageUrl: 'https://image.tmdb.org/t/p/w200$itemPoster',
+                  width: item.season != null ? 80 : 50,
+                  height: item.season != null ? 45 : 75,
+                  fit: BoxFit.cover,
+                  errorWidget: (_, __, ___) => _buildFallbackPoster(),
+                )
+              : _buildFallbackPoster(),
         ),
-        title: Text(
-          item.title,
-          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
+        title: MarqueeText(
+          text: displayName,
+          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16),
         ),
         subtitle: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -224,6 +238,16 @@ class _DownloadsScreenState extends State<DownloadsScreen> {
                     '/player/${item.mediaId}?type=${item.mediaType}&season=${item.season ?? 1}&episode=${item.episode ?? 1}&localPath=${Uri.encodeComponent(item.savePath)}',
                   );
                 },
+              ),
+            if (isDownloading || item.status == DownloadStatus.pending)
+              IconButton(
+                icon: const Icon(Icons.pause_circle_outline, color: Colors.white70),
+                onPressed: () => DownloadService.pauseDownload(item.id),
+              ),
+            if (item.status == DownloadStatus.paused)
+              IconButton(
+                icon: const Icon(Icons.play_circle_outline, color: Colors.white),
+                onPressed: () => DownloadService.resumeDownload(item.id),
               ),
             if (isFailed)
               IconButton(

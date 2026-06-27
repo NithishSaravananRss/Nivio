@@ -167,6 +167,56 @@ class M3u8Parser {
       return 0;
     }
   }
+  static Future<List<M3u8Segment>> fetchSegments(String url, Map<String, String>? headers) async {
+    try {
+      final response = await _dio.get(
+        url,
+        options: Options(headers: headers),
+      );
+      final lines = response.data.toString().split('\n');
+      final List<M3u8Segment> segments = [];
+      
+      M3u8EncryptionKey? currentKey;
+      double? nextDuration;
+
+      for (int i = 0; i < lines.length; i++) {
+        final line = lines[i].trim();
+        if (line.isEmpty) continue;
+
+        if (line.startsWith('#EXT-X-KEY:')) {
+          final methodMatch = RegExp(r'METHOD=([^,]+)').firstMatch(line);
+          final uriMatch = RegExp(r'URI="([^"]+)"').firstMatch(line);
+          final ivMatch = RegExp(r'IV=([^,]+)').firstMatch(line);
+          
+          if (methodMatch != null && uriMatch != null) {
+            final method = methodMatch.group(1)!;
+            final keyUri = _resolveUrl(url, uriMatch.group(1)!);
+            if (method != 'NONE') {
+              currentKey = M3u8EncryptionKey(method: method, uri: keyUri, iv: ivMatch?.group(1));
+            } else {
+              currentKey = null;
+            }
+          }
+        } else if (line.startsWith('#EXTINF:')) {
+          final val = line.replaceAll('#EXTINF:', '').split(',').first.trim();
+          nextDuration = double.tryParse(val);
+        } else if (!line.startsWith('#')) {
+          if (nextDuration != null) {
+            segments.add(M3u8Segment(
+              url: _resolveUrl(url, line),
+              duration: nextDuration,
+              encryptionKey: currentKey,
+            ));
+            nextDuration = null;
+          }
+        }
+      }
+      return segments;
+    } catch (e) {
+      debugPrint('M3u8Parser Error (fetchSegments): $e');
+      return [];
+    }
+  }
 }
 
 class M3u8Streams {
@@ -175,4 +225,20 @@ class M3u8Streams {
   final String? subtitleUrl;
 
   M3u8Streams({required this.videoUrl, this.audioUrl, this.subtitleUrl});
+}
+
+class M3u8EncryptionKey {
+  final String method;
+  final String uri;
+  final String? iv;
+
+  M3u8EncryptionKey({required this.method, required this.uri, this.iv});
+}
+
+class M3u8Segment {
+  final String url;
+  final double duration;
+  final M3u8EncryptionKey? encryptionKey;
+
+  M3u8Segment({required this.url, required this.duration, this.encryptionKey});
 }

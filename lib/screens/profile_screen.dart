@@ -274,6 +274,13 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                             subtitle: ref.watch(preferredDownloadSubtitleLanguageProvider),
                             onTap: _showDownloadSubtitleLanguageDialog,
                           ),
+                        if (_matches('download concurrency parallel connections'))
+                          _buildActionTile(
+                            icon: Icons.speed_rounded,
+                            title: 'Parallel Download Connections',
+                            subtitle: '${ref.watch(downloadConcurrencyProvider)}',
+                            onTap: _showDownloadConcurrencyDialog,
+                          ),
                       ],
                     ),
                   ),
@@ -853,6 +860,16 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
           title: 'Preferred Download Subtitle',
           subtitle: ref.watch(preferredDownloadSubtitleLanguageProvider),
           onTap: _showDownloadSubtitleLanguageDialog,
+        ),
+      );
+    }
+    if (_matches('download concurrency parallel connections')) {
+      results.add(
+        _buildActionTile(
+          icon: Icons.speed_rounded,
+          title: 'Parallel Download Connections',
+          subtitle: '${ref.watch(downloadConcurrencyProvider)}',
+          onTap: _showDownloadConcurrencyDialog,
         ),
       );
     }
@@ -2089,6 +2106,79 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                         : null,
                     onTap: () {
                       ref.read(preferredDownloadSubtitleLanguageProvider.notifier).setLanguage(option);
+                      Navigator.pop(context);
+                    },
+                  );
+                },
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _showDownloadConcurrencyDialog() async {
+    final current = ref.read(downloadConcurrencyProvider);
+    final options = [2, 4, 6, 8, 12, 16];
+
+    await showModalBottomSheet(
+      context: context,
+      backgroundColor: NivioTheme.netflixDarkGrey,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (context) => Container(
+        padding: const EdgeInsets.symmetric(vertical: 24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Padding(
+              padding: EdgeInsets.symmetric(horizontal: 24, vertical: 8),
+              child: Text(
+                'Parallel Download Connections',
+                style: TextStyle(
+                  color: NivioTheme.netflixWhite,
+                  fontSize: 20,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+            const Padding(
+              padding: EdgeInsets.symmetric(horizontal: 24),
+              child: Text(
+                'Higher values mean faster speeds but use more battery and CPU.',
+                style: TextStyle(color: Colors.white54, fontSize: 13),
+              ),
+            ),
+            const SizedBox(height: 16),
+            Flexible(
+              child: ListView.builder(
+                shrinkWrap: true,
+                itemCount: options.length,
+                itemBuilder: (context, index) {
+                  final option = options[index];
+                  final isSelected = current == option;
+
+                  return ListTile(
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 24),
+                    title: Text(
+                      '$option connections',
+                      style: TextStyle(
+                        color: isSelected
+                            ? NivioTheme.accentColorOf(context)
+                            : NivioTheme.netflixWhite,
+                        fontWeight:
+                            isSelected ? FontWeight.w600 : FontWeight.normal,
+                      ),
+                    ),
+                    trailing: isSelected
+                        ? Icon(Icons.check_circle_rounded,
+                            color: NivioTheme.accentColorOf(context))
+                        : null,
+                    onTap: () {
+                      ref.read(downloadConcurrencyProvider.notifier).setPreference(option);
                       Navigator.pop(context);
                     },
                   );

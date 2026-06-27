@@ -8,6 +8,7 @@ import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 
 import 'package:ffmpeg_kit_flutter_new/ffmpeg_kit.dart';
@@ -318,9 +319,181 @@ class DownloadService {
 
   static Future<void> _downloadDirect(DownloadItem item, String filePath, CancelToken cancelToken, {String? streamUrlOverride}) async {
     final urlToDownload = streamUrlOverride ?? item.streamUrl!;
+    
+    // Get concurrency setting
+    final prefs = await SharedPreferences.getInstance();
+    final concurrency = prefs.getInt('download_concurrency') ?? 6;
+
+    try {
+      // 1. Probe file size
+      final probeResponse = await _dio.head(
+        urlToDownload,
+        options: Options(headers: item.headers),
+      );
+      
+      final contentLengthHeader = probeResponse.headers.value(Headers.contentLengthHeader);
+      final acceptsRanges = probeResponse.headers.value('accept-ranges') == 'bytes';
+      
+      int? totalBytes;
+      if (contentLengthHeader != null) {
+        totalBytes = int.tryParse(contentLengthHeader);
+      }
+
+      // If server doesn't support ranges or we don't know the size, fallback to standard download
+      if (totalBytes == null || totalBytes <= 0 || !acceptsRanges || concurrency <= 1) {
+        appDebugLog('🎬 Direct: Falling back to sequential download (size: $totalBytes, ranges: $acceptsRanges, threads: $concurrency)');
+        await _downloadDirectSequential(item, filePath, urlToDownload, cancelToken);
+        return;
+      }
+
+      appDebugLog('🎬 Direct: Starting parallel download. Size: $totalBytes bytes, Threads: $concurrency');
+      
+      item.totalBytes = totalBytes;
+      item.downloadedBytes = 0;
+      
+      final chunkCount = concurrency;
+      final chunkSize = (totalBytes / chunkCount).ceil();
+      
+      final List<Future<void>> futures = [];
+      final List<String> partFiles = [];
+      final List<int> chunkProgress = List.filled(chunkCount, 0);
+      
+      int lastProgressUpdate = 0;
+
+      // Ensure directory exists for parts
+      final dir = File(filePath).parent.path;
+
+      // 2. Spawn parallel chunks
+      for (int i = 0; i < chunkCount; i++) {
+        int start = i * chunkSize;
+        final int end = (i == chunkCount - 1) ? totalBytes - 1 : (start + chunkSize - 1);
+        final int expectedChunkLength = end - start + 1;
+        
+        final partPath = '$filePath.part$i';
+        partFiles.add(partPath);
+
+        final partFile = File(partPath);
+        int existingLength = 0;
+        
+        if (partFile.existsSync()) {
+          existingLength = partFile.lengthSync();
+          if (existingLength == expectedChunkLength) {
+            chunkProgress[i] = existingLength;
+            continue; // Chunk fully downloaded, skip!
+          } else if (existingLength > expectedChunkLength) {
+            partFile.deleteSync();
+            existingLength = 0;
+          } else {
+            start += existingLength;
+            chunkProgress[i] = existingLength;
+          }
+        }
+
+        final chunkHeaders = Map<String, String>.from(item.headers ?? {});
+        chunkHeaders['Range'] = 'bytes=$start-$end';
+
+        final chunkCancelToken = CancelToken();
+        cancelToken.whenCancel.then((_) => chunkCancelToken.cancel());
+
+        futures.add(() async {
+          bool chunkSuccess = false;
+          int retries = 0;
+          
+          while (!chunkSuccess && retries < 5 && !cancelToken.isCancelled) {
+            IOSink? sink;
+            try {
+              final response = await _dio.get<ResponseBody>(
+                urlToDownload,
+                cancelToken: chunkCancelToken,
+                options: Options(
+                  responseType: ResponseType.stream,
+                  headers: chunkHeaders,
+                  receiveTimeout: const Duration(minutes: 5),
+                  sendTimeout: const Duration(minutes: 5),
+                ),
+              );
+
+              sink = partFile.openWrite(mode: FileMode.writeOnlyAppend);
+              int receivedThisSession = 0;
+              
+              await for (final chunk in response.data!.stream) {
+                if (cancelToken.isCancelled) break;
+                sink.add(chunk);
+                receivedThisSession += chunk.length;
+                chunkProgress[i] = existingLength + receivedThisSession;
+                
+                final now = DateTime.now().millisecondsSinceEpoch;
+                if (now - lastProgressUpdate > 2000) {
+                  lastProgressUpdate = now;
+                  int totalReceived = chunkProgress.fold(0, (sum, val) => sum + val);
+                  item.downloadedBytes = totalReceived;
+                  item.progress = totalReceived / totalBytes!;
+                  box.put(item.id, item);
+                  _showProgressNotification(item);
+                }
+              }
+              
+              await sink.flush();
+              await sink.close();
+              sink = null;
+              
+              if (!cancelToken.isCancelled) {
+                 chunkSuccess = true;
+              }
+            } catch (e) {
+              if (sink != null) await sink.close();
+              retries++;
+              if (retries >= 5) {
+                appDebugLog('❌ Direct Chunk failed after 5 retries: $e');
+                rethrow;
+              } else {
+                await Future.delayed(Duration(seconds: 2 * retries)); // Exponential backoff
+              }
+            }
+          }
+        }());
+      }
+
+      // Wait for all chunks to finish
+      await Future.wait(futures);
+
+      if (cancelToken.isCancelled) return;
+
+      // 3. Merge chunks
+      appDebugLog('🎬 Direct: Merging $chunkCount chunks...');
+      _updateStatus(item, DownloadStatus.extracting);
+      await box.put(item.id, item);
+      
+      final finalFile = File(filePath);
+      if (finalFile.existsSync()) await finalFile.delete();
+      
+      final output = finalFile.openWrite(mode: FileMode.writeOnlyAppend);
+      
+      for (final partPath in partFiles) {
+        final partFile = File(partPath);
+        if (partFile.existsSync()) {
+          // Stream chunks asynchronously to prevent RAM exhaustion and UI thread blocking
+          await output.addStream(partFile.openRead());
+          await partFile.delete(); // Clean up
+        }
+      }
+      await output.close();
+      
+      appDebugLog('🎬 Direct: Download and merge complete!');
+      _completeDownload(item);
+
+    } catch (e) {
+      if (!cancelToken.isCancelled) {
+        appDebugLog('🎬 Direct Error: $e');
+        rethrow;
+      }
+    }
+  }
+
+  static Future<void> _downloadDirectSequential(DownloadItem item, String filePath, String url, CancelToken cancelToken) async {
     int lastProgressUpdate = 0;
     await _dio.download(
-      urlToDownload,
+      url,
       filePath,
       cancelToken: cancelToken,
       options: Options(
@@ -334,7 +507,7 @@ class DownloadService {
           item.progress = received / total;
           
           final now = DateTime.now().millisecondsSinceEpoch;
-          if (now - lastProgressUpdate > 2000) { // Update UI every 2 seconds
+          if (now - lastProgressUpdate > 2000) {
             lastProgressUpdate = now;
             box.put(item.id, item);
             _showProgressNotification(item);
@@ -351,6 +524,9 @@ class DownloadService {
     final file = File(filePath);
     if (file.existsSync()) file.deleteSync();
     
+    final prefs = await SharedPreferences.getInstance();
+    final concurrency = prefs.getInt('download_concurrency') ?? 6;
+
     final streams = await M3u8Parser.resolveStreams(
       urlToDownload, 
       item.headers, 
@@ -360,6 +536,225 @@ class DownloadService {
 
     final resolvedVideoUrl = streams?.videoUrl ?? urlToDownload;
 
+    // Try parallel M3U8 downloading
+    if (concurrency > 1) {
+       final success = await _downloadM3u8Parallel(item, filePath, resolvedVideoUrl, streams?.audioUrl, cancelToken, concurrency);
+       if (success) {
+         _completeDownload(item);
+         return;
+       }
+       // If parallel fails (e.g. unsupported tags, live streams), fallback to FFmpeg native fetching
+       if (cancelToken.isCancelled) return;
+       appDebugLog('🎬 HLS Parallel failed or unsupported, falling back to native FFmpeg fetching');
+    }
+
+    await _downloadM3u8Sequential(item, filePath, resolvedVideoUrl, streams?.audioUrl, streams?.subtitleUrl, cancelToken);
+  }
+
+  static Future<bool> _downloadM3u8Parallel(DownloadItem item, String filePath, String videoUrl, String? audioUrl, CancelToken cancelToken, int concurrency) async {
+    try {
+      appDebugLog('🎬 HLS: Fetching segments for $videoUrl');
+      final videoSegments = await M3u8Parser.fetchSegments(videoUrl, item.headers);
+      if (videoSegments.isEmpty) return false;
+
+      final audioSegments = audioUrl != null ? await M3u8Parser.fetchSegments(audioUrl, item.headers) : <M3u8Segment>[];
+
+      final totalSegments = videoSegments.length + audioSegments.length;
+      int downloadedSegments = 0;
+      int lastProgressUpdate = 0;
+
+      final baseDir = File(filePath).parent.path;
+      final tempDir = Directory('$baseDir/.hls_${item.id}');
+      if (!tempDir.existsSync()) {
+        tempDir.createSync(recursive: true);
+      } else {
+        // Clean up any lingering .part files from previous paused downloads
+        for (final file in tempDir.listSync()) {
+          if (file.path.endsWith('.part')) {
+            file.deleteSync();
+          }
+        }
+      }
+
+      // Helper to download a list of segments
+      Future<bool> downloadSegments(List<M3u8Segment> segments, String prefix) async {
+        final pool = <Future<void>>[];
+        bool failed = false;
+
+        for (int i = 0; i < segments.length; i++) {
+          if (cancelToken.isCancelled || failed) break;
+          
+          final seg = segments[i];
+          final segPath = '${tempDir.path}/${prefix}_$i.ts';
+          
+          while (pool.length >= concurrency) {
+            await Future.any(pool);
+            pool.removeWhere((f) => true); // In Dart we can't easily check future status, so we use a simpler queue
+            // Better parallel queue:
+            break; 
+          }
+          // We will use a proper queue approach below.
+        }
+        return !failed;
+      }
+
+      // 1. Download all keys
+      final Set<String> keyUrls = {};
+      for (final s in [...videoSegments, ...audioSegments]) {
+        if (s.encryptionKey != null) keyUrls.add(s.encryptionKey!.uri);
+      }
+      
+      final Map<String, String> localKeys = {};
+      int keyIdx = 0;
+      for (final keyUrl in keyUrls) {
+        final keyPath = '${tempDir.path}/key_$keyIdx.key';
+        await _dio.download(keyUrl, keyPath, options: Options(headers: item.headers));
+        localKeys[keyUrl] = 'key_$keyIdx.key';
+        keyIdx++;
+      }
+
+      // 2. Download all segments using a concurrent queue
+      bool failed = false;
+      final allTasks = <Future<void>>[];
+      
+      Future<void> worker(List<M3u8Segment> queue, String prefix) async {
+        while (queue.isNotEmpty && !cancelToken.isCancelled && !failed) {
+          final seg = queue.removeAt(0);
+          final index = seg.url.hashCode; // unique identifier
+          final segPath = '${tempDir.path}/${prefix}_$index.ts';
+          
+          if (File(segPath).existsSync()) {
+            downloadedSegments++;
+            continue; // Skip already downloaded segments!
+          }
+          
+          final segPartPath = '$segPath.part';
+          
+          bool chunkSuccess = false;
+          int retries = 0;
+          
+          while (!chunkSuccess && retries < 5 && !cancelToken.isCancelled && !failed) {
+            try {
+              await _dio.download(
+                seg.url, 
+                segPartPath, 
+                cancelToken: cancelToken, 
+                options: Options(
+                  headers: item.headers,
+                  receiveTimeout: const Duration(seconds: 30),
+                  sendTimeout: const Duration(seconds: 30),
+                )
+              );
+              
+              // Rename upon success to mark it as fully downloaded
+              File(segPartPath).renameSync(segPath);
+              chunkSuccess = true;
+              downloadedSegments++;
+              
+              final now = DateTime.now().millisecondsSinceEpoch;
+              if (now - lastProgressUpdate > 1000) {
+                lastProgressUpdate = now;
+                item.progress = downloadedSegments / totalSegments;
+                box.put(item.id, item);
+                _showProgressNotification(item);
+              }
+            } catch (e) {
+              retries++;
+              if (retries >= 5) {
+                appDebugLog('❌ HLS Chunk failed after 5 retries: ${seg.url} - Error: $e');
+                if (!cancelToken.isCancelled) failed = true;
+              } else {
+                await Future.delayed(Duration(seconds: 2 * retries)); // Exponential backoff
+              }
+            }
+          }
+        }
+      }
+
+      final vQueue = List<M3u8Segment>.from(videoSegments);
+      for (int i = 0; i < concurrency; i++) allTasks.add(worker(vQueue, 'v'));
+      
+      final aQueue = List<M3u8Segment>.from(audioSegments);
+      if (aQueue.isNotEmpty) {
+        for (int i = 0; i < concurrency; i++) allTasks.add(worker(aQueue, 'a'));
+      }
+
+      await Future.wait(allTasks);
+      
+      if (cancelToken.isCancelled || failed) {
+        // Do NOT delete tempDir here, keep it for resuming later!
+        if (failed) throw Exception('Network error during parallel HLS download');
+        return false;
+      }
+
+      // 3. Generate Local M3U8 files
+      String buildLocalM3u8(List<M3u8Segment> segs, String prefix) {
+        final sb = StringBuffer();
+        sb.writeln('#EXTM3U');
+        sb.writeln('#EXT-X-VERSION:3');
+        sb.writeln('#EXT-X-TARGETDURATION:${segs.map((s) => s.duration).reduce((a, b) => a > b ? a : b).ceil()}');
+        
+        M3u8EncryptionKey? lastKey;
+        for (final seg in segs) {
+          if (seg.encryptionKey != lastKey) {
+            if (seg.encryptionKey != null) {
+              final localKey = localKeys[seg.encryptionKey!.uri];
+              final ivStr = seg.encryptionKey!.iv != null ? ',IV=${seg.encryptionKey!.iv}' : '';
+              sb.writeln('#EXT-X-KEY:METHOD=${seg.encryptionKey!.method},URI="$localKey"$ivStr');
+            } else {
+              sb.writeln('#EXT-X-KEY:METHOD=NONE');
+            }
+            lastKey = seg.encryptionKey;
+          }
+          sb.writeln('#EXTINF:${seg.duration},');
+          sb.writeln('${prefix}_${seg.url.hashCode}.ts');
+        }
+        sb.writeln('#EXT-X-ENDLIST');
+        return sb.toString();
+      }
+
+      final localVideoM3u8 = '${tempDir.path}/video.m3u8';
+      File(localVideoM3u8).writeAsStringSync(buildLocalM3u8(videoSegments, 'v'));
+      
+      String? localAudioM3u8;
+      if (audioSegments.isNotEmpty) {
+        localAudioM3u8 = '${tempDir.path}/audio.m3u8';
+        File(localAudioM3u8).writeAsStringSync(buildLocalM3u8(audioSegments, 'a'));
+      }
+
+      // 4. Mux using FFmpeg from local M3U8
+      appDebugLog('🎬 HLS: Segments downloaded. Muxing locally via FFmpeg...');
+      _updateStatus(item, DownloadStatus.extracting);
+      await box.put(item.id, item);
+
+      final ffmpegArgs = ['-loglevel', 'error', '-allowed_extensions', 'ALL', '-i', localVideoM3u8];
+      if (localAudioM3u8 != null) {
+        ffmpegArgs.addAll(['-allowed_extensions', 'ALL', '-i', localAudioM3u8]);
+        ffmpegArgs.addAll(['-map', '0:v:0', '-map', '1:a:0']);
+      } else {
+        ffmpegArgs.addAll(['-map', '0']);
+      }
+      ffmpegArgs.addAll(['-c', 'copy', filePath]);
+
+      final session = await FFmpegKit.executeWithArguments(ffmpegArgs);
+      final returnCode = await session.getReturnCode();
+      
+      if (tempDir.existsSync()) tempDir.deleteSync(recursive: true);
+
+      if (ReturnCode.isSuccess(returnCode)) {
+        return true;
+      } else {
+        final logs = await session.getLogsAsString();
+        appDebugLog('❌ FFmpeg Local Mux Error: $logs');
+        return false;
+      }
+    } catch (e) {
+      appDebugLog('❌ HLS Parallel Error: $e');
+      return false;
+    }
+  }
+
+  static Future<void> _downloadM3u8Sequential(DownloadItem item, String filePath, String resolvedVideoUrl, String? audioUrl, String? subtitleUrl, CancelToken cancelToken) async {
     // Try to get duration for progress calculation using fast Dart parser
     int durationMs = await M3u8Parser.getM3u8Duration(resolvedVideoUrl, item.headers);
     
@@ -402,8 +797,8 @@ class DownloadService {
     int inputIdx = 1;
     
     int? audioIdx;
-    if (streams?.audioUrl != null) {
-      addInputFile(streams!.audioUrl!);
+    if (audioUrl != null) {
+      addInputFile(audioUrl);
       audioIdx = inputIdx++;
     }
     
@@ -431,7 +826,7 @@ class DownloadService {
     final String subCodec = filePath.toLowerCase().endsWith('.mkv') ? 'srt' : 'mov_text';
 
     // Map embedded subtitles into the primary video file (ONLY if they are already embedded)
-    if (streams?.subtitleUrl == null) {
+    if (subtitleUrl == null) {
       if (item.selectedSubtitleLanguage != null && item.selectedSubtitleLanguage!.isNotEmpty) {
         ffmpegArgs.addAll(['-map', '0:s:m:language:${item.selectedSubtitleLanguage}?', '-map', '0:s:0?']);
         ffmpegArgs.addAll(['-c:s', subCodec]);
@@ -531,9 +926,9 @@ class DownloadService {
     // when trying to multiplex sparse network WebVTT streams with heavy video streams.
     try {
       final String srtFilePath = filePath.replaceAll(RegExp(r'\.[a-zA-Z0-9]+$'), '.srt');
-      if (streams?.subtitleUrl != null) {
+      if (subtitleUrl != null) {
         // Download external subtitle directly to SRT
-        await FFmpegKit.execute('-y -i "${streams!.subtitleUrl!}" -c:s srt "$srtFilePath"');
+        await FFmpegKit.execute('-y -i "$subtitleUrl" -c:s srt "$srtFilePath"');
       } else {
         // Extract embedded subtitle
         await FFmpegKit.execute('-y -i "$filePath" -map 0:s:0? -c:s srt "$srtFilePath"');
@@ -639,6 +1034,10 @@ class DownloadService {
 
   static void pauseDownload(String id) {
     _activeDownloads[id]?.cancel();
+    final item = box.get(id);
+    if (item != null) {
+      _updateStatus(item, DownloadStatus.paused);
+    }
   }
   
   static void resumeDownload(String id) {
@@ -654,6 +1053,27 @@ class DownloadService {
       if (await file.exists()) {
         await file.delete();
       }
+      
+      try {
+        final dir = file.parent;
+        if (dir.existsSync()) {
+          // Cleanup Direct .part files
+          for (final f in dir.listSync()) {
+            if (f.path.startsWith(file.path) && f.path.contains('.part')) {
+               try { f.deleteSync(); } catch (_) {}
+            }
+          }
+          
+          // Cleanup HLS temporary folder
+          final hlsTempDir = Directory('${dir.path}/.hls_${item.id}');
+          if (hlsTempDir.existsSync()) {
+            try { hlsTempDir.deleteSync(recursive: true); } catch (_) {}
+          }
+        }
+      } catch (e) {
+        appDebugLog('Failed to cleanup temp files: $e');
+      }
+      
       await box.delete(id);
     }
     // Ensure any stuck progress notification is scrubbed

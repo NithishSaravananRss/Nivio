@@ -384,3 +384,25 @@ class EpisodeCheckFrequencyNotifier extends StateNotifier<int> {
   }
 }
 
+// Download Concurrency Provider
+final downloadConcurrencyProvider =
+    StateNotifierProvider<DownloadConcurrencyNotifier, int>((ref) {
+  return DownloadConcurrencyNotifier();
+});
+
+class DownloadConcurrencyNotifier extends StateNotifier<int> {
+  DownloadConcurrencyNotifier() : super(6) {
+    _loadPreference();
+  }
+
+  Future<void> _loadPreference() async {
+    final prefs = await SharedPreferences.getInstance();
+    state = prefs.getInt('download_concurrency') ?? 6;
+  }
+
+  Future<void> setPreference(int concurrency) async {
+    state = concurrency;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt('download_concurrency', concurrency);
+  }
+}
