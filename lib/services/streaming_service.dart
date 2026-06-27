@@ -76,6 +76,7 @@ class StreamingService {
           media.title ?? media.name ?? '', 
           season, 
           episode,
+          tmdbId: media.id.toString(),
           subDub: subDubPreference,
           onStatusUpdate: onStatusUpdate,
         );

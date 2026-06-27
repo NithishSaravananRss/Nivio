@@ -242,6 +242,22 @@ class TmdbService {
     return null;
   }
 
+  Future<String?> getSeasonName(int id, int seasonNumber) async {
+    final cacheKey = 'tv_${id}_season_$seasonNumber';
+    final cached = await _cache.getRaw(cacheKey);
+    if (cached != null) {
+      return cached['name'] as String?;
+    }
+    
+    try {
+      final response = await _dio.get('/3/tv/$id/season/$seasonNumber');
+      await _cache.set(cacheKey, response.data, ttl: CacheService.longCache);
+      return response.data['name'] as String?;
+    } catch (e) {
+      return null;
+    }
+  }
+
   Future<List<SearchResult>> getRecommendations(int mediaId, String mediaType) async {
     final cacheKey = 'recommendations_${mediaType}_$mediaId';
     final cached = await _cache.getRaw(cacheKey);
