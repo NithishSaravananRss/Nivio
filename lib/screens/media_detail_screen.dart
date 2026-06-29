@@ -1,5 +1,6 @@
 import 'dart:ui';
 import 'dart:convert';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:youtube_player_flutter/youtube_player_flutter.dart';
@@ -967,7 +968,8 @@ class _MediaDetailScreenState extends ConsumerState<MediaDetailScreen> {
     final base64DeepLink = base64.encode(bytes);
     
     // Build the redirect URL using our hosted HTML file
-    final redirectUrl = 'https://nirmaleeswar30.github.io/Nivio/redirect.html?url=$base64DeepLink';
+    final baseUrl = dotenv.env['SHARE_REDIRECT_URL'] ?? 'https://nirmaleeswar30.github.io/Nivio/redirect.html';
+    final redirectUrl = '$baseUrl?url=$base64DeepLink';
     
     final overview = media.overview != null && media.overview!.isNotEmpty 
         ? '\n\n${media.overview}' 

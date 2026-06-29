@@ -1,4 +1,6 @@
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:url_launcher/url_launcher.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:flutter_cache_manager/flutter_cache_manager.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -466,6 +468,20 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                                 title: "What's New",
                                 subtitle: 'See changes in ${snapshot.data ?? 'this version'}',
                                 onTap: () => _showChangelog(context, ref),
+                              );
+                            },
+                          ),
+                        if (_matches('sponsor donate support fund'))
+                          _buildActionTile(
+                            icon: Icons.favorite_rounded,
+                            title: 'Sponsor Nivio',
+                            subtitle: 'Support the development on GitHub',
+                            titleColor: Colors.pinkAccent,
+                            onTap: () {
+                              final sponsorUrl = dotenv.env['GITHUB_SPONSOR_URL'] ?? 'https://github.com/sponsors/nirmaleeswar30';
+                              launchUrl(
+                                Uri.parse(sponsorUrl),
+                                mode: LaunchMode.externalApplication,
                               );
                             },
                           ),

@@ -53,7 +53,6 @@ app.*.map.json
 
 # Environment files and secrets
 .env
-.env.*
 *.env
 
 # Private API keys (if you create this file)

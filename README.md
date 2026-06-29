@@ -99,13 +99,20 @@ Open `lib/core/constants.dart` and replace the `tmdbApiKey` variable with your o
 const String tmdbApiKey = 'YOUR_TMDB_API_KEY_HERE';
 ```
 
-### 5. Supabase Setup (Optional - Watch Parties)
-If you want to use the Watch Party feature, create a `.env` file in the root of the project:
+### 5. Environment Variables Setup (Optional)
+If you want to use the Watch Party feature, custom deep link sharing, or GitHub sponsors, create a `.env` file in the root of the project:
 ```env
+# Supabase Configuration for Watch Parties
 SUPABASE_URL=your_supabase_project_url
 SUPABASE_ANON_KEY=your_supabase_anon_key
+
+# Deep Link Configuration (URL where redirect.html is hosted)
+SHARE_REDIRECT_URL=https://yourusername.github.io/Nivio/redirect.html
+
+# Sponsor Configuration
+GITHUB_SPONSOR_URL=https://github.com/sponsors/yourusername
 ```
-*(If you skip this step, the app will still compile and run, but Watch Parties will be disabled in the UI).*
+*(If you skip this step, the app will still compile and run, but these features will either be disabled or use fallback placeholders).*
 
 ### 6. Run the App
 ```bash
