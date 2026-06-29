@@ -2,6 +2,21 @@
 
 All notable changes to this project will be documented in this file.
 
+## Nivio-v2.1.0
+
+### ✨ New Features & Enhancements
+*   🎉 **Watch Party Chats & Reactions:** The ultimate watch party experience is here! You can now chat in real-time and send live emoji reactions while watching movies perfectly synced with your friends!
+*   📱 **Picture-in-Picture (PiP) Support:** The highly anticipated PiP mode is here! Watch movies in a floating window while multitasking. What's even better? Watch Party sync works flawlessly while in PiP mode!
+*   🔗 **Cloudstream-Style Deep Link Sharing:** Say goodbye to broken share links! Sharing a movie or show now generates an elegant web-redirect link that works perfectly across all social apps and deep-links directly into the exact movie inside Nivio!
+*   ❤️ **GitHub Sponsors Integration:** You can now accept donations directly! A shiny new "Sponsor Nivio" button with a pink heart has been added to the Profile screen. (Your repository also has a sponsor button now thanks to the new `FUNDING.yml`!)
+
+### 🛠️ UI Tweaks & Improvements
+*   **Share Icon Repositioning:** Moved the share icon to a more convenient location alongside the other media action buttons for easier access.
+
+### 🐛 Bug Fixes
+*   **Auto-PiP Glitch Fixed:** Fixed an extremely annoying bug where the app would mistakenly enter Picture-in-Picture mode even after you fully backed out of the player and went to the home screen. PiP will now strictly only trigger if the video player is actually open!
+*   **System UI Navigation Fix:** Fixed a UI glitch where swiping back from the video player would cause the Android bottom navigation bar to permanently stick on the screen. The app now properly re-applies immersive mode to stay full-screen!
+
 ## NIvio-v2.0.0
 
 ### ✨ New Features & Enhancements
