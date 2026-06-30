@@ -751,9 +751,16 @@ class DownloadService {
         ffmpegArgs.addAll(['-map', '0']);
       }
       
-      // Copy video, but transcode audio to fresh AAC to guarantee valid headers for MediaCodec
-      ffmpegArgs.addAll(['-c:v', 'copy']);
-      ffmpegArgs.addAll(['-c:a', 'aac', '-b:a', '128k']);
+      final isAnimepahe = item.headers?['Referer']?.contains('kwik') == true;
+      
+      if (isAnimepahe) {
+        // Transcode audio to fresh AAC to guarantee valid headers for MediaCodec (Animepahe Kwik bug)
+        ffmpegArgs.addAll(['-c:v', 'copy']);
+        ffmpegArgs.addAll(['-c:a', 'aac', '-b:a', '128k']);
+      } else {
+        // Direct stream copy for normal series to ensure instant merging
+        ffmpegArgs.addAll(['-c', 'copy']);
+      }
       
       // Add output-specific muxing flags
       ffmpegArgs.addAll(['-max_muxing_queue_size', '9999']);
