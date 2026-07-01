@@ -548,7 +548,7 @@ class DownloadService {
 
     // Try parallel M3U8 downloading
     if (concurrency > 1) {
-       final success = await _downloadM3u8Parallel(item, filePath, resolvedVideoUrl, streams?.audioUrl, cancelToken, concurrency);
+       final success = await _downloadM3u8Parallel(item, filePath, resolvedVideoUrl, streams?.audioUrl, streams?.subtitleUrl, cancelToken, concurrency);
        if (success) {
          _completeDownload(item);
          return;
@@ -561,7 +561,7 @@ class DownloadService {
     await _downloadM3u8Sequential(item, filePath, resolvedVideoUrl, streams?.audioUrl, streams?.subtitleUrl, cancelToken);
   }
 
-  static Future<bool> _downloadM3u8Parallel(DownloadItem item, String filePath, String videoUrl, String? audioUrl, CancelToken cancelToken, int concurrency) async {
+  static Future<bool> _downloadM3u8Parallel(DownloadItem item, String filePath, String videoUrl, String? audioUrl, String? subtitleUrl, CancelToken cancelToken, int concurrency) async {
     try {
       appDebugLog('🎬 HLS: Fetching segments for $videoUrl');
       final videoSegments = await M3u8Parser.fetchSegments(videoUrl, item.headers);
@@ -773,6 +773,10 @@ class DownloadService {
       if (tempDir.existsSync()) tempDir.deleteSync(recursive: true);
 
       if (ReturnCode.isSuccess(returnCode)) {
+        if (subtitleUrl != null) {
+          final String srtFilePath = filePath.replaceAll(RegExp(r'\.[a-zA-Z0-9]+$'), '.srt');
+          await FFmpegKit.execute('-y -i "$subtitleUrl" -c:s srt "$srtFilePath"');
+        }
         return true;
       } else {
         final logs = await session.getLogsAsString();
