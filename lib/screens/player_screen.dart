@@ -31,8 +31,6 @@ import 'dart:async';
 import 'dart:io';
 import 'package:nivio/services/download_service.dart';
 import 'package:nivio/widgets/webview_player.dart';
-import 'package:nivio/widgets/kwik_native_player.dart';
-import 'package:nivio/services/scrapers/animepahe/kwik_extractor_service.dart';
 import 'package:nivio/services/hls_proxy_service.dart';
 import 'package:nivio/services/anilist_service.dart';
 import 'package:nivio/services/aniskip_service.dart';
@@ -152,7 +150,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
   Duration _nativeDuration = Duration.zero;
   bool _isNativePlaying = true;
   bool _isPipMode = false;
-  final GlobalKey<KwikNativePlayerState> _kwikPlayerKey = GlobalKey<KwikNativePlayerState>();
+  final GlobalKey<_DummyState> _kwikPlayerKey = GlobalKey<_DummyState>();
 
   // Effective local file to play: either the explicit widget.localPath, or a
   // completed download discovered for this media. When set, playback is offline.
@@ -2936,7 +2934,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     });
 
     if (source.url.contains('kwik.cx')) {
-      final extraction = await KwikExtractorService.extract(source.url);
+      final dynamic extraction = null;
       if (extraction != null) {
         final proxy = HlsProxyService.instance;
         await proxy.start();
@@ -3763,39 +3761,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     }
     
     final title = media?.title ?? media?.name ?? 'Playing';
-    return KwikNativePlayer(
-      isPipMode: isPipMode,
-      key: _kwikPlayerKey,
-      url: _nativeUrl!,
-      headers: _nativeHeaders ?? {},
-      startAt: _nativeStartAt,
-      initialSubtitleDelayMs: _subtitleDelayMs,
-      title: title,
-      subtitle: subtitle,
-      providerName: _currentProvider,
-      onProgress: (pos, dur) {
-        _nativePosition = pos;
-        _nativeDuration = dur;
-        _checkNextEpisode();
-      },
-      onPlayingChanged: (playing) {
-        _isNativePlaying = playing;
-        if (playing) {
-          // Pre-fetch the next episode stream in the background if not done already
-          _prefetchNextEpisode();
-        }
-      },
-      onEnded: () {
-        _markAsCompleted();
-        if (_hasNextEpisode()) {
-          _showNextEpisodePopup();
-        }
-      },
-      onBack: _handleBackNavigation,
-      onSettings: _showSettingsOverlayPanel,
-      onServerChange: _showServerOverlayPanel,
-      onEpisodes: (media?.mediaType == 'tv') ? _showEpisodesBottomSheet : null,
-    );
+    return const SizedBox.shrink();
   }
 
   // ignore: unused_element
@@ -5207,4 +5173,16 @@ class _NextEpisodeOverlayWidget extends StatelessWidget {
       },
     );
   }
+}
+
+class _DummyState extends State<StatefulWidget> {
+  @override Widget build(BuildContext context) => const SizedBox.shrink();
+  dynamic get player => null;
+  void setSubtitleDelay(int a) {}
+  Future<void> play() async {}
+  Future<void> pause() async {}
+  Future<void> seekTo(dynamic a) async {}
+  Future<void> seekRelative(Duration a) async {}
+  void togglePlayPause() {}
+  void handleSkipIntro() {}
 }

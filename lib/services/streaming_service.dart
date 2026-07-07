@@ -1,21 +1,19 @@
 import 'package:nivio/models/search_result.dart';
 import 'package:nivio/models/stream_result.dart';
 import 'package:nivio/core/debug_log.dart';
-import 'package:nivio/services/scrapers/animepahe/animepahe_scraper.dart';
+import 'package:nivio/services/scrapers/animetsu/animetsu_scraper.dart';
 import 'package:nivio/services/scrapers/newtv/newtv_scraper.dart';
 
 import 'package:nivio/services/tmdb_service.dart';
-import 'package:nivio/services/scrapers/animepahe/kwik_extractor_service.dart';
-import 'package:nivio/services/hls_proxy_service.dart';
 
 class StreamingService {
   final TmdbService tmdbService;
-  final AnimepaheScraperService animepaheScraper;
+  final AnimetsuScraperService animetsuScraper;
   final NetMirrorScraperService netMirrorScraper;
 
   StreamingService({
     required this.tmdbService,
-    required this.animepaheScraper,
+    required this.animetsuScraper,
     required this.netMirrorScraper,
   });
 
@@ -31,7 +29,7 @@ class StreamingService {
 
   // For anime, Animepahe is the primary (index 0) provider
   static const List<String> _animeProviders = [
-    'Kwik',
+    'Animetsu',
     ..._premiumProviders,
   ];
 
@@ -63,39 +61,18 @@ class StreamingService {
 
       final providerName = providersList[providerIndex];
       
-      // Handle Native Animepahe
-      if (providerName == 'Kwik') {
-        final streamResult = await animepaheScraper.fetchStreamUrl(
-          media.title ?? media.name ?? '', 
-          season, 
-          episode,
-          tmdbId: media.id.toString(),
-          media: media,
-          subDub: subDubPreference,
-          onStatusUpdate: onStatusUpdate,
+            // Handle Animetsu
+      if (providerName == 'Animetsu') {
+        final streamResult = await animetsuScraper.fetchStreamUrl(
+          tmdbId: media.id.toString(), // Anime media ID from Anilist
+          title: media.title ?? media.name ?? '',
+          mediaType: _isAnimeMedia(media) ? 'anime' : media.mediaType,
+          year: media.releaseDate?.split('-').firstOrNull ?? media.firstAirDate?.split('-').firstOrNull,
+          season: season,
+          episode: episode,
+          preferredAudio: preferredAudio ?? (subDubPreference == 'dub' ? 'english' : 'japanese'),
         );
-        
-        if (streamResult != null && streamResult.url.contains('kwik.cx')) {
-          onStatusUpdate?.call('Bypassing Cloudflare... (This takes a few seconds)');
-          final extraction = await KwikExtractorService.extract(streamResult.url);
-          if (extraction != null) {
-            final proxy = HlsProxyService.instance;
-            await proxy.start();
-            final proxiedUrl = proxy.getProxyUrl(extraction.m3u8Url, extraction.userAgent, extraction.cookies, referer: streamResult.url);
-            appDebugLog('🛡️ Kwik Proxy URL initialized: $proxiedUrl');
-            
-            return streamResult.copyWith(
-              url: proxiedUrl,
-              headers: {}, // Proxy handles headers internally via cronet
-              isM3U8: true,
-            );
-          } else {
-            appDebugLog('❌ Failed to extract Kwik stream via WebView');
-            return null; // Extraction failed
-          }
-        }
-        
-        return streamResult; // AnimepaheScraper natively returns StreamResult
+        return streamResult;
       }
 
       // Handle NewTV
@@ -209,6 +186,7 @@ class StreamingService {
     final providerName = getProviderName(providerIndex, isAnime: isAnime);
     if (providerName == 'NetMirror') return true;
     if (providerName == 'Kwik') return true;
+    if (providerName == 'Animetsu') return true;
     return false; // All other providers use WebView fallback
   }
 
@@ -216,6 +194,7 @@ class StreamingService {
     final providerName = getProviderName(providerIndex, isAnime: isAnime);
     // NewTV provides M3U8 streams which our custom downloader can parse and concatenate
     if (providerName == 'NetMirror') return true;
+    if (providerName == 'Animetsu') return true;
     
     // Animepahe returns Kwik embed URLs which we can extract via WebView
     if (providerName == 'Kwik') return true;

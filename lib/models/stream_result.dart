@@ -1,3 +1,4 @@
+import 'package:nivio/services/skip_times_models.dart';
 class SubtitleTrack {
   final String url;
   final String lang;
@@ -46,6 +47,7 @@ class StreamResult {
   final bool isM3U8;
   final Map<String, String> headers;
   final List<StreamSource> sources;
+  final List<SkipTime> skipTimes;
   Map<String, StreamResult>? preloadedSources;
 
   StreamResult({
@@ -59,6 +61,7 @@ class StreamResult {
     this.isM3U8 = false,
     this.headers = const {},
     this.sources = const [],
+    this.skipTimes = const [],
     this.preloadedSources,
   });
 

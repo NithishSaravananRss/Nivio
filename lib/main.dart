@@ -40,7 +40,6 @@ import 'package:nivio/screens/watch_party_screen.dart';
 import 'package:nivio/screens/iptv_screen.dart';
 import 'package:nivio/services/watch_party/watch_party_models.dart';
 import 'package:nivio/services/watch_party/watch_party_supabase_config.dart';
-import 'package:nivio/services/scrapers/animepahe/cloudflare_bypass_service.dart';
 import 'package:nivio/services/download_service.dart';
 
 void main() async {
@@ -345,7 +344,7 @@ class _NivioAppState extends ConsumerState<NivioApp> {
     // Initialize the background Cloudflare bypass service silently
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) {
-        ref.read(cloudflareBypassProvider).init();
+        // ref.read(cloudflareBypassProvider).init();
       }
     });
   }

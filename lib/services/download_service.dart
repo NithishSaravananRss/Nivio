@@ -17,8 +17,6 @@ import 'package:ffmpeg_kit_flutter_new/return_code.dart';
 import '../core/debug_log.dart';
 import 'package:nivio/models/download_item.dart';
 import 'package:nivio/services/m3u8_parser.dart';
-import 'package:nivio/services/scrapers/animepahe/kwik_extractor_service.dart';
-import 'package:nivio/services/hls_proxy_service.dart';
 import 'package:nivio/main.dart';
 
 @pragma('vm:entry-point')
@@ -233,21 +231,6 @@ class DownloadService {
 
     try {
       String streamUrl = item.streamUrl!;
-      
-      // If it's Animepahe Kwik embed URL, we need to extract the raw video link first
-      if (streamUrl.contains('kwik.cx/e/')) {
-        _updateStatus(item, DownloadStatus.extracting);
-        appDebugLog('🛡️ Animepahe Kwik link detected. Extracting raw video URL from: $streamUrl');
-        final extraction = await KwikExtractorService.extract(streamUrl);
-        if (extraction != null) {
-          final proxy = HlsProxyService.instance;
-          await proxy.start();
-          streamUrl = proxy.getProxyUrl(extraction.m3u8Url, extraction.userAgent, extraction.cookies, referer: streamUrl);
-          appDebugLog('🛡️ Kwik Download redirected to HTTP/2 proxy: $streamUrl');
-        } else {
-          throw Exception("Failed to extract Kwik video URL or bypass Cloudflare");
-        }
-      }
 
       _updateStatus(item, DownloadStatus.downloading);
 

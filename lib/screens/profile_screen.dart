@@ -20,7 +20,6 @@ import 'package:nivio/providers/changelog_provider.dart';
 import 'package:nivio/providers/home_layout_provider.dart';
 import 'package:nivio/services/episode_check_service.dart';
 import 'package:nivio/services/github_release_update_service.dart';
-import 'package:nivio/services/scrapers/animepahe/cloudflare_bypass_service.dart';
 import 'package:nivio/services/api_status_service.dart';
 import 'package:nivio/services/shorebird_update_service.dart';
 import 'package:package_info_plus/package_info_plus.dart';
@@ -584,15 +583,12 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
           const SizedBox(height: 6),
           Consumer(
             builder: (context, ref, _) {
-              final cfBypass = ref.watch(cloudflareBypassProvider);
               final apiStatus = ref.watch(apiStatusProvider);
               
-              final isBypassing = cfBypass.isBypassing;
-              final isReady = cfBypass.isReady;
               final isApiDown = apiStatus.anilistStatus == ApiServiceStatus.offline || apiStatus.newTvStatus == ApiServiceStatus.offline;
               
-              Color dotColor = Colors.grey;
-              String statusText = 'Disconnected';
+              Color dotColor = Colors.greenAccent;
+              String statusText = 'Services Online';
               
               if (isApiDown) {
                 dotColor = Colors.redAccent;
@@ -603,12 +599,6 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                 } else {
                   statusText = 'NetMirror Offline';
                 }
-              } else if (isBypassing) {
-                dotColor = Colors.orangeAccent;
-                statusText = 'Bypassing Cloudflare...';
-              } else if (isReady) {
-                dotColor = Colors.greenAccent;
-                statusText = 'Scraping engines ready';
               }
 
               return Row(

@@ -22,7 +22,6 @@ import 'package:nivio/providers/recommendations_provider.dart';
 import 'package:nivio/providers/watch_history_provider.dart';
 import 'package:nivio/providers/watchlist_provider.dart';
 import 'package:nivio/services/episode_check_service.dart';
-import 'package:nivio/services/scrapers/animepahe/cloudflare_bypass_service.dart';
 import 'package:nivio/services/api_status_service.dart';
 import 'package:nivio/widgets/changelog_dialog.dart';
 import 'package:nivio/widgets/content_row.dart';
@@ -785,11 +784,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   Widget _buildBypassIndicator(BuildContext context) {
     return Consumer(
       builder: (context, ref, child) {
-        final cfBypass = ref.watch(cloudflareBypassProvider);
         final apiStatus = ref.watch(apiStatusProvider);
         
-        final isBypassing = cfBypass.isBypassing;
-        final isReady = cfBypass.isReady;
         final isApiDown = apiStatus.anilistStatus == ApiServiceStatus.offline || apiStatus.newTvStatus == ApiServiceStatus.offline;
         
         Widget icon;
@@ -804,18 +800,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
            } else {
              tooltip = 'NetMirror API is Offline';
            }
-        } else if (isBypassing) {
-           icon = SizedBox(
-             width: 18, height: 18,
-             child: CircularProgressIndicator(strokeWidth: 2, color: NivioTheme.accentColorOf(context)),
-           );
-           tooltip = 'Bypassing Protections...';
-        } else if (isReady) {
-           icon = const PhosphorIcon(PhosphorIconsFill.shieldCheck, color: Colors.green, size: 22);
-           tooltip = 'All Protections Bypassed & APIs Online';
         } else {
-           icon = const PhosphorIcon(PhosphorIconsRegular.shieldWarning, color: Colors.amber, size: 22);
-           tooltip = 'Protection Bypass Pending';
+           return const SizedBox.shrink();
         }
         
         return Padding(
@@ -826,21 +812,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             position: PopupMenuPosition.under,
             color: const Color(0xFF1E2126),
             itemBuilder: (context) => [
-              PopupMenuItem(
-                value: 0,
-                child: Row(
-                  children: [
-                    cfBypass.isBypassing
-                      ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))
-                      : cfBypass.isReady
-                        ? const PhosphorIcon(PhosphorIconsFill.shieldCheck, color: Colors.green, size: 20)
-                        : const PhosphorIcon(PhosphorIconsRegular.shieldWarning, color: Colors.amber, size: 20),
-                    const SizedBox(width: 12),
-                    const Text('Animepahe', style: TextStyle(color: Colors.white)),
-                  ],
-                ),
-              ),
-
               PopupMenuItem(
                 value: 2,
                 child: Row(
@@ -868,16 +839,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
               ),
             ],
             onSelected: (value) {
-              if (value == 0) {
-                cfBypass.forceRefresh();
-                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Retrying Animepahe Bypass...')));
-              } else if (value == 2) {
+              if (value == 2 || value == 3) {
                 ref.read(apiStatusProvider.notifier).checkAll();
-                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Retrying AniList API...')));
-              } else if (value == 3) {
-                cfBypass.forceRefresh();
-                ref.read(apiStatusProvider.notifier).checkAll();
-                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Retrying All Services...')));
+                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Retrying APIs...')));
               }
             },
           ),

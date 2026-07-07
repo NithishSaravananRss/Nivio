@@ -3,7 +3,6 @@ import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 import 'package:nivio/core/theme.dart';
 import 'package:phosphoricons_flutter/phosphoricons_flutter.dart';
-import 'package:nivio/services/scrapers/animepahe/cloudflare_bypass_widget.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:nivio/services/github_release_update_service.dart';
 import 'package:nivio/widgets/changelog_dialog.dart';
@@ -145,9 +144,7 @@ class _MainShellScreenState extends ConsumerState<MainShellScreen> {
             // Foreground UI
             widget.navigationShell,
             // Background physical WebView for Cloudflare Turnstile bypass (drawn on top when needed)
-            const Positioned.fill(
-              child: CloudflareBypassWidget(),
-            ),
+            const Positioned.fill(child: SizedBox.shrink()),
           ],
         ),
         bottomNavigationBar: Container(
