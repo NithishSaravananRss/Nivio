@@ -46,6 +46,7 @@ class StreamResult {
   final bool isM3U8;
   final Map<String, String> headers;
   final List<StreamSource> sources;
+  Map<String, StreamResult>? preloadedSources;
 
   StreamResult({
     required this.url,
@@ -58,6 +59,7 @@ class StreamResult {
     this.isM3U8 = false,
     this.headers = const {},
     this.sources = const [],
+    this.preloadedSources,
   });
 
   StreamResult copyWith({
@@ -71,6 +73,7 @@ class StreamResult {
     bool? isM3U8,
     Map<String, String>? headers,
     List<StreamSource>? sources,
+    Map<String, StreamResult>? preloadedSources,
   }) {
     return StreamResult(
       url: url ?? this.url,
@@ -83,6 +86,7 @@ class StreamResult {
       isM3U8: isM3U8 ?? this.isM3U8,
       headers: headers ?? this.headers,
       sources: sources ?? this.sources,
+      preloadedSources: preloadedSources ?? this.preloadedSources,
     );
   }
 }

@@ -139,6 +139,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
   bool _isInIntroSegment = false;
   bool _isInOutroSegment = false;
   int _currentEpisode = 0;
+  String? _selectedAudioOverride;
   bool _isInFullscreen = false;
   Duration? _resumePosition;
   WatchHistory? _currentHistory;
@@ -268,8 +269,8 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     } catch (_) {}
     _currentEpisode = widget.episode;
     _currentProviderIndex = math.max(0, widget.providerIndex ?? 0);
+    _initializePlayer(isRetry: false);
     _initializeWatchParty();
-    _initializePlayer();
     SystemChrome.setPreferredOrientations([
       DeviceOrientation.landscapeLeft,
       DeviceOrientation.landscapeRight,
@@ -400,7 +401,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
   }
 
   // ├────────────────────────────────────────────────────────────────────────────────────────── Player initialization ──────────────────────────────────────────────────────────────────────────────────────────
-  Future<void> _initializePlayer() async {
+  Future<void> _initializePlayer({bool isRetry = true}) async {
     _autoFullscreenTriggeredForCurrentLoad = false;
     _useNativePlayer = false;
     _nativeUrl = null;
@@ -420,7 +421,8 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
       _currentHistory = await historyService.getHistory(widget.mediaId);
 
       // If the route didn't explicitly specify a provider, use the saved preference
-      if (widget.providerIndex == null && _currentHistory?.preferredProviderIndex != null) {
+      // Only do this if it's not a retry, so we don't infinitely loop back to a broken provider
+      if (!isRetry && widget.providerIndex == null && _currentHistory?.preferredProviderIndex != null) {
         _currentProviderIndex = _currentHistory!.preferredProviderIndex!;
       }
 
@@ -538,7 +540,14 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
       } else if (_prefetchedStreams.containsKey(_currentEpisode)) {
         // Use the silently prefetched stream to eliminate loading delays!
         result = _prefetchedStreams.remove(_currentEpisode);
+      } else if (_selectedAudioOverride != null && _streamResult?.preloadedSources?.containsKey(_selectedAudioOverride) == true) {
+        result = _streamResult!.preloadedSources![_selectedAudioOverride]!;
+        // Preserve the cache for future switches
+        result.preloadedSources = _streamResult!.preloadedSources;
       } else {
+        String? targetAudio = _selectedAudioOverride ?? _currentHistory?.preferredAudioTrack ?? ref.read(preferredAudioLanguageProvider);
+        if (targetAudio == 'Original') targetAudio = null;
+
         result = await streamingService.fetchStreamUrl(
           media: media!,
           season: widget.season,
@@ -546,6 +555,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
           preferredQuality: preferredQuality,
           providerIndex: _currentProviderIndex,
           subDubPreference: subDubPref,
+          preferredAudio: targetAudio,
           onStatusUpdate: (msg) {
             if (mounted) {
               setState(() => _loadingMessage = msg);
@@ -559,7 +569,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
           _currentProviderIndex++;
           setState(() => _error = 'Provider unavailable, trying next...');
           await Future.delayed(const Duration(milliseconds: 500));
-          _initializePlayer();
+          _initializePlayer(isRetry: true);
           return;
         }
         throw Exception('Failed to get stream URL from all providers');
@@ -576,6 +586,10 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
             );
       
       _trackInitialPlay();
+
+      if (media != null) {
+        _preloadAvailableAudios(result, media);
+      }
 
       // Embed providers use WebView
       if (!_isDirectStream) {
@@ -867,7 +881,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
         _currentProviderIndex++;
         setState(() => _error = 'Switching to next provider...');
         await Future.delayed(const Duration(milliseconds: 500));
-        _initializePlayer();
+        _initializePlayer(isRetry: true);
         return;
       }
 
@@ -876,8 +890,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
               e.toString().contains('timeout'))) {
         await Future.delayed(const Duration(seconds: 2));
         _retryCount++;
-        _currentProviderIndex = 0;
-        _initializePlayer();
+        _initializePlayer(isRetry: true);
       }
     }
   }
@@ -1803,7 +1816,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
         preferredQuality: preferredQuality,
         providerIndex: _currentProviderIndex,
         subDubPreference: subDubPref,
-        onStatusUpdate: null, // Silently fetch
+        preferredAudio: _selectedAudioOverride,
       );
       
       if (result != null && mounted) {
@@ -2332,8 +2345,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     }
     
     if (!_isDirectStream && _streamResult != null && _streamResult!.sources.isNotEmpty) {
-      final currentAudio = ref.read(languagePreferencesProvider).animePreferredAudio.toLowerCase();
-      final isDubTarget = currentAudio == 'dub';
+      final isDubTarget = _streamResult!.selectedAudio.toLowerCase() == 'dub';
       
       StreamSource? bestMatch;
       if (normalizedTarget == 'auto') {
@@ -2380,7 +2392,10 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     await _betterPlayerController!.play();
   }
 
-  bool _isAimiAnimeStream() {
+  bool _hasAudioSelection() {
+    if (_streamResult != null && _streamResult!.availableAudios.isNotEmpty) {
+      return true;
+    }
     final provider = (_streamResult?.provider ?? '').toLowerCase();
     if (provider.isEmpty) return false;
     return provider.startsWith('aimi-') ||
@@ -2399,94 +2414,107 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
 
 
 
-  List<PopupMenuEntry<String>> _buildAnimeModeMenuItems() {
-    final selected = ref.read(languagePreferencesProvider).animePreferredAudio.toLowerCase();
-    final modes = const ['sub', 'dub'];
 
-    return modes.map((mode) {
-      final isSelected = mode == selected;
-      return PopupMenuItem<String>(
-        value: mode,
-        child: Row(
-          children: [
-            Icon(
-              isSelected ? Icons.check_circle : Icons.circle_outlined,
-              color: isSelected
-                  ? NivioTheme.accentColorOf(context)
-                  : Colors.white70,
-              size: 18,
-            ),
-            const SizedBox(width: 12),
-            Text(
-              mode == 'dub' ? 'DUB' : 'SUB',
-              style: TextStyle(
-                color: isSelected
-                    ? NivioTheme.accentColorOf(context)
-                    : Colors.white,
-                fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-              ),
-            ),
-          ],
-        ),
-      );
-    }).toList();
-  }
+  Future<void> _switchAudioMode(String audioOption) async {
+    final availableAudios = _streamResult?.availableAudios ?? [];
+    
+    // Anime fallback logic
+    if (availableAudios.isEmpty) {
+      final target = audioOption.toLowerCase() == 'dub' ? 'dub' : 'sub';
+      final current = ref.read(languagePreferencesProvider).animePreferredAudio.toLowerCase();
+      if (target == current) return;
 
-  Future<void> _switchAnimeMode(String mode) async {
-    final target = mode.toLowerCase() == 'dub' ? 'dub' : 'sub';
-    final current = ref.read(languagePreferencesProvider).animePreferredAudio.toLowerCase();
-    if (target == current) return;
+      final currentPosition = _isDirectStream
+          ? _betterPlayerController?.videoPlayerController?.value.position
+          : _webViewPosition;
+      await _saveProgress();
+      
+      await ref.read(languagePreferencesProvider.notifier).setAnimePreferredAudio(target);
+      ref.read(selectedQualityProvider.notifier).state = null;
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Switching to ${target.toUpperCase()}'),
+            duration: const Duration(seconds: 2),
+            backgroundColor: NivioTheme.accentColorOf(context),
+          ),
+        );
+      }
+      
+      if (!_isDirectStream && _streamResult != null && _streamResult!.sources.isNotEmpty) {
+        final isDubTarget = target == 'dub';
+        StreamSource? bestMatch = _streamResult!.sources.firstWhere(
+          (s) => s.isDub == isDubTarget,
+          orElse: () => _streamResult!.sources.first,
+        );
+        
+        setState(() {
+          _streamResult = _streamResult!.copyWith(
+            url: bestMatch.url,
+            quality: bestMatch.quality,
+            selectedAudio: target,
+          );
+        });
+        return;
+      }
+
+      _disposePlayer();
+      setState(() {
+        _isLoading = true;
+        _error = null;
+        _retryCount = 0;
+        _streamResult = null;
+        _webViewPosition = currentPosition ?? Duration.zero; 
+      });
+
+      await _initializePlayer();
+      
+      if (!mounted || currentPosition == null || _betterPlayerController?.isVideoInitialized() != true) return;
+      await _betterPlayerController!.seekTo(currentPosition);
+      await _betterPlayerController!.play();
+      return;
+    }
+
+    // Dynamic languages from scraper logic (NetMirror)
+    final currentAudio = _streamResult?.selectedAudio ?? '';
+    if (audioOption.toLowerCase() == currentAudio.toLowerCase()) return;
 
     final currentPosition = _isDirectStream
         ? _betterPlayerController?.videoPlayerController?.value.position
         : _webViewPosition;
     await _saveProgress();
     
-    await ref.read(languagePreferencesProvider.notifier).setAnimePreferredAudio(target);
+    _selectedAudioOverride = audioOption;
     ref.read(selectedQualityProvider.notifier).state = null;
+    ref.read(watchHistoryServiceProvider).saveTrackPreferences(widget.mediaId, audioTrack: audioOption);
 
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Switching to ${target.toUpperCase()}'),
+          content: Text('Switching to $audioOption...'),
           duration: const Duration(seconds: 2),
           backgroundColor: NivioTheme.accentColorOf(context),
         ),
       );
     }
-    
-    if (!_isDirectStream && _streamResult != null && _streamResult!.sources.isNotEmpty) {
-      final isDubTarget = target == 'dub';
-      StreamSource? bestMatch = _streamResult!.sources.firstWhere(
-        (s) => s.isDub == isDubTarget,
-        orElse: () => _streamResult!.sources.first,
-      );
-      
-      setState(() {
-        _streamResult = _streamResult!.copyWith(
-          url: bestMatch.url,
-          quality: bestMatch.quality,
-          selectedAudio: target,
-        );
-      });
-      return;
-    }
+
+    final hasPreloaded = _streamResult?.preloadedSources?.containsKey(audioOption) == true;
 
     _disposePlayer();
     setState(() {
       _isLoading = true;
       _error = null;
       _retryCount = 0;
-      _streamResult = null;
+      if (!hasPreloaded) {
+        _streamResult = null;
+      }
+      _webViewPosition = currentPosition ?? Duration.zero; 
     });
 
     await _initializePlayer();
-
-    if (!mounted ||
-        currentPosition == null ||
-        _betterPlayerController?.isVideoInitialized() != true) {
-      return;
-    }
+    
+    if (!mounted || currentPosition == null || _betterPlayerController?.isVideoInitialized() != true) return;
     await _betterPlayerController!.seekTo(currentPosition);
     await _betterPlayerController!.play();
   }
@@ -2577,46 +2605,10 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
 
   List<Widget> _buildProviderListTiles(SearchResult? media) {
     final List<Widget> widgets = [];
-    List<int> currentNewTvGroup = [];
-    
-    void flushNewTvGroup() {
-      if (currentNewTvGroup.isEmpty) return;
-      final isAnyNewTvCurrent = currentNewTvGroup.contains(_currentProviderIndex);
-      widgets.add(
-        Theme(
-          data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
-          child: ExpansionTile(
-            initiallyExpanded: isAnyNewTvCurrent,
-            iconColor: Theme.of(context).primaryColor,
-            collapsedIconColor: Colors.white54,
-            title: Padding(
-              padding: const EdgeInsets.only(left: 4.0),
-              child: Text(
-                'NewTV Premium',
-                style: TextStyle(
-                  color: isAnyNewTvCurrent ? Theme.of(context).primaryColor : Colors.white,
-                  fontWeight: isAnyNewTvCurrent ? FontWeight.bold : FontWeight.normal,
-                  fontSize: 16,
-                ),
-              ),
-            ),
-            children: currentNewTvGroup.map((index) => _buildSingleProviderTile(index, media, isSubItem: true)).toList(),
-          ),
-        ),
-      );
-      currentNewTvGroup = [];
-    }
 
     for (int i = 0; i < _maxProviders; i++) {
-      final name = StreamingService.getProviderName(i, isAnime: _isAnimeMedia(media));
-      if (name.startsWith('NewTV')) {
-        currentNewTvGroup.add(i);
-      } else {
-        flushNewTvGroup();
-        widgets.add(_buildSingleProviderTile(i, media, isSubItem: false));
-      }
+      widgets.add(_buildSingleProviderTile(i, media, isSubItem: false));
     }
-    flushNewTvGroup();
 
     return widgets;
   }
@@ -3156,7 +3148,35 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
                                       leading: const Icon(Icons.audiotrack),
                                       title: const Text('AUDIO', style: TextStyle(color: Colors.white54, fontSize: 12, fontWeight: FontWeight.bold, letterSpacing: 1.2)),
                                       children: [
-                                        if (isNative) ...[
+                                        if (_hasAudioSelection()) ...[
+                                          if ((_streamResult?.availableAudios ?? []).isNotEmpty) ...[
+                                            ...(_streamResult!.availableAudios).map((audio) {
+                                              final isCurrent = audio.toLowerCase() == (_streamResult!.selectedAudio).toLowerCase();
+                                              return ListTile(
+                                                contentPadding: const EdgeInsets.symmetric(horizontal: 24.0),
+                                                title: Text(audio, style: TextStyle(color: isCurrent ? Theme.of(context).primaryColor : Colors.white)),
+                                                trailing: isCurrent ? Icon(Icons.check, color: Theme.of(context).primaryColor) : null,
+                                                onTap: () {
+                                                  Navigator.pop(context);
+                                                  _switchAudioMode(audio);
+                                                },
+                                              );
+                                            }),
+                                          ] else ...[
+                                            ...['sub', 'dub'].map((mode) {
+                                              final isCurrent = mode == ref.read(languagePreferencesProvider).animePreferredAudio.toLowerCase();
+                                              return ListTile(
+                                                contentPadding: const EdgeInsets.symmetric(horizontal: 24.0),
+                                                title: Text(mode == 'dub' ? 'DUB' : 'SUB', style: TextStyle(color: isCurrent ? Theme.of(context).primaryColor : Colors.white)),
+                                                trailing: isCurrent ? Icon(Icons.check, color: Theme.of(context).primaryColor) : null,
+                                                onTap: () {
+                                                  Navigator.pop(context);
+                                                  _switchAudioMode(mode);
+                                                },
+                                              );
+                                            }),
+                                          ],
+                                        ] else if (isNative) ...[
                                           ...nativeAudios.map((audioLabel) {
                                             final isDubTarget = audioLabel == 'Dub';
                                             final isCurrent = nativeCurrentSource?.isDub == isDubTarget;
@@ -3178,13 +3198,14 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
                                               },
                                             );
                                           }),
-                                        ] else if (audioTracks.isEmpty)
+                                        ] else if (audioTracks.isEmpty) ...[
                                           ListTile(
                                             contentPadding: const EdgeInsets.symmetric(horizontal: 24.0),
                                             title: Text(_localAudioLang, style: TextStyle(color: Theme.of(context).primaryColor)),
                                             trailing: Icon(Icons.check, color: Theme.of(context).primaryColor),
                                           ),
-                                        ...audioTracks.map((track) {
+                                        ] else ...[
+                                          ...audioTracks.map((track) {
                                             final isCurrent = currentAudioTrack == track;
                                             final label = track.label ?? track.language ?? 'Audio ${track.id ?? ""}';
                                             return ListTile(
@@ -3199,8 +3220,9 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
                                             );
                                           }),
                                         ],
-                                      ),
+                                      ],
                                     ),
+                                  ),
                                   Theme(
                                     data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
                                     child: ExpansionTile(
@@ -3492,10 +3514,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
                       _buildQualityFloatingButton(),
                       const SizedBox(width: 8),
                     ],
-                    if (_isAimiAnimeStream()) ...[
-                      _buildAudioFloatingButton(),
-                      const SizedBox(width: 8),
-                    ],
+
                     _buildServerFloatingButton(),
                     if (ref.read(selectedMediaProvider)?.mediaType == 'tv') ...[
                       const SizedBox(width: 8),
@@ -3585,29 +3604,6 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     );
   }
 
-  Widget _buildAudioFloatingButton() {
-    return Material(
-      color: Colors.black54,
-      borderRadius: BorderRadius.circular(8),
-      child: PopupMenuButton<String>(
-        tooltip: 'Audio',
-        onSelected: _switchAnimeMode,
-        itemBuilder: (context) => _buildAnimeModeMenuItems(),
-        offset: const Offset(0, 40),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: const [
-              Icon(Icons.record_voice_over, color: Colors.white, size: 20),
-              SizedBox(width: 6),
-              Text('Audio', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
 
   void _handlePlayerEvent(String event, double currentTime, double duration) {
     if (!mounted) return;
@@ -3959,17 +3955,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
                                   size: 20,
                                 ),
                               ),
-                            if (_isAimiAnimeStream())
-                              _buildTopActionMenuButton<String>(
-                                menuId: 'fs-subdub-menu',
-                                icon: Icon(
-                                  Icons.record_voice_over,
-                                  color: Colors.white,
-                                ),
-                                tooltip: 'Sub/Dub',
-                                itemBuilder: _buildAnimeModeMenuItems,
-                                onSelected: _switchAnimeMode,
-                              ),
+
                              if (_buildQualityOptions().length > 1)
                               _buildTopActionMenuButton<String>(
                                 menuId: 'fs-quality-menu',
@@ -4448,6 +4434,45 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
   // ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ WebView player (embed fallback) ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬
 
   // ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ BetterPlayer widget ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬
+  Future<void> _preloadAvailableAudios(StreamResult currentResult, SearchResult media) async {
+    if (currentResult.availableAudios.isEmpty || !_isDirectStream) return;
+    
+    final streamingService = ref.read(streamingServiceProvider);
+    currentResult.preloadedSources ??= {};
+    
+    final settingsQuality = ref.read(videoQualityProvider);
+    final manualQuality = ref.read(selectedQualityProvider);
+    final preferredQuality = manualQuality ?? (settingsQuality == 'auto' ? null : settingsQuality);
+
+    for (final audio in currentResult.availableAudios) {
+      if (audio.toLowerCase() == currentResult.selectedAudio.toLowerCase()) {
+         continue;
+      }
+      
+      if (!mounted || _currentProvider != currentResult.provider) break;
+      
+      try {
+        final preloadedResult = await streamingService.fetchStreamUrl(
+          media: media,
+          season: widget.season,
+          episode: _currentEpisode,
+          preferredQuality: preferredQuality,
+          providerIndex: _currentProviderIndex,
+          subDubPreference: ref.read(languagePreferencesProvider).animePreferredAudio,
+          preferredAudio: audio,
+          onStatusUpdate: null,
+        );
+        
+        if (preloadedResult != null && preloadedResult.url.isNotEmpty && mounted) {
+           currentResult.preloadedSources![audio] = preloadedResult;
+           print('Preloaded audio: $audio');
+        }
+      } catch (e) {
+        print('Failed to preload audio $audio: $e');
+      }
+    }
+  }
+
   Widget _buildVideoPlayer({bool isPipMode = false}) {
     return RepaintBoundary(
       child: BetterPlayer(controller: _betterPlayerController!),

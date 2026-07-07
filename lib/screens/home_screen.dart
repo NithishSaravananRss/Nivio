@@ -23,7 +23,6 @@ import 'package:nivio/providers/watch_history_provider.dart';
 import 'package:nivio/providers/watchlist_provider.dart';
 import 'package:nivio/services/episode_check_service.dart';
 import 'package:nivio/services/scrapers/animepahe/cloudflare_bypass_service.dart';
-import 'package:nivio/services/scrapers/newtv/newtv_bypass_service.dart';
 import 'package:nivio/services/api_status_service.dart';
 import 'package:nivio/widgets/changelog_dialog.dart';
 import 'package:nivio/widgets/content_row.dart';
@@ -787,11 +786,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     return Consumer(
       builder: (context, ref, child) {
         final cfBypass = ref.watch(cloudflareBypassProvider);
-        final newTvBypass = ref.watch(newTvBypassProvider);
         final apiStatus = ref.watch(apiStatusProvider);
         
-        final isBypassing = cfBypass.isBypassing || newTvBypass.isBypassing;
-        final isReady = cfBypass.isReady && newTvBypass.isReady;
+        final isBypassing = cfBypass.isBypassing;
+        final isReady = cfBypass.isReady;
         final isApiDown = apiStatus.anilistStatus == ApiServiceStatus.offline || apiStatus.newTvStatus == ApiServiceStatus.offline;
         
         Widget icon;
@@ -800,11 +798,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         if (isApiDown) {
            icon = const PhosphorIcon(PhosphorIconsFill.warningCircle, color: Colors.red, size: 22);
            if (apiStatus.anilistStatus == ApiServiceStatus.offline && apiStatus.newTvStatus == ApiServiceStatus.offline) {
-             tooltip = 'Both AniList & NewTV APIs are Offline';
+             tooltip = 'Both AniList & NetMirror APIs are Offline';
            } else if (apiStatus.anilistStatus == ApiServiceStatus.offline) {
              tooltip = 'AniList API is Offline';
            } else {
-             tooltip = 'NewTV API is Offline';
+             tooltip = 'NetMirror API is Offline';
            }
         } else if (isBypassing) {
            icon = SizedBox(
@@ -842,20 +840,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                   ],
                 ),
               ),
-              PopupMenuItem(
-                value: 1,
-                child: Row(
-                  children: [
-                    newTvBypass.isBypassing
-                      ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))
-                      : newTvBypass.isReady
-                        ? const PhosphorIcon(PhosphorIconsFill.shieldCheck, color: Colors.green, size: 20)
-                        : const PhosphorIcon(PhosphorIconsRegular.shieldWarning, color: Colors.amber, size: 20),
-                    const SizedBox(width: 12),
-                    const Text('NewTV', style: TextStyle(color: Colors.white)),
-                  ],
-                ),
-              ),
+
               PopupMenuItem(
                 value: 2,
                 child: Row(
@@ -886,15 +871,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
               if (value == 0) {
                 cfBypass.forceRefresh();
                 ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Retrying Animepahe Bypass...')));
-              } else if (value == 1) {
-                newTvBypass.forceRefresh();
-                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Retrying NewTV Bypass...')));
               } else if (value == 2) {
                 ref.read(apiStatusProvider.notifier).checkAll();
                 ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Retrying AniList API...')));
               } else if (value == 3) {
                 cfBypass.forceRefresh();
-                newTvBypass.forceRefresh();
                 ref.read(apiStatusProvider.notifier).checkAll();
                 ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Retrying All Services...')));
               }

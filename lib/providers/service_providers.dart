@@ -27,10 +27,7 @@ final aniListServiceProvider = Provider((ref) => AniListService());
 final streamingServiceProvider = Provider((ref) => StreamingService(
   tmdbService: ref.read(tmdbServiceProvider),
   animepaheScraper: ref.read(animepaheScraperProvider),
-  newTvNetflixScraper: ref.read(newTvNetflixScraperProvider),
-  newTvPrimeScraper: ref.read(newTvPrimeScraperProvider),
-  newTvHotstarScraper: ref.read(newTvHotstarScraperProvider),
-  newTvDisneyScraper: ref.read(newTvDisneyScraperProvider),
+  netMirrorScraper: ref.read(netMirrorScraperProvider),
 ));
 
 final watchHistoryServiceProvider = Provider((ref) => WatchHistoryService());

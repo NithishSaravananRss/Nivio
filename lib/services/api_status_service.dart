@@ -68,7 +68,7 @@ class ApiStatusNotifier extends StateNotifier<ApiStatusState> {
   Future<void> _checkNewTv() async {
     try {
       final dio = Dio(BaseOptions(validateStatus: (status) => true, connectTimeout: const Duration(seconds: 5)));
-      final response = await dio.get('https://net52.cc');
+      final response = await dio.get('https://net11.cc');
       // For NewTV, 200 means ok, 403 means cloudflare is up (which we can bypass). 
       // 5xx means the origin server is down.
       if (response.statusCode == 200 || response.statusCode == 403) {

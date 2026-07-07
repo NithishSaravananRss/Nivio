@@ -11,26 +11,16 @@ import 'package:nivio/services/hls_proxy_service.dart';
 class StreamingService {
   final TmdbService tmdbService;
   final AnimepaheScraperService animepaheScraper;
-  final NewTvScraperService newTvNetflixScraper;
-  final NewTvScraperService newTvPrimeScraper;
-  final NewTvScraperService newTvHotstarScraper;
-  final NewTvScraperService newTvDisneyScraper;
+  final NetMirrorScraperService netMirrorScraper;
 
   StreamingService({
     required this.tmdbService,
     required this.animepaheScraper,
-    required this.newTvNetflixScraper,
-    required this.newTvPrimeScraper,
-    required this.newTvHotstarScraper,
-    required this.newTvDisneyScraper,
+    required this.netMirrorScraper,
   });
 
   static const List<String> _premiumProviders = [
-    'NewTV (Auto)',
-    'NewTV (Netflix)',
-    'NewTV (Hotstar)',
-    'NewTV (Prime Video)',
-    'NewTV (Disney+)',
+    'NetMirror',
     'VidUp (FAST)',
     'VidLink',
     'VidCore (ACTIVE)',
@@ -55,6 +45,7 @@ class StreamingService {
     int providerIndex = 0,
     bool autoSkipIntro = true,
     String subDubPreference = 'sub',
+    String? preferredAudio,
     void Function(String)? onStatusUpdate,
   }) async {
     try {
@@ -108,54 +99,25 @@ class StreamingService {
       }
 
       // Handle NewTV
-      if (providerName.startsWith('NewTV')) {
+      // Handle NetMirror
+      if (providerName == 'NetMirror') {
         final tmdbId = media.id.toString();
         final title = media.title ?? media.name ?? '';
         final type = _isAnimeMedia(media) ? 'tv' : media.mediaType;
         final year = media.releaseDate?.split('-').firstOrNull ?? media.firstAirDate?.split('-').firstOrNull;
-        final audio = subDubPreference == 'dub' ? 'english' : 'japanese';
+        
+        // Use preferredAudio if provided, else fallback to Anime's subDub logic for english/japanese
+        final audio = preferredAudio ?? (subDubPreference == 'dub' ? 'english' : 'japanese');
 
-        if (providerName == 'NewTV (Auto)') {
-          String? primaryOtt;
-          try {
-            final tmdbInt = int.tryParse(tmdbId);
-            if (tmdbInt != null) {
-              primaryOtt = await tmdbService.getPrimaryNewTvProvider(tmdbInt, type);
-              appDebugLog('NewTV (Auto): TMDB primary OTT resolved to $primaryOtt');
-            }
-          } catch (e) {
-            appDebugLog('NewTV (Auto): Failed to resolve TMDB primary OTT: $e');
-          }
-
-          if (primaryOtt == 'nf') {
-            return await newTvNetflixScraper.fetchStreamUrl(tmdbId: tmdbId, title: title, mediaType: type, year: year, season: season, episode: episode, preferredAudio: audio);
-          } else if (primaryOtt == 'dp') {
-            return await newTvDisneyScraper.fetchStreamUrl(tmdbId: tmdbId, title: title, mediaType: type, year: year, season: season, episode: episode, preferredAudio: audio);
-          } else if (primaryOtt == 'pv') {
-            return await newTvPrimeScraper.fetchStreamUrl(tmdbId: tmdbId, title: title, mediaType: type, year: year, season: season, episode: episode, preferredAudio: audio);
-          } else if (primaryOtt == 'hs') {
-            return await newTvHotstarScraper.fetchStreamUrl(tmdbId: tmdbId, title: title, mediaType: type, year: year, season: season, episode: episode, preferredAudio: audio);
-          } else {
-            appDebugLog('NewTV (Auto): TMDB fallback, doing parallel search');
-            // Fallback to parallel fetch if TMDB doesn't list a supported OTT
-            final results = await Future.wait([
-              newTvNetflixScraper.fetchStreamUrl(tmdbId: tmdbId, title: title, mediaType: type, year: year, season: season, episode: episode, preferredAudio: audio),
-              newTvDisneyScraper.fetchStreamUrl(tmdbId: tmdbId, title: title, mediaType: type, year: year, season: season, episode: episode, preferredAudio: audio),
-              newTvPrimeScraper.fetchStreamUrl(tmdbId: tmdbId, title: title, mediaType: type, year: year, season: season, episode: episode, preferredAudio: audio),
-              newTvHotstarScraper.fetchStreamUrl(tmdbId: tmdbId, title: title, mediaType: type, year: year, season: season, episode: episode, preferredAudio: audio),
-            ]);
-            // Return the first successful result
-            return results.firstWhere((r) => r != null, orElse: () => null);
-          }
-        } else if (providerName == 'NewTV (Netflix)') {
-          return await newTvNetflixScraper.fetchStreamUrl(tmdbId: tmdbId, title: title, mediaType: type, year: year, season: season, episode: episode, preferredAudio: audio);
-        } else if (providerName == 'NewTV (Hotstar)') {
-          return await newTvHotstarScraper.fetchStreamUrl(tmdbId: tmdbId, title: title, mediaType: type, year: year, season: season, episode: episode, preferredAudio: audio);
-        } else if (providerName == 'NewTV (Prime Video)') {
-          return await newTvPrimeScraper.fetchStreamUrl(tmdbId: tmdbId, title: title, mediaType: type, year: year, season: season, episode: episode, preferredAudio: audio);
-        } else if (providerName == 'NewTV (Disney+)') {
-          return await newTvDisneyScraper.fetchStreamUrl(tmdbId: tmdbId, title: title, mediaType: type, year: year, season: season, episode: episode, preferredAudio: audio);
-        }
+        return await netMirrorScraper.fetchStreamUrl(
+          tmdbId: tmdbId, 
+          title: title, 
+          mediaType: type, 
+          year: year, 
+          season: season, 
+          episode: episode, 
+          preferredAudio: audio
+        );
       }
 
       // Handle standard 7reels providers
@@ -245,7 +207,7 @@ class StreamingService {
 
   static bool isDirectStream(int providerIndex, {required bool isAnime}) {
     final providerName = getProviderName(providerIndex, isAnime: isAnime);
-    if (providerName.startsWith('NewTV')) return true;
+    if (providerName == 'NetMirror') return true;
     if (providerName == 'Kwik') return true;
     return false; // All other providers use WebView fallback
   }
@@ -253,7 +215,7 @@ class StreamingService {
   static bool isDownloadable(int providerIndex, {required bool isAnime}) {
     final providerName = getProviderName(providerIndex, isAnime: isAnime);
     // NewTV provides M3U8 streams which our custom downloader can parse and concatenate
-    if (providerName.startsWith('NewTV')) return true;
+    if (providerName == 'NetMirror') return true;
     
     // Animepahe returns Kwik embed URLs which we can extract via WebView
     if (providerName == 'Kwik') return true;
