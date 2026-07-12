@@ -26,6 +26,7 @@ dependencies:
   # UI
   cached_network_image: ^3.4.1
   flutter_svg: ^2.2.1
+  lucide_flutter: ^1.23.0
 
 dev_dependencies:
   flutter_test:

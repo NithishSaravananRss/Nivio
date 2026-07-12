@@ -6,7 +6,18 @@ import '../widgets/inputs/search_bar.dart';
 
 /// Top application bar for the desktop shell.
 class DesktopTopbar extends StatelessWidget {
-  const DesktopTopbar({super.key});
+  const DesktopTopbar({
+    super.key,
+    this.searchController,
+    this.searchFocusNode,
+    this.onSearchChanged,
+    this.onSearchSubmitted,
+  });
+
+  final TextEditingController? searchController;
+  final FocusNode? searchFocusNode;
+  final ValueChanged<String>? onSearchChanged;
+  final ValueChanged<String>? onSearchSubmitted;
 
   @override
   Widget build(BuildContext context) {
@@ -32,9 +43,13 @@ class DesktopTopbar extends StatelessWidget {
                 alignment: Alignment.centerLeft,
                 child: ConstrainedBox(
                   constraints: const BoxConstraints(maxWidth: 760),
-                  child: const SearchBar(
+                  child: SearchBar(
+                    controller: searchController,
+                    focusNode: searchFocusNode,
                     hintText: 'Search movies, series, anime',
                     semanticLabel: 'Global search',
+                    onChanged: onSearchChanged,
+                    onSubmitted: onSearchSubmitted,
                   ),
                 ),
               ),
@@ -52,16 +67,6 @@ class DesktopTopbar extends StatelessWidget {
                   icon: Icon(Icons.system_update_alt_outlined),
                   semanticLabel: 'Updates',
                   tooltip: 'Updates',
-                ),
-                IconActionButton(
-                  icon: Icon(Icons.palette_outlined),
-                  semanticLabel: 'Theme',
-                  tooltip: 'Theme',
-                ),
-                IconActionButton(
-                  icon: Icon(Icons.account_circle_outlined),
-                  semanticLabel: 'Profile',
-                  tooltip: 'Profile',
                 ),
               ],
             ),

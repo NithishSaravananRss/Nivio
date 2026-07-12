@@ -43,8 +43,6 @@ class _SearchBarState extends State<SearchBar> {
   @override
   Widget build(BuildContext context) {
     return FocusableActionDetector(
-      focusNode: widget.focusNode,
-      autofocus: widget.autofocus,
       onShowFocusHighlight: (value) => setState(() => _hasFocus = value),
       child: AnimatedContainer(
         duration: AppAnimation.hover,

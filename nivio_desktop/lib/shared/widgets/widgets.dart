@@ -27,6 +27,7 @@ export 'feedback/loading_view.dart';
 export 'feedback/network_error_view.dart';
 export 'inputs/search_bar.dart';
 export 'layout/media_rail.dart';
+export 'layout/media_grid.dart';
 export 'layout/page_container.dart';
 export 'layout/responsive_grid.dart';
 export 'layout/responsive_wrap.dart';
