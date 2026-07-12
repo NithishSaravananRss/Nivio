@@ -17,9 +17,7 @@ migrate_working_dir/
 *.ipr
 *.iws
 .idea/
-MIGRATION_REPORT.md
-NETWORKING_MIGRATION_REPORT.md
-DATA_LAYER_REPORT.md
+
 
 # The .vscode folder contains launch configuration and tasks you configure in
 # VS Code which you may wish to be included in version control, so this line
@@ -46,3 +44,8 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+
+# .md 
+MIGRATION_REPORT.md
+NETWORKING_MIGRATION_REPORT.md
+DATA_LAYER_REPORT.md
