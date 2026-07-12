@@ -52,18 +52,32 @@ class SearchToolbar extends StatelessWidget {
           tooltip: 'Sort',
           onSelected: onSortSelected,
           itemBuilder: (context) => const [
-            PopupMenuItem(value: SearchSortOption.defaultOrder, child: Text('Default')),
+            PopupMenuItem(
+              value: SearchSortOption.defaultOrder,
+              child: Text('Default'),
+            ),
             PopupMenuItem(value: SearchSortOption.title, child: Text('Title')),
             PopupMenuItem(value: SearchSortOption.year, child: Text('Year')),
-            PopupMenuItem(value: SearchSortOption.rating, child: Text('Rating')),
+            PopupMenuItem(
+              value: SearchSortOption.rating,
+              child: Text('Rating'),
+            ),
           ],
           icon: const Icon(Icons.sort_outlined),
         ),
         const SizedBox(width: AppSpacing.sm),
         IconActionButton(
-          icon: Icon(controller.viewMode == SearchViewMode.grid ? Icons.view_list_outlined : Icons.grid_view_outlined),
-          tooltip: controller.viewMode == SearchViewMode.grid ? 'Switch to list view' : 'Switch to grid view',
-          semanticLabel: controller.viewMode == SearchViewMode.grid ? 'Switch to list view' : 'Switch to grid view',
+          icon: Icon(
+            controller.viewMode == SearchViewMode.grid
+                ? Icons.view_list_outlined
+                : Icons.grid_view_outlined,
+          ),
+          tooltip: controller.viewMode == SearchViewMode.grid
+              ? 'Switch to list view'
+              : 'Switch to grid view',
+          semanticLabel: controller.viewMode == SearchViewMode.grid
+              ? 'Switch to list view'
+              : 'Switch to grid view',
           onPressed: onToggleViewMode,
         ),
       ],

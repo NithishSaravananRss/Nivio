@@ -15,11 +15,13 @@ class SearchView extends StatefulWidget {
     required this.controller,
     required this.queryController,
     required this.searchFocusNode,
+    this.onOpenDetail,
   });
 
   final SearchController controller;
   final TextEditingController queryController;
   final FocusNode searchFocusNode;
+  final ValueChanged<String>? onOpenDetail;
 
   @override
   State<SearchView> createState() => _SearchViewState();
@@ -56,7 +58,9 @@ class _SearchViewState extends State<SearchView> {
             child: Align(
               alignment: Alignment.topCenter,
               child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: AppBreakpoints.contentMaxWidth),
+                constraints: const BoxConstraints(
+                  maxWidth: AppBreakpoints.contentMaxWidth,
+                ),
                 child: AnimatedBuilder(
                   animation: widget.controller,
                   builder: (context, _) {
@@ -78,26 +82,33 @@ class _SearchViewState extends State<SearchView> {
                           searchFocusNode: widget.searchFocusNode,
                           onToggleFilters: () {
                             if (!wideLayout) {
-                              setState(() => _filtersVisible = !_filtersVisible);
+                              setState(
+                                () => _filtersVisible = !_filtersVisible,
+                              );
                             }
                           },
                           filtersVisible: showFilters,
                           onSortSelected: widget.controller.setSort,
                           onToggleViewMode: () {
                             widget.controller.setViewMode(
-                              widget.controller.viewMode == SearchViewMode.grid ? SearchViewMode.list : SearchViewMode.grid,
+                              widget.controller.viewMode == SearchViewMode.grid
+                                  ? SearchViewMode.list
+                                  : SearchViewMode.grid,
                             );
                           },
                         ),
                         const SizedBox(height: AppSpacing.xl),
-                        if (widget.controller.query.isEmpty && widget.controller.recentSearches.isNotEmpty) ...[
+                        if (widget.controller.query.isEmpty &&
+                            widget.controller.recentSearches.isNotEmpty) ...[
                           _RecentSearchesRow(
                             searches: widget.controller.recentSearches,
                             onSelected: (value) {
                               widget.queryController.text = value;
                               widget.controller.setQuery(value);
                               widget.controller.submitQuery();
-                              FocusScope.of(context).requestFocus(widget.searchFocusNode);
+                              FocusScope.of(
+                                context,
+                              ).requestFocus(widget.searchFocusNode);
                             },
                           ),
                           const SizedBox(height: AppSpacing.lg),
@@ -105,7 +116,10 @@ class _SearchViewState extends State<SearchView> {
                         Expanded(
                           child: LayoutBuilder(
                             builder: (context, innerConstraints) {
-                              final canUseSidePanel = wideLayout && innerConstraints.maxWidth >= AppBreakpoints.standard;
+                              final canUseSidePanel =
+                                  wideLayout &&
+                                  innerConstraints.maxWidth >=
+                                      AppBreakpoints.standard;
 
                               return Row(
                                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -114,16 +128,22 @@ class _SearchViewState extends State<SearchView> {
                                     SizedBox(
                                       width: 300,
                                       child: SingleChildScrollView(
-                                        child: SearchFilterPanel(controller: widget.controller),
+                                        child: SearchFilterPanel(
+                                          controller: widget.controller,
+                                        ),
                                       ),
                                     ),
                                     const SizedBox(width: AppSpacing.xl),
                                   ] else if (showFilters) ...[
                                     Expanded(
                                       child: Padding(
-                                        padding: const EdgeInsets.only(bottom: AppSpacing.lg),
+                                        padding: const EdgeInsets.only(
+                                          bottom: AppSpacing.lg,
+                                        ),
                                         child: SingleChildScrollView(
-                                          child: SearchFilterPanel(controller: widget.controller),
+                                          child: SearchFilterPanel(
+                                            controller: widget.controller,
+                                          ),
                                         ),
                                       ),
                                     ),
@@ -131,7 +151,9 @@ class _SearchViewState extends State<SearchView> {
                                   Expanded(
                                     child: _SearchResultsPane(
                                       controller: widget.controller,
-                                      scrollController: _resultsScrollController,
+                                      scrollController:
+                                          _resultsScrollController,
+                                      onOpenDetail: widget.onOpenDetail,
                                     ),
                                   ),
                                 ],
@@ -181,7 +203,14 @@ class _RecentSearchesRow extends StatelessWidget {
         ResponsiveWrap(
           spacing: AppSpacing.sm,
           runSpacing: AppSpacing.sm,
-          children: searches.map((search) => GenreChip(label: search, onPressed: () => onSelected(search))).toList(),
+          children: searches
+              .map(
+                (search) => GenreChip(
+                  label: search,
+                  onPressed: () => onSelected(search),
+                ),
+              )
+              .toList(),
         ),
       ],
     );
@@ -189,10 +218,15 @@ class _RecentSearchesRow extends StatelessWidget {
 }
 
 class _SearchResultsPane extends StatelessWidget {
-  const _SearchResultsPane({required this.controller, required this.scrollController});
+  const _SearchResultsPane({
+    required this.controller,
+    required this.scrollController,
+    this.onOpenDetail,
+  });
 
   final SearchController controller;
   final ScrollController scrollController;
+  final ValueChanged<String>? onOpenDetail;
 
   @override
   Widget build(BuildContext context) {
@@ -218,7 +252,10 @@ class _SearchResultsPane extends StatelessWidget {
                 ),
               ),
               const SizedBox(width: AppSpacing.sm),
-              Text(controller.hasActiveFilters ? 'Filtered' : 'All titles', style: AppTypography.caption),
+              Text(
+                controller.hasActiveFilters ? 'Filtered' : 'All titles',
+                style: AppTypography.caption,
+              ),
             ],
           ),
           const SizedBox(height: AppSpacing.lg),
@@ -235,7 +272,9 @@ class _SearchResultsPane extends StatelessWidget {
 
   Widget _buildBody(bool showLoading) {
     if (showLoading) {
-      return controller.viewMode == SearchViewMode.grid ? const _LoadingGrid() : const _LoadingList();
+      return controller.viewMode == SearchViewMode.grid
+          ? const _LoadingGrid()
+          : const _LoadingList();
     }
 
     if (controller.hasError) {
@@ -248,7 +287,9 @@ class _SearchResultsPane extends StatelessWidget {
 
     if (controller.results.isEmpty) {
       return EmptyState(
-        title: controller.query.isEmpty ? 'Start searching' : 'No results found',
+        title: controller.query.isEmpty
+            ? 'Start searching'
+            : 'No results found',
         message: controller.query.isEmpty
             ? 'Search the mock catalog using the bar above.'
             : 'Try a different title or loosen the filters.',
@@ -262,7 +303,10 @@ class _SearchResultsPane extends StatelessWidget {
           controller: scrollController,
           itemCount: controller.results.length,
           separatorBuilder: (_, _) => const SizedBox(height: AppSpacing.md),
-          itemBuilder: (context, index) => _SearchResultListItem(item: controller.results[index]),
+          itemBuilder: (context, index) => _SearchResultListItem(
+            item: controller.results[index],
+            onOpenDetail: onOpenDetail,
+          ),
         ),
       );
     }
@@ -273,16 +317,20 @@ class _SearchResultsPane extends StatelessWidget {
         controller: scrollController,
         itemCount: controller.results.length,
         minItemWidth: 170,
-        itemBuilder: (context, index) => _SearchResultPosterCard(item: controller.results[index]),
+        itemBuilder: (context, index) => _SearchResultPosterCard(
+          item: controller.results[index],
+          onOpenDetail: onOpenDetail,
+        ),
       ),
     );
   }
 }
 
 class _SearchResultPosterCard extends StatelessWidget {
-  const _SearchResultPosterCard({required this.item});
+  const _SearchResultPosterCard({required this.item, this.onOpenDetail});
 
   final SearchMediaItem item;
+  final ValueChanged<String>? onOpenDetail;
 
   @override
   Widget build(BuildContext context) {
@@ -290,11 +338,13 @@ class _SearchResultPosterCard extends StatelessWidget {
       title: item.title,
       year: item.yearLabel,
       rating: item.ratingLabel,
-      subtitle: '${item.mediaTypeLabel} · ${item.languageLabel} · ${item.provider}',
-      semanticLabel: '${item.title}, ${item.yearLabel}, ${item.ratingLabel} rating, ${item.languageLabel}, ${item.provider}',
-      onTap: () {},
-      onSecondaryTap: () {},
-      onPlay: () {},
+      subtitle:
+          '${item.mediaTypeLabel} · ${item.languageLabel} · ${item.provider}',
+      semanticLabel:
+          '${item.title}, ${item.yearLabel}, ${item.ratingLabel} rating, ${item.languageLabel}, ${item.provider}',
+      onTap: () => onOpenDetail?.call(item.id),
+      onSecondaryTap: () => onOpenDetail?.call(item.id),
+      onPlay: () => onOpenDetail?.call(item.id),
       onWatchlist: () {},
       onMore: () {},
     );
@@ -302,20 +352,28 @@ class _SearchResultPosterCard extends StatelessWidget {
 }
 
 class _SearchResultListItem extends StatelessWidget {
-  const _SearchResultListItem({required this.item});
+  const _SearchResultListItem({required this.item, this.onOpenDetail});
 
   final SearchMediaItem item;
+  final ValueChanged<String>? onOpenDetail;
 
   @override
   Widget build(BuildContext context) {
     return LandscapeCard(
       title: item.title,
       subtitle: item.overview,
-      metadata: [item.yearLabel, item.ratingLabel, item.mediaTypeLabel, item.languageLabel, item.provider],
-      semanticLabel: '${item.title}, ${item.yearLabel}, ${item.ratingLabel} rating, ${item.languageLabel}, ${item.provider}',
-      onTap: () {},
-      onSecondaryTap: () {},
-      onDoubleTap: () {},
+      metadata: [
+        item.yearLabel,
+        item.ratingLabel,
+        item.mediaTypeLabel,
+        item.languageLabel,
+        item.provider,
+      ],
+      semanticLabel:
+          '${item.title}, ${item.yearLabel}, ${item.ratingLabel} rating, ${item.languageLabel}, ${item.provider}',
+      onTap: () => onOpenDetail?.call(item.id),
+      onSecondaryTap: () => onOpenDetail?.call(item.id),
+      onDoubleTap: () => onOpenDetail?.call(item.id),
     );
   }
 }
@@ -341,7 +399,8 @@ class _LoadingList extends StatelessWidget {
     return ListView.separated(
       itemCount: 8,
       separatorBuilder: (_, _) => const SizedBox(height: AppSpacing.md),
-      itemBuilder: (context, index) => const SizedBox(height: 160, child: LandscapeSkeleton()),
+      itemBuilder: (context, index) =>
+          const SizedBox(height: 160, child: LandscapeSkeleton()),
     );
   }
 }

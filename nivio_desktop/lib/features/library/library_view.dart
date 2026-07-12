@@ -10,7 +10,9 @@ import 'widgets/schedule_calendar.dart';
 import 'widgets/watchlist_grid.dart';
 
 class LibraryView extends StatefulWidget {
-  const LibraryView({super.key});
+  const LibraryView({super.key, this.onOpenDetail});
+
+  final ValueChanged<String>? onOpenDetail;
 
   @override
   State<LibraryView> createState() => _LibraryViewState();
@@ -70,6 +72,7 @@ class _LibraryViewState extends State<LibraryView> {
                     setState(() => _watchlistOnly = value),
                 onWatchlistSortChanged: (value) =>
                     setState(() => _watchlistSort = value),
+                onOpenDetail: widget.onOpenDetail,
               ),
               const SizedBox(height: AppSpacing.massive),
             ],
@@ -101,6 +104,7 @@ class _LibraryTabContent extends StatelessWidget {
     required this.onScheduleDateChanged,
     required this.onScheduleFilterChanged,
     required this.onWatchlistSortChanged,
+    this.onOpenDetail,
   });
 
   final LibraryTab selectedTab;
@@ -112,6 +116,7 @@ class _LibraryTabContent extends StatelessWidget {
   final ValueChanged<DateTime> onScheduleDateChanged;
   final ValueChanged<bool> onScheduleFilterChanged;
   final ValueChanged<String> onWatchlistSortChanged;
+  final ValueChanged<String>? onOpenDetail;
 
   @override
   Widget build(BuildContext context) {
@@ -127,6 +132,7 @@ class _LibraryTabContent extends StatelessWidget {
       LibraryTab.watchlist => _WatchlistTab(
         selectedSort: watchlistSort,
         onSortChanged: onWatchlistSortChanged,
+        onOpenDetail: onOpenDetail,
       ),
       LibraryTab.downloads => const _DownloadsTab(),
     };
@@ -315,10 +321,12 @@ class _WatchlistTab extends StatelessWidget {
   const _WatchlistTab({
     required this.selectedSort,
     required this.onSortChanged,
+    this.onOpenDetail,
   });
 
   final String selectedSort;
   final ValueChanged<String> onSortChanged;
+  final ValueChanged<String>? onOpenDetail;
 
   @override
   Widget build(BuildContext context) {
@@ -357,7 +365,7 @@ class _WatchlistTab extends StatelessWidget {
           ],
         ),
         const SizedBox(height: AppSpacing.lg),
-        const WatchlistGrid(),
+        WatchlistGrid(onOpenDetail: onOpenDetail),
         const SizedBox(height: AppSpacing.xxl),
         const LibraryEmptyState(
           title: 'Your watchlist can appear here',

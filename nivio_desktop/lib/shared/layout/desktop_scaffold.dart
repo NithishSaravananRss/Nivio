@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart' hide SearchController;
 import 'package:flutter/services.dart';
 
+import '../../features/details/detail_view.dart';
 import '../../features/home/home_view.dart';
 import '../../features/library/library_view.dart';
 import '../../features/search/controllers/mock_search_repository.dart';
@@ -38,6 +39,7 @@ class _DesktopScaffoldState extends State<DesktopScaffold> {
   int _selectedIndex = _homeIndex;
   int _lastSidebarIndex = _homeIndex;
   bool _isSidebarExpanded = true;
+  String? _detailMediaId;
 
   @override
   void initState() {
@@ -56,6 +58,7 @@ class _DesktopScaffoldState extends State<DesktopScaffold> {
   void _selectDestination(int index) {
     setState(() {
       _selectedIndex = index;
+      _detailMediaId = null;
       if (index != _searchIndex) {
         _lastSidebarIndex = index;
       }
@@ -92,6 +95,18 @@ class _DesktopScaffoldState extends State<DesktopScaffold> {
 
   void _clearFocus() {
     FocusManager.instance.primaryFocus?.unfocus();
+  }
+
+  void _openDetail(String mediaId) {
+    setState(() {
+      _detailMediaId = mediaId;
+    });
+  }
+
+  void _closeDetail() {
+    setState(() {
+      _detailMediaId = null;
+    });
   }
 
   @override
@@ -184,9 +199,18 @@ class _DesktopScaffoldState extends State<DesktopScaffold> {
   }
 
   Widget _buildContent() {
+    final detailMediaId = _detailMediaId;
+    if (detailMediaId != null) {
+      return DetailView(
+        mediaId: detailMediaId,
+        onBack: _closeDetail,
+        onOpenDetail: _openDetail,
+      );
+    }
+
     return switch (_selectedIndex) {
-      _homeIndex => const HomeView(),
-      _libraryIndex => const LibraryView(),
+      _homeIndex => HomeView(onOpenDetail: _openDetail),
+      _libraryIndex => LibraryView(onOpenDetail: _openDetail),
       _liveTvIndex => const EmptyState(
         title: 'Live TV',
         message: 'Live TV will be loaded here.',
@@ -207,6 +231,7 @@ class _DesktopScaffoldState extends State<DesktopScaffold> {
         controller: _searchStateController,
         queryController: _searchController,
         searchFocusNode: _searchPageFocusNode,
+        onOpenDetail: _openDetail,
       ),
       _ => const HomeView(),
     };

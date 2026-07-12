@@ -3,7 +3,8 @@ import 'dart:async';
 import '../models/search_media_item.dart';
 
 class MockSearchRepository {
-  MockSearchRepository({List<SearchMediaItem>? items}) : _items = items ?? mockSearchItems;
+  MockSearchRepository({List<SearchMediaItem>? items})
+    : _items = items ?? mockSearchItems;
 
   final List<SearchMediaItem> _items;
 
@@ -20,25 +21,37 @@ class MockSearchRepository {
       throw StateError('Mock search failed.');
     }
 
-    var results = _items.where((item) {
-      final matchesQuery = normalizedQuery.isEmpty || item.title.toLowerCase().contains(normalizedQuery);
-      final matchesLanguage = language == SearchLanguageFilter.all || item.language == language;
-      final matchesMediaType = mediaType == SearchMediaTypeFilter.all || item.mediaType == mediaType;
-      return matchesQuery && matchesLanguage && matchesMediaType;
-    }).toList(growable: false);
+    var results = _items
+        .where((item) {
+          final matchesQuery =
+              normalizedQuery.isEmpty ||
+              item.title.toLowerCase().contains(normalizedQuery);
+          final matchesLanguage =
+              language == SearchLanguageFilter.all || item.language == language;
+          final matchesMediaType =
+              mediaType == SearchMediaTypeFilter.all ||
+              item.mediaType == mediaType;
+          return matchesQuery && matchesLanguage && matchesMediaType;
+        })
+        .toList(growable: false);
 
     switch (sort) {
       case SearchSortOption.defaultOrder:
         break;
       case SearchSortOption.title:
         results = results.toList()
-          ..sort((left, right) => left.title.toLowerCase().compareTo(right.title.toLowerCase()));
+          ..sort(
+            (left, right) =>
+                left.title.toLowerCase().compareTo(right.title.toLowerCase()),
+          );
         break;
       case SearchSortOption.year:
-        results = results.toList()..sort((left, right) => right.year.compareTo(left.year));
+        results = results.toList()
+          ..sort((left, right) => right.year.compareTo(left.year));
         break;
       case SearchSortOption.rating:
-        results = results.toList()..sort((left, right) => right.rating.compareTo(left.rating));
+        results = results.toList()
+          ..sort((left, right) => right.rating.compareTo(left.rating));
         break;
     }
 

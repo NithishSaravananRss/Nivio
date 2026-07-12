@@ -4,7 +4,9 @@ import '../../shared/theme/index.dart';
 import '../../shared/widgets/widgets.dart';
 
 class HomeView extends StatefulWidget {
-  const HomeView({super.key});
+  const HomeView({super.key, this.onOpenDetail});
+
+  final ValueChanged<String>? onOpenDetail;
 
   @override
   State<HomeView> createState() => _HomeViewState();
@@ -46,10 +48,14 @@ class _HomeViewState extends State<HomeView> {
                   backdropLabel: 'Blackout City',
                 ),
               ),
-              const SectionPadding(
-                child: _ContinueWatchingSection(),
+              SectionPadding(
+                child: _ContinueWatchingSection(
+                  onOpenDetail: widget.onOpenDetail,
+                ),
               ),
-              const SectionPadding(child: _TrendingSection()),
+              SectionPadding(
+                child: _TrendingSection(onOpenDetail: widget.onOpenDetail),
+              ),
               const SectionPadding(child: _ProvidersSection()),
             ],
           ),
@@ -60,46 +66,51 @@ class _HomeViewState extends State<HomeView> {
 }
 
 class _ContinueWatchingSection extends StatelessWidget {
-  const _ContinueWatchingSection();
+  const _ContinueWatchingSection({this.onOpenDetail});
+
+  final ValueChanged<String>? onOpenDetail;
 
   @override
   Widget build(BuildContext context) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        const SectionHeader(title: 'Continue Watching', subtitle: 'Pick up where you left off'),
+        const SectionHeader(
+          title: 'Continue Watching',
+          subtitle: 'Pick up where you left off',
+        ),
         const SizedBox(height: AppSpacing.lg),
         MediaRail(
           itemWidth: 360,
           height: 340,
-          children: const [
+          children: [
             ContinueWatchingCard(
               title: 'The Last Circuit',
               episodeLabel: 'Season 2 · Episode 4',
               posterLabel: 'The Last Circuit',
               progress: 0.62,
-              onResume: _noop,
+              onResume: () => onOpenDetail?.call('night-protocol'),
             ),
             ContinueWatchingCard(
               title: 'Moon Harbor',
               episodeLabel: 'Season 1 · Episode 9',
               posterLabel: 'Moon Harbor',
               progress: 0.34,
-              onResume: _noop,
+              onResume: () => onOpenDetail?.call('moon-harbor'),
             ),
             ContinueWatchingCard(
               title: 'Shatterline',
               episodeLabel: 'Episode 11',
               posterLabel: 'Shatterline',
               progress: 0.79,
-              onResume: _noop,
+              onResume: () => onOpenDetail?.call('sky-forge'),
             ),
             ContinueWatchingCard(
               title: 'Arcadia Drift',
               episodeLabel: 'Season 3 · Episode 2',
               posterLabel: 'Arcadia Drift',
               progress: 0.48,
-              onResume: _noop,
+              onResume: () => onOpenDetail?.call('signal-lost'),
             ),
           ],
         ),
@@ -109,7 +120,9 @@ class _ContinueWatchingSection extends StatelessWidget {
 }
 
 class _TrendingSection extends StatelessWidget {
-  const _TrendingSection();
+  const _TrendingSection({this.onOpenDetail});
+
+  final ValueChanged<String>? onOpenDetail;
 
   @override
   Widget build(BuildContext context) {
@@ -121,13 +134,73 @@ class _TrendingSection extends StatelessWidget {
         ResponsiveGrid(
           minItemWidth: 170,
           childAspectRatio: 0.66,
-          children: const [
-            PosterCard(title: 'Signal Lost', year: '2026', rating: '8.4', subtitle: 'Action · Drama', onTap: _noop, onSecondaryTap: _noop, onPlay: _noop, onWatchlist: _noop, onMore: _noop),
-            PosterCard(title: 'Midnight Harbor', year: '2025', rating: '7.9', subtitle: 'Mystery · Thriller', onTap: _noop, onSecondaryTap: _noop, onPlay: _noop, onWatchlist: _noop, onMore: _noop),
-            PosterCard(title: 'Zero Day', year: '2026', rating: '8.1', subtitle: 'Sci-Fi · Action', onTap: _noop, onSecondaryTap: _noop, onPlay: _noop, onWatchlist: _noop, onMore: _noop),
-            PosterCard(title: 'Glass Orbit', year: '2024', rating: '7.5', subtitle: 'Adventure · Sci-Fi', onTap: _noop, onSecondaryTap: _noop, onPlay: _noop, onWatchlist: _noop, onMore: _noop),
-            PosterCard(title: 'Cold Front', year: '2025', rating: '8.0', subtitle: 'Crime · Thriller', onTap: _noop, onSecondaryTap: _noop, onPlay: _noop, onWatchlist: _noop, onMore: _noop),
-            PosterCard(title: 'Northbound', year: '2024', rating: '7.7', subtitle: 'Adventure · Drama', onTap: _noop, onSecondaryTap: _noop, onPlay: _noop, onWatchlist: _noop, onMore: _noop),
+          children: [
+            PosterCard(
+              title: 'Signal Lost',
+              year: '2026',
+              rating: '8.4',
+              subtitle: 'Action · Drama',
+              onTap: () => onOpenDetail?.call('signal-lost'),
+              onSecondaryTap: () => onOpenDetail?.call('signal-lost'),
+              onPlay: () => onOpenDetail?.call('signal-lost'),
+              onWatchlist: _noop,
+              onMore: () => onOpenDetail?.call('signal-lost'),
+            ),
+            PosterCard(
+              title: 'Midnight Harbor',
+              year: '2025',
+              rating: '7.9',
+              subtitle: 'Mystery · Thriller',
+              onTap: () => onOpenDetail?.call('midnight-harbor'),
+              onSecondaryTap: () => onOpenDetail?.call('midnight-harbor'),
+              onPlay: () => onOpenDetail?.call('midnight-harbor'),
+              onWatchlist: _noop,
+              onMore: () => onOpenDetail?.call('midnight-harbor'),
+            ),
+            PosterCard(
+              title: 'Zero Day',
+              year: '2026',
+              rating: '8.1',
+              subtitle: 'Sci-Fi · Action',
+              onTap: () => onOpenDetail?.call('zero-day'),
+              onSecondaryTap: () => onOpenDetail?.call('zero-day'),
+              onPlay: () => onOpenDetail?.call('zero-day'),
+              onWatchlist: _noop,
+              onMore: () => onOpenDetail?.call('zero-day'),
+            ),
+            PosterCard(
+              title: 'Glass Orbit',
+              year: '2024',
+              rating: '7.5',
+              subtitle: 'Adventure · Sci-Fi',
+              onTap: () => onOpenDetail?.call('glass-orbit'),
+              onSecondaryTap: () => onOpenDetail?.call('glass-orbit'),
+              onPlay: () => onOpenDetail?.call('glass-orbit'),
+              onWatchlist: _noop,
+              onMore: () => onOpenDetail?.call('glass-orbit'),
+            ),
+            PosterCard(
+              title: 'Cold Front',
+              year: '2025',
+              rating: '8.0',
+              subtitle: 'Crime · Thriller',
+              onTap: () => onOpenDetail?.call('cold-front'),
+              onSecondaryTap: () => onOpenDetail?.call('cold-front'),
+              onPlay: () => onOpenDetail?.call('cold-front'),
+              onWatchlist: _noop,
+              onMore: () => onOpenDetail?.call('cold-front'),
+            ),
+            PosterCard(
+              title: 'Northbound',
+              year: '2024',
+              rating: '7.7',
+              subtitle: 'Adventure · Drama',
+              onTap: () => onOpenDetail?.call('northbound'),
+              onSecondaryTap: () => onOpenDetail?.call('northbound'),
+              onPlay: () => onOpenDetail?.call('northbound'),
+              onWatchlist: _noop,
+              onMore: () => onOpenDetail?.call('northbound'),
+            ),
           ],
         ),
         const SizedBox(height: AppSpacing.xxxl),
@@ -136,13 +209,73 @@ class _TrendingSection extends StatelessWidget {
         ResponsiveGrid(
           minItemWidth: 170,
           childAspectRatio: 0.66,
-          children: const [
-            PosterCard(title: 'Night Protocol', year: '2026', rating: '8.5', subtitle: 'TV · Crime', onTap: _noop, onSecondaryTap: _noop, onPlay: _noop, onWatchlist: _noop, onMore: _noop),
-            PosterCard(title: 'Halo Signal', year: '2025', rating: '8.0', subtitle: 'TV · Sci-Fi', onTap: _noop, onSecondaryTap: _noop, onPlay: _noop, onWatchlist: _noop, onMore: _noop),
-            PosterCard(title: 'Archive West', year: '2024', rating: '7.8', subtitle: 'TV · Drama', onTap: _noop, onSecondaryTap: _noop, onPlay: _noop, onWatchlist: _noop, onMore: _noop),
-            PosterCard(title: 'After Hours', year: '2026', rating: '8.2', subtitle: 'TV · Comedy', onTap: _noop, onSecondaryTap: _noop, onPlay: _noop, onWatchlist: _noop, onMore: _noop),
-            PosterCard(title: 'Signal House', year: '2025', rating: '7.6', subtitle: 'TV · Thriller', onTap: _noop, onSecondaryTap: _noop, onPlay: _noop, onWatchlist: _noop, onMore: _noop),
-            PosterCard(title: 'Lunar Grid', year: '2024', rating: '8.1', subtitle: 'TV · Action', onTap: _noop, onSecondaryTap: _noop, onPlay: _noop, onWatchlist: _noop, onMore: _noop),
+          children: [
+            PosterCard(
+              title: 'Night Protocol',
+              year: '2026',
+              rating: '8.5',
+              subtitle: 'TV · Crime',
+              onTap: () => onOpenDetail?.call('night-protocol'),
+              onSecondaryTap: () => onOpenDetail?.call('night-protocol'),
+              onPlay: () => onOpenDetail?.call('night-protocol'),
+              onWatchlist: _noop,
+              onMore: () => onOpenDetail?.call('night-protocol'),
+            ),
+            PosterCard(
+              title: 'Halo Signal',
+              year: '2025',
+              rating: '8.0',
+              subtitle: 'TV · Sci-Fi',
+              onTap: _noop,
+              onSecondaryTap: _noop,
+              onPlay: _noop,
+              onWatchlist: _noop,
+              onMore: _noop,
+            ),
+            PosterCard(
+              title: 'Archive West',
+              year: '2024',
+              rating: '7.8',
+              subtitle: 'TV · Drama',
+              onTap: _noop,
+              onSecondaryTap: _noop,
+              onPlay: _noop,
+              onWatchlist: _noop,
+              onMore: _noop,
+            ),
+            PosterCard(
+              title: 'After Hours',
+              year: '2026',
+              rating: '8.2',
+              subtitle: 'TV · Comedy',
+              onTap: _noop,
+              onSecondaryTap: _noop,
+              onPlay: _noop,
+              onWatchlist: _noop,
+              onMore: _noop,
+            ),
+            PosterCard(
+              title: 'Signal House',
+              year: '2025',
+              rating: '7.6',
+              subtitle: 'TV · Thriller',
+              onTap: _noop,
+              onSecondaryTap: _noop,
+              onPlay: _noop,
+              onWatchlist: _noop,
+              onMore: _noop,
+            ),
+            PosterCard(
+              title: 'Lunar Grid',
+              year: '2024',
+              rating: '8.1',
+              subtitle: 'TV · Action',
+              onTap: _noop,
+              onSecondaryTap: _noop,
+              onPlay: _noop,
+              onWatchlist: _noop,
+              onMore: _noop,
+            ),
           ],
         ),
         const SizedBox(height: AppSpacing.xxxl),
@@ -151,13 +284,73 @@ class _TrendingSection extends StatelessWidget {
         ResponsiveGrid(
           minItemWidth: 170,
           childAspectRatio: 0.66,
-          children: const [
-            PosterCard(title: 'Sky Forge', year: '2026', rating: '9.0', subtitle: 'Anime · Action', onTap: _noop, onSecondaryTap: _noop, onPlay: _noop, onWatchlist: _noop, onMore: _noop),
-            PosterCard(title: 'Violet Loop', year: '2025', rating: '8.7', subtitle: 'Anime · Sci-Fi', onTap: _noop, onSecondaryTap: _noop, onPlay: _noop, onWatchlist: _noop, onMore: _noop),
-            PosterCard(title: 'Redline Bloom', year: '2024', rating: '8.5', subtitle: 'Anime · Adventure', onTap: _noop, onSecondaryTap: _noop, onPlay: _noop, onWatchlist: _noop, onMore: _noop),
-            PosterCard(title: 'Echo Garden', year: '2026', rating: '8.3', subtitle: 'Anime · Fantasy', onTap: _noop, onSecondaryTap: _noop, onPlay: _noop, onWatchlist: _noop, onMore: _noop),
-            PosterCard(title: 'Nova Tides', year: '2024', rating: '8.2', subtitle: 'Anime · Drama', onTap: _noop, onSecondaryTap: _noop, onPlay: _noop, onWatchlist: _noop, onMore: _noop),
-            PosterCard(title: 'Neon Relay', year: '2025', rating: '8.4', subtitle: 'Anime · Action', onTap: _noop, onSecondaryTap: _noop, onPlay: _noop, onWatchlist: _noop, onMore: _noop),
+          children: [
+            PosterCard(
+              title: 'Sky Forge',
+              year: '2026',
+              rating: '9.0',
+              subtitle: 'Anime · Action',
+              onTap: () => onOpenDetail?.call('sky-forge'),
+              onSecondaryTap: () => onOpenDetail?.call('sky-forge'),
+              onPlay: () => onOpenDetail?.call('sky-forge'),
+              onWatchlist: _noop,
+              onMore: () => onOpenDetail?.call('sky-forge'),
+            ),
+            PosterCard(
+              title: 'Violet Loop',
+              year: '2025',
+              rating: '8.7',
+              subtitle: 'Anime · Sci-Fi',
+              onTap: _noop,
+              onSecondaryTap: _noop,
+              onPlay: _noop,
+              onWatchlist: _noop,
+              onMore: _noop,
+            ),
+            PosterCard(
+              title: 'Redline Bloom',
+              year: '2024',
+              rating: '8.5',
+              subtitle: 'Anime · Adventure',
+              onTap: _noop,
+              onSecondaryTap: _noop,
+              onPlay: _noop,
+              onWatchlist: _noop,
+              onMore: _noop,
+            ),
+            PosterCard(
+              title: 'Echo Garden',
+              year: '2026',
+              rating: '8.3',
+              subtitle: 'Anime · Fantasy',
+              onTap: _noop,
+              onSecondaryTap: _noop,
+              onPlay: _noop,
+              onWatchlist: _noop,
+              onMore: _noop,
+            ),
+            PosterCard(
+              title: 'Nova Tides',
+              year: '2024',
+              rating: '8.2',
+              subtitle: 'Anime · Drama',
+              onTap: _noop,
+              onSecondaryTap: _noop,
+              onPlay: _noop,
+              onWatchlist: _noop,
+              onMore: _noop,
+            ),
+            PosterCard(
+              title: 'Neon Relay',
+              year: '2025',
+              rating: '8.4',
+              subtitle: 'Anime · Action',
+              onTap: _noop,
+              onSecondaryTap: _noop,
+              onPlay: _noop,
+              onWatchlist: _noop,
+              onMore: _noop,
+            ),
           ],
         ),
       ],

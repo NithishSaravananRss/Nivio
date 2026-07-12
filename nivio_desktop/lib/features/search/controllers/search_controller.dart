@@ -33,7 +33,10 @@ class SearchController extends ChangeNotifier {
   SearchViewMode get viewMode => _viewMode;
   bool get hasError => _errorMessage != null;
   bool get hasResults => _results.isNotEmpty;
-  bool get hasActiveFilters => _language != SearchLanguageFilter.all || _mediaType != SearchMediaTypeFilter.all || _sort != SearchSortOption.defaultOrder;
+  bool get hasActiveFilters =>
+      _language != SearchLanguageFilter.all ||
+      _mediaType != SearchMediaTypeFilter.all ||
+      _sort != SearchSortOption.defaultOrder;
 
   Future<void> initialize() async {
     if (_initialized) {
