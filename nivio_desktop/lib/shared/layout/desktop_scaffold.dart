@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../theme/index.dart';
 import 'content_view.dart';
 import 'desktop_sidebar.dart';
 import 'desktop_topbar.dart';
@@ -8,21 +9,21 @@ import 'desktop_topbar.dart';
 class DesktopScaffold extends StatelessWidget {
   const DesktopScaffold({super.key});
 
-  static const double _sidebarWidth = 220;
-  static const double _topbarHeight = 64;
-  static const double _compactBreakpoint = 720;
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       body: SafeArea(
         child: Column(
           children: [
-            const SizedBox(height: _topbarHeight, child: DesktopTopbar()),
+            const SizedBox(
+              height: AppBreakpoints.topbarHeight,
+              child: DesktopTopbar(),
+            ),
             Expanded(
               child: LayoutBuilder(
                 builder: (context, constraints) {
-                  final isCompact = constraints.maxWidth < _compactBreakpoint;
+                  final isCompact =
+                      constraints.maxWidth < AppBreakpoints.compactShell;
 
                   if (isCompact) {
                     return const Column(
@@ -35,7 +36,10 @@ class DesktopScaffold extends StatelessWidget {
 
                   return const Row(
                     children: [
-                      SizedBox(width: _sidebarWidth, child: DesktopSidebar()),
+                      SizedBox(
+                        width: AppBreakpoints.sidebarExpandedWidth,
+                        child: DesktopSidebar(),
+                      ),
                       Expanded(child: ContentView()),
                     ],
                   );

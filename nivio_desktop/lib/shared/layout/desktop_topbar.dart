@@ -1,4 +1,8 @@
-import 'package:flutter/material.dart';
+import 'package:flutter/material.dart' hide SearchBar;
+
+import '../theme/index.dart';
+import '../widgets/buttons/icon_action_button.dart';
+import '../widgets/inputs/search_bar.dart';
 
 /// Top application bar for the desktop shell.
 class DesktopTopbar extends StatelessWidget {
@@ -6,27 +10,61 @@ class DesktopTopbar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final colorScheme = Theme.of(context).colorScheme;
-    final textTheme = Theme.of(context).textTheme;
-
     return DecoratedBox(
       decoration: BoxDecoration(
-        color: colorScheme.surface,
-        border: Border(bottom: BorderSide(color: colorScheme.outlineVariant)),
+        color: AppColors.topbarBackground,
+        border: const Border(bottom: BorderSide(color: AppColors.borderSubtle)),
       ),
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 24),
+        padding: const EdgeInsets.symmetric(horizontal: AppSpacing.xxl),
         child: Row(
           children: [
             Text(
               'Nivio Desktop',
-              style: textTheme.titleLarge?.copyWith(
+              style: AppTypography.title.copyWith(
                 fontWeight: FontWeight.w700,
                 letterSpacing: 0,
               ),
             ),
-            const Spacer(),
-            const SizedBox(width: 240),
+            const SizedBox(width: AppSpacing.xl),
+            Expanded(
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 760),
+                  child: const SearchBar(
+                    hintText: 'Search movies, series, anime',
+                    semanticLabel: 'Global search',
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(width: AppSpacing.xl),
+            Wrap(
+              spacing: AppSpacing.sm,
+              children: [
+                IconActionButton(
+                  icon: Icon(Icons.notifications_none_outlined),
+                  semanticLabel: 'Notifications',
+                  tooltip: 'Notifications',
+                ),
+                IconActionButton(
+                  icon: Icon(Icons.system_update_alt_outlined),
+                  semanticLabel: 'Updates',
+                  tooltip: 'Updates',
+                ),
+                IconActionButton(
+                  icon: Icon(Icons.palette_outlined),
+                  semanticLabel: 'Theme',
+                  tooltip: 'Theme',
+                ),
+                IconActionButton(
+                  icon: Icon(Icons.account_circle_outlined),
+                  semanticLabel: 'Profile',
+                  tooltip: 'Profile',
+                ),
+              ],
+            ),
           ],
         ),
       ),

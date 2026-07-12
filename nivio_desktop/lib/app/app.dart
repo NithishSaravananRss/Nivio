@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../shared/layout/desktop_scaffold.dart';
-import 'theme.dart';
+import '../shared/theme/theme.dart';
 
 /// Root widget for the Nivio Linux desktop application.
 class NivioDesktopApp extends StatelessWidget {
@@ -12,7 +12,7 @@ class NivioDesktopApp extends StatelessWidget {
     return MaterialApp(
       title: 'Nivio Desktop',
       debugShowCheckedModeBanner: false,
-      theme: buildNivioDarkTheme(),
+      theme: buildNivioDesktopTheme(),
       home: const DesktopScaffold(),
     );
   }

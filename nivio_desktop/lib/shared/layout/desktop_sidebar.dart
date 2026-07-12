@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../theme/index.dart';
+
 /// Static sidebar placeholder for future desktop navigation.
 class DesktopSidebar extends StatelessWidget {
   const DesktopSidebar({super.key, this.isCompact = false});
@@ -16,17 +18,15 @@ class DesktopSidebar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final colorScheme = Theme.of(context).colorScheme;
-
     return DecoratedBox(
       decoration: BoxDecoration(
-        color: colorScheme.surface,
+        color: AppColors.sidebarBackground,
         border: Border(
           right: isCompact
               ? BorderSide.none
-              : BorderSide(color: colorScheme.outlineVariant),
+              : const BorderSide(color: AppColors.borderSubtle),
           bottom: isCompact
-              ? BorderSide(color: colorScheme.outlineVariant)
+              ? const BorderSide(color: AppColors.borderSubtle)
               : BorderSide.none,
         ),
       ),
@@ -36,21 +36,24 @@ class DesktopSidebar extends StatelessWidget {
 
   Widget _buildSidebarNav(BuildContext context) {
     return ListView.separated(
-      padding: const EdgeInsets.all(12),
+      padding: const EdgeInsets.all(AppSpacing.md),
       itemCount: _items.length,
-      separatorBuilder: (_, _) => const SizedBox(height: 4),
+      separatorBuilder: (_, _) => const SizedBox(height: AppSpacing.xs),
       itemBuilder: (context, index) => _SidebarButton(item: _items[index]),
     );
   }
 
   Widget _buildCompactNav(BuildContext context) {
     return SizedBox(
-      height: 64,
+      height: AppBreakpoints.topbarHeight,
       child: ListView.separated(
         scrollDirection: Axis.horizontal,
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        padding: const EdgeInsets.symmetric(
+          horizontal: AppSpacing.md,
+          vertical: AppSpacing.sm,
+        ),
         itemCount: _items.length,
-        separatorBuilder: (_, _) => const SizedBox(width: 8),
+        separatorBuilder: (_, _) => const SizedBox(width: AppSpacing.sm),
         itemBuilder: (context, index) =>
             _SidebarButton(item: _items[index], isCompact: true),
       ),
@@ -66,18 +69,23 @@ class _SidebarButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final colorScheme = Theme.of(context).colorScheme;
-
     return TextButton.icon(
       onPressed: () {},
-      icon: Icon(item.icon, size: 20),
+      icon: Icon(item.icon, size: AppSpacing.xl),
       label: Text(item.label, overflow: TextOverflow.ellipsis),
       style: TextButton.styleFrom(
         alignment: Alignment.centerLeft,
-        foregroundColor: colorScheme.onSurface,
-        minimumSize: Size(isCompact ? 120 : double.infinity, 44),
-        padding: const EdgeInsets.symmetric(horizontal: 14),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+        foregroundColor: AppColors.textPrimary,
+        minimumSize: Size(
+          isCompact
+              ? AppBreakpoints.sidebarCollapsedWidth + AppSpacing.massive
+              : double.infinity,
+          AppSpacing.huge + AppSpacing.xs,
+        ),
+        padding: const EdgeInsets.symmetric(horizontal: AppSpacing.lg),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(AppRadius.medium),
+        ),
       ),
     );
   }
