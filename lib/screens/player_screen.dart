@@ -2,6 +2,7 @@ import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 import 'package:simple_pip_mode/actions/pip_actions_layout.dart';
 import 'package:screen_brightness/screen_brightness.dart';
+import 'package:wakelock_plus/wakelock_plus.dart';
 import 'package:simple_pip_mode/simple_pip.dart';
 import 'dart:ui';
 import 'package:cached_network_image/cached_network_image.dart';
@@ -219,6 +220,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
   void initState() {
     super.initState();
     _loadSubtitleDelay();
+    unawaited(WakelockPlus.enable());
     
     _player = Player();
     _videoController = VideoController(_player);
@@ -2722,6 +2724,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     } catch (e) {
       debugPrint('Error resetting screen brightness: $e');
     }
+    unawaited(WakelockPlus.disable());
     const MethodChannel('com.nivio/gesture_exclusion').invokeMethod('setCanEnterPip', {'value': false});
     const MethodChannel('com.nivio/gesture_exclusion').setMethodCallHandler(null);
     const MethodChannel('puntito.simple_pip_mode').setMethodCallHandler(null);
@@ -4588,8 +4591,10 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     }
 
     final media = ref.read(selectedMediaProvider);
+    String title = 'Playing';
     String? subtitle;
-    if ((media?.mediaType == 'tv' || media?.mediaType == 'anime')) {
+    
+    if (media != null && (media.mediaType == 'tv' || media.mediaType == 'anime')) {
       String? episodeName;
       if (_currentSeasonData != null) {
         for (final episode in _currentSeasonData!.episodes) {
@@ -4601,12 +4606,15 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
       }
       final fallback = 'S${widget.season} E$_currentEpisode';
       if (episodeName == null || episodeName.trim().isEmpty || episodeName.startsWith('Episode')) {
-        subtitle = fallback;
+        title = fallback;
       } else {
-        subtitle = '$fallback - $episodeName';
+        title = '$fallback - $episodeName';
       }
+      subtitle = null;
+    } else {
+      title = media?.title ?? media?.name ?? 'Playing';
+      subtitle = null;
     }
-    final title = media?.title ?? media?.name ?? 'Playing';
 
     return RepaintBoundary(
       child: Stack(

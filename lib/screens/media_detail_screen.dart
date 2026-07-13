@@ -11,6 +11,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:wakelock_plus/wakelock_plus.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:nivio/core/theme.dart';
 import 'package:nivio/models/search_result.dart';
@@ -1737,6 +1738,7 @@ class _TrailerFullscreenScreenState extends State<TrailerFullscreenScreen> {
   @override
   void initState() {
     super.initState();
+    unawaited(WakelockPlus.enable());
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
     SystemChrome.setPreferredOrientations([
       DeviceOrientation.landscapeLeft,
@@ -1765,6 +1767,7 @@ class _TrailerFullscreenScreenState extends State<TrailerFullscreenScreen> {
           mute: false,
           enableCaption: false,
           showControls: true,
+          showFullscreenButton: false,
           color: 'red',
         ),
       );
@@ -1797,6 +1800,7 @@ class _TrailerFullscreenScreenState extends State<TrailerFullscreenScreen> {
 
   @override
   void dispose() {
+    unawaited(WakelockPlus.disable());
     _youtubeSubscription?.cancel();
     final youtubeController = _youtubeController;
     if (youtubeController != null) {
@@ -1960,108 +1964,158 @@ class _TrailerFullscreenScreenState extends State<TrailerFullscreenScreen> {
     );
   }
 
+  bool _isClosing = false;
+
+  void _closeTrailer() {
+    if (_isClosing) return;
+    _isClosing = true;
+
+    // Cancel the stream subscription immediately to prevent state updates
+    _youtubeSubscription?.cancel();
+    _youtubeSubscription = null;
+
+    // Close the YouTube controller before popping to prevent
+    // the WebView from intercepting further back events during teardown
+    final controller = _youtubeController;
+    if (controller != null) {
+      _youtubeController = null;
+      unawaited(controller.close());
+    }
+
+    Navigator.of(context).pop();
+  }
+
   @override
   Widget build(BuildContext context) {
     final isYoutube = widget.source.site.toLowerCase() == 'youtube';
 
-    return Scaffold(
-      backgroundColor: Colors.black,
-      body: Stack(
-        children: [
-          Positioned.fill(
-            child: isYoutube ? _buildYoutubePlayer() : _buildWebViewPlayer(),
-          ),
-          if (_hasError)
-            Positioned.fill(
-              child: Center(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, result) {
+        if (didPop) return;
+        _closeTrailer();
+      },
+      child: Scaffold(
+        backgroundColor: Colors.black,
+        body: SafeArea(
+          child: Column(
+            children: [
+              // Dedicated Top Control Bar (physically separate from native webview/player)
+              Container(
+                height: 56,
+                color: Colors.black,
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    Text(
-                      _errorMessage ??
-                          'Unable to play trailer from ${widget.source.site}',
-                      style: const TextStyle(color: Colors.white70),
-                      textAlign: TextAlign.center,
-                    ),
-                    if (widget.source.watchUrl != null) ...[
-                      const SizedBox(height: 10),
-                      FilledButton(
-                        onPressed: _openExternally,
-                        child: const Text('Open Externally'),
+                    // Back button
+                    GestureDetector(
+                      onTap: _closeTrailer,
+                      child: Container(
+                      width: 48,
+                      height: 48,
+                      decoration: BoxDecoration(
+                        color: Colors.white.withValues(alpha: 0.1),
+                        shape: BoxShape.circle,
                       ),
-                    ],
-                  ],
-                ),
-              ),
-            ),
-          if (_isLoading && !_hasError)
-            Positioned.fill(
-              child: Center(
-                child: CircularProgressIndicator(
-                  color: NivioTheme.accentColorOf(context),
-                  strokeWidth: 3,
-                ),
-              ),
-            ),
-          Positioned(
-            top: MediaQuery.paddingOf(context).top + 8,
-            right: 12,
-            child: Row(
-              children: [
-                GestureDetector(
-                  onTap: _showTrailerQualityDialog,
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 10,
-                      vertical: 6,
-                    ),
-                    decoration: BoxDecoration(
-                      color: Colors.black.withValues(alpha: 0.6),
-                      borderRadius: BorderRadius.circular(999),
-                    ),
-                    child: Row(
-                      children: [
-                        const Icon(
-                          Icons.hd_rounded,
-                          color: Colors.white,
-                          size: 16,
-                        ),
-                        const SizedBox(width: 6),
-                        Text(
-                          isYoutube
-                              ? (_youtubeQualityLabels[_selectedYoutubeQuality] ??
-                                    'Auto')
-                              : 'Quality',
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 12,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      ],
+                      child: const Icon(
+                        Icons.arrow_back_rounded,
+                        color: Colors.white,
+                        size: 24,
+                      ),
                     ),
                   ),
-                ),
-                const SizedBox(width: 8),
-                GestureDetector(
-                  onTap: () => Navigator.pop(context),
-                  child: Container(
-                    padding: const EdgeInsets.all(4),
-                    decoration: BoxDecoration(
-                      color: Colors.black.withValues(alpha: 0.6),
-                      shape: BoxShape.circle,
-                    ),
-                    child: const Icon(
-                      Icons.close,
+                  // Title
+                  Text(
+                    'Watch Trailer',
+                    style: const TextStyle(
                       color: Colors.white,
-                      size: 20,
+                      fontSize: 16,
+                      fontWeight: FontWeight.w600,
                     ),
                   ),
-                ),
-              ],
+                  // Quality button
+                  GestureDetector(
+                    onTap: _showTrailerQualityDialog,
+                    child: Container(
+                      height: 40,
+                      padding: const EdgeInsets.symmetric(horizontal: 16),
+                      alignment: Alignment.center,
+                      decoration: BoxDecoration(
+                        color: Colors.white.withValues(alpha: 0.1),
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Icon(
+                            Icons.hd_rounded,
+                            color: Colors.white,
+                            size: 18,
+                          ),
+                          const SizedBox(width: 6),
+                          Text(
+                            isYoutube
+                                ? (_youtubeQualityLabels[_selectedYoutubeQuality] ?? 'Auto')
+                                : 'Quality',
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 13,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+              ),
             ),
+            // Player area (occupies the remaining screen height)
+            Expanded(
+              child: Stack(
+                children: [
+                  Positioned.fill(
+                    child: isYoutube ? _buildYoutubePlayer() : _buildWebViewPlayer(),
+                  ),
+                  if (_hasError)
+                    Positioned.fill(
+                      child: Center(
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(
+                              _errorMessage ??
+                                  'Unable to play trailer from ${widget.source.site}',
+                              style: const TextStyle(color: Colors.white70),
+                              textAlign: TextAlign.center,
+                            ),
+                            if (widget.source.watchUrl != null) ...[
+                              const SizedBox(height: 10),
+                              FilledButton(
+                                onPressed: _openExternally,
+                                child: const Text('Open Externally'),
+                              ),
+                            ],
+                          ],
+                        ),
+                      ),
+                    ),
+                  if (_isLoading && !_hasError)
+                    Positioned.fill(
+                      child: Center(
+                        child: CircularProgressIndicator(
+                          color: NivioTheme.accentColorOf(context),
+                          strokeWidth: 3,
+                        ),
+                      ),
+                    ),
+                ],
+                ),
+              ),
+            ],
           ),
-        ],
+        ),
       ),
     );
   }
