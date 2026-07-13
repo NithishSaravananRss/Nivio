@@ -1918,9 +1918,9 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
       }
       final patch = await ShorebirdUpdateService.currentPatchNumber();
       if (patch == null) {
-        return '$baseVersion Ã¢â‚¬Â¢ patch: base';
+        return '$baseVersion • patch: base';
       }
-      return '$baseVersion Ã¢â‚¬Â¢ patch: $patch';
+      return '$baseVersion • patch: $patch';
     } catch (_) {
       return 'Unknown';
     }
