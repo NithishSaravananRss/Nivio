@@ -16,10 +16,12 @@ class DesktopScrollbar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final hasController = controller != null;
+
     return Scrollbar(
       controller: controller,
-      thumbVisibility: controller != null ? thumbVisibility : false,
-      interactive: true,
+      thumbVisibility: hasController ? thumbVisibility : false,
+      interactive: hasController,
       thickness: AppSpacing.sm,
       radius: const Radius.circular(AppRadius.pill),
       child: child,

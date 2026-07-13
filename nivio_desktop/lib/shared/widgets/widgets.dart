@@ -36,3 +36,15 @@ export 'loading/hero_skeleton.dart';
 export 'loading/landscape_skeleton.dart';
 export 'loading/poster_skeleton.dart';
 export 'loading/provider_card_skeleton.dart';
+
+// Phase 15.2 Shared Widgets
+export 'badges/metadata_chip.dart';
+export 'buttons/streaming_action_button.dart';
+export 'cards/media_card.dart';
+export 'cards/person_card.dart';
+export 'layout/hero_section.dart';
+export 'layout/media_carousel.dart';
+export 'layout/person_carousel.dart';
+export 'layout/provider_logo.dart';
+export 'layout/information_group.dart';
+

@@ -7,11 +7,15 @@ import '../../features/library/library_view.dart';
 
 import '../../core/interfaces/search_repository.dart';
 import '../../core/interfaces/home_repository.dart';
+import '../../core/interfaces/details_repository.dart';
 import '../../features/search/controllers/search_controller.dart';
 import '../../features/home/controllers/home_controller.dart';
+import '../../features/details/controllers/detail_controller.dart';
+import '../../features/details/models/detail_route_args.dart';
 import '../../features/search/presentation/search_view.dart';
 import '../../core/repositories/tmdb_search_repository.dart';
 import '../../core/repositories/tmdb_home_repository.dart';
+import '../../core/repositories/tmdb_details_repository.dart';
 import '../../core/network/tmdb_client.dart';
 import '../../core/constants.dart';
 import '../widgets/feedback/empty_state.dart';
@@ -24,8 +28,14 @@ import '../../core/repositories/empty_watch_history_repository.dart';
 class DesktopScaffold extends StatefulWidget {
   final SearchRepository? searchRepository;
   final HomeRepository? homeRepository;
+  final DetailsRepository? detailsRepository;
 
-  const DesktopScaffold({super.key, this.searchRepository, this.homeRepository});
+  const DesktopScaffold({
+    super.key,
+    this.searchRepository,
+    this.homeRepository,
+    this.detailsRepository,
+  });
 
   @override
   State<DesktopScaffold> createState() => _DesktopScaffoldState();
@@ -33,33 +43,38 @@ class DesktopScaffold extends StatefulWidget {
 
 class _DesktopScaffoldState extends State<DesktopScaffold> {
   static const int _homeIndex = 0;
-  static const int _libraryIndex = 1;
-  static const int _liveTvIndex = 2;
-  static const int _partyIndex = 3;
-  static const int _profileIndex = 4;
-  static const int _settingsIndex = 5;
-  static const int _searchIndex = -1;
+  static const int _searchIndex = 1;
+  static const int _libraryIndex = 2;
+  static const int _liveTvIndex = 3;
+  static const int _partyIndex = 4;
+  static const int _profileIndex = 5;
+  static const int _settingsIndex = 6;
 
   final TextEditingController _searchController = TextEditingController();
-  final FocusNode _topbarSearchFocusNode = FocusNode();
   final FocusNode _searchPageFocusNode = FocusNode();
   late final SearchController _searchStateController = SearchController(
-    repository: widget.searchRepository ?? TmdbSearchRepository(
-      client: TmdbClient(apiKey: tmdbApiKey),
-    ),
+    repository:
+        widget.searchRepository ??
+        TmdbSearchRepository(client: TmdbClient(apiKey: tmdbApiKey)),
   );
 
   late final HomeController _homeStateController = HomeController(
-    repository: widget.homeRepository ?? TmdbHomeRepository(
-      client: TmdbClient(apiKey: tmdbApiKey),
-    ),
+    repository:
+        widget.homeRepository ??
+        TmdbHomeRepository(client: TmdbClient(apiKey: tmdbApiKey)),
     watchHistoryRepository: EmptyWatchHistoryRepository(),
+  );
+
+  late final DetailController _detailStateController = DetailController(
+    repository:
+        widget.detailsRepository ??
+        TmdbDetailsRepository(client: TmdbClient(apiKey: tmdbApiKey)),
   );
 
   int _selectedIndex = _homeIndex;
   int _lastSidebarIndex = _homeIndex;
   bool _isSidebarExpanded = true;
-  String? _detailMediaId;
+  DetailRouteArgs? _detailRouteArgs;
 
   @override
   void initState() {
@@ -70,7 +85,6 @@ class _DesktopScaffoldState extends State<DesktopScaffold> {
   @override
   void dispose() {
     _searchController.dispose();
-    _topbarSearchFocusNode.dispose();
     _searchPageFocusNode.dispose();
     _searchStateController.dispose();
     _homeStateController.dispose();
@@ -80,10 +94,8 @@ class _DesktopScaffoldState extends State<DesktopScaffold> {
   void _selectDestination(int index) {
     setState(() {
       _selectedIndex = index;
-      _detailMediaId = null;
-      if (index != _searchIndex) {
-        _lastSidebarIndex = index;
-      }
+      _detailRouteArgs = null;
+      _lastSidebarIndex = index;
     });
 
     if (index == _searchIndex) {
@@ -95,24 +107,8 @@ class _DesktopScaffoldState extends State<DesktopScaffold> {
     }
   }
 
-  void _handleSearchSubmitted(String value) {
-    if (_selectedIndex != _searchIndex) {
-      _selectDestination(_searchIndex);
-    }
-    _searchStateController.submitQuery();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) {
-        FocusScope.of(context).requestFocus(_searchPageFocusNode);
-      }
-    });
-  }
-
   void _focusGlobalSearch() {
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) {
-        FocusScope.of(context).requestFocus(_topbarSearchFocusNode);
-      }
-    });
+    _selectDestination(_searchIndex);
   }
 
   void _clearFocus() {
@@ -120,14 +116,21 @@ class _DesktopScaffoldState extends State<DesktopScaffold> {
   }
 
   void _openDetail(String mediaId) {
-    setState(() {
-      _detailMediaId = mediaId;
-    });
+    final parts = mediaId.split(':');
+    if (parts.length >= 2) {
+      final mediaType = parts[0];
+      final id = int.tryParse(parts[1]) ?? 0;
+      final args = DetailRouteArgs(mediaType: mediaType, mediaId: id);
+      _detailStateController.loadDetail(args);
+      setState(() {
+        _detailRouteArgs = args;
+      });
+    }
   }
 
   void _closeDetail() {
     setState(() {
-      _detailMediaId = null;
+      _detailRouteArgs = null;
     });
   }
 
@@ -161,12 +164,7 @@ class _DesktopScaffoldState extends State<DesktopScaffold> {
               children: [
                 SizedBox(
                   height: AppBreakpoints.topbarHeight,
-                  child: DesktopTopbar(
-                    searchController: _searchController,
-                    searchFocusNode: _topbarSearchFocusNode,
-                    onSearchChanged: _searchStateController.setQuery,
-                    onSearchSubmitted: _handleSearchSubmitted,
-                  ),
+                  child: const DesktopTopbar(),
                 ),
                 Expanded(
                   child: LayoutBuilder(
@@ -221,17 +219,21 @@ class _DesktopScaffoldState extends State<DesktopScaffold> {
   }
 
   Widget _buildContent() {
-    final detailMediaId = _detailMediaId;
-    if (detailMediaId != null) {
+    final detailRouteArgs = _detailRouteArgs;
+    if (detailRouteArgs != null) {
       return DetailView(
-        mediaId: detailMediaId,
+        args: detailRouteArgs,
+        controller: _detailStateController,
         onBack: _closeDetail,
         onOpenDetail: _openDetail,
       );
     }
 
     return switch (_selectedIndex) {
-      _homeIndex => HomeView(controller: _homeStateController, onOpenDetail: _openDetail),
+      _homeIndex => HomeView(
+        controller: _homeStateController,
+        onOpenDetail: _openDetail,
+      ),
       _libraryIndex => LibraryView(onOpenDetail: _openDetail),
       _liveTvIndex => const EmptyState(
         title: 'Live TV',
@@ -255,7 +257,10 @@ class _DesktopScaffoldState extends State<DesktopScaffold> {
         searchFocusNode: _searchPageFocusNode,
         onOpenDetail: _openDetail,
       ),
-      _ => HomeView(controller: _homeStateController, onOpenDetail: _openDetail),
+      _ => HomeView(
+        controller: _homeStateController,
+        onOpenDetail: _openDetail,
+      ),
     };
   }
 }

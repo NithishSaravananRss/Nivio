@@ -1,4 +1,12 @@
-enum SearchLanguageFilter { all, english, tamil, hindi, japanese, korean }
+enum SearchLanguageFilter {
+  all,
+  english,
+  tamil,
+  telugu,
+  hindi,
+  korean,
+  japanese,
+}
 
 enum SearchMediaTypeFilter { all, movie, tv, anime }
 
@@ -50,8 +58,9 @@ class SearchMediaItem {
     SearchLanguageFilter.all => 'All',
     SearchLanguageFilter.english => 'English',
     SearchLanguageFilter.tamil => 'Tamil',
+    SearchLanguageFilter.telugu => 'Telugu',
     SearchLanguageFilter.hindi => 'Hindi',
-    SearchLanguageFilter.japanese => 'Japanese',
     SearchLanguageFilter.korean => 'Korean',
+    SearchLanguageFilter.japanese => 'Japanese',
   };
 }

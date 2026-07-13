@@ -68,15 +68,15 @@ class SearchFilterPanel extends StatelessWidget {
                 onTap: () => controller.setLanguage(SearchLanguageFilter.tamil),
               ),
               _FilterChip(
+                label: 'Telugu',
+                selected: controller.language == SearchLanguageFilter.telugu,
+                onTap: () =>
+                    controller.setLanguage(SearchLanguageFilter.telugu),
+              ),
+              _FilterChip(
                 label: 'Hindi',
                 selected: controller.language == SearchLanguageFilter.hindi,
                 onTap: () => controller.setLanguage(SearchLanguageFilter.hindi),
-              ),
-              _FilterChip(
-                label: 'Japanese',
-                selected: controller.language == SearchLanguageFilter.japanese,
-                onTap: () =>
-                    controller.setLanguage(SearchLanguageFilter.japanese),
               ),
               _FilterChip(
                 label: 'Korean',
@@ -84,33 +84,11 @@ class SearchFilterPanel extends StatelessWidget {
                 onTap: () =>
                     controller.setLanguage(SearchLanguageFilter.korean),
               ),
-            ],
-          ),
-          const SizedBox(height: AppSpacing.lg),
-          _FilterSection(
-            title: 'Media Type',
-            children: [
               _FilterChip(
-                label: 'All',
-                selected: controller.mediaType == SearchMediaTypeFilter.all,
-                onTap: () => controller.setMediaType(SearchMediaTypeFilter.all),
-              ),
-              _FilterChip(
-                label: 'Movie',
-                selected: controller.mediaType == SearchMediaTypeFilter.movie,
+                label: 'Japanese',
+                selected: controller.language == SearchLanguageFilter.japanese,
                 onTap: () =>
-                    controller.setMediaType(SearchMediaTypeFilter.movie),
-              ),
-              _FilterChip(
-                label: 'TV',
-                selected: controller.mediaType == SearchMediaTypeFilter.tv,
-                onTap: () => controller.setMediaType(SearchMediaTypeFilter.tv),
-              ),
-              _FilterChip(
-                label: 'Anime',
-                selected: controller.mediaType == SearchMediaTypeFilter.anime,
-                onTap: () =>
-                    controller.setMediaType(SearchMediaTypeFilter.anime),
+                    controller.setLanguage(SearchLanguageFilter.japanese),
               ),
             ],
           ),

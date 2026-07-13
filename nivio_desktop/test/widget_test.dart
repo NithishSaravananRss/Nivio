@@ -9,16 +9,48 @@ import 'test_helper.dart';
 
 class MockHomeRepository implements HomeRepository {
   @override
+  Future<List<SearchMediaItem>> getPopularMovies() async => [];
+
+  @override
   Future<List<SearchMediaItem>> getTrendingMovies() async => [];
+
+  @override
+  Future<List<SearchMediaItem>> getTopRatedMovies() async => [];
+
+  @override
+  Future<List<SearchMediaItem>> getPopularTv() async => [];
 
   @override
   Future<List<SearchMediaItem>> getTrendingTv() async => [];
 
   @override
+  Future<List<SearchMediaItem>> getPopularAnime() async => [];
+
+  @override
   Future<List<SearchMediaItem>> getTrendingAnime() async => [];
 
   @override
+  Future<List<SearchMediaItem>> getTamilPicks() async => [];
+
+  @override
+  Future<List<SearchMediaItem>> getTeluguPicks() async => [];
+
+  @override
+  Future<List<SearchMediaItem>> getHindiPicks() async => [];
+
+  @override
+  Future<List<SearchMediaItem>> getMalayalamPicks() async => [];
+
+  @override
+  Future<List<SearchMediaItem>> getKoreanDramas() async => [];
+
+  @override
   Future<List<SearchMediaItem>> getFeaturedContent() async => [];
+
+  @override
+  Future<List<SearchMediaItem>> getRecommendationsForHistory(
+    List<Map<String, dynamic>> history,
+  ) async => [];
 }
 
 void main() {
@@ -36,10 +68,14 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Nivio Desktop'), findsOneWidget);
+    expect(find.text('Search'), findsOneWidget);
     expect(find.text('Continue Watching'), findsNothing);
-    expect(find.text('Trending Movies'), findsOneWidget);
-    expect(find.text('Trending TV'), findsOneWidget);
-    expect(find.text('Trending Anime'), findsNothing);
+    expect(find.text('Trending Now'), findsOneWidget);
+    expect(find.text('Trending TV Shows'), findsOneWidget);
+    expect(find.text('Trending Anime'), findsOneWidget);
+    expect(find.text('Tamil Picks'), findsOneWidget);
+    expect(find.text('Upcoming Movies'), findsNothing);
+    expect(find.text('Airing Today'), findsNothing);
     expect(find.text('Studios'), findsOneWidget);
     expect(find.text('Netflix'), findsOneWidget);
   });

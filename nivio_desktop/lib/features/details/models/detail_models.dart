@@ -19,7 +19,7 @@ class DetailMedia {
     required this.audioTracks,
     required this.subtitleTracks,
     required this.productionCompanies,
-    required this.countries,
+    required this.productionCountries,
     required this.status,
     required this.cast,
     required this.crew,
@@ -28,6 +28,23 @@ class DetailMedia {
     this.seasons = const [],
     this.resumeProgress = 0,
     this.isInWatchlist = false,
+    // Future-proofing fields
+    this.belongsToCollection,
+    this.spokenLanguages = const [],
+    this.originCountry = const [],
+    this.createdBy = const [],
+    this.networks = const [],
+    this.homepage,
+    this.imdbId,
+    this.externalIds,
+    this.lastEpisode,
+    this.nextEpisode,
+    this.type,
+    this.posterPath,
+    this.backdropPath,
+    this.logoPath,
+    this.trailers = const [],
+    this.images = const [],
   });
 
   final String id;
@@ -49,7 +66,7 @@ class DetailMedia {
   final List<String> audioTracks;
   final List<String> subtitleTracks;
   final List<String> productionCompanies;
-  final List<String> countries;
+  final List<String> productionCountries;
   final String status;
   final List<DetailPerson> cast;
   final DetailCrew crew;
@@ -58,6 +75,24 @@ class DetailMedia {
   final List<DetailSeason> seasons;
   final double resumeProgress;
   final bool isInWatchlist;
+
+  // Future-proofing fields
+  final Map<String, dynamic>? belongsToCollection;
+  final List<String> spokenLanguages;
+  final List<String> originCountry;
+  final List<String> createdBy;
+  final List<String> networks;
+  final String? homepage;
+  final String? imdbId;
+  final Map<String, dynamic>? externalIds;
+  final DetailEpisode? lastEpisode;
+  final DetailEpisode? nextEpisode;
+  final String? type;
+  final String? posterPath;
+  final String? backdropPath;
+  final String? logoPath;
+  final List<String> trailers;
+  final List<String> images;
 
   bool get isSeries =>
       mediaType == DetailMediaType.tv || mediaType == DetailMediaType.anime;
@@ -83,7 +118,7 @@ class DetailMedia {
       audioTracks: audioTracks,
       subtitleTracks: subtitleTracks,
       productionCompanies: productionCompanies,
-      countries: countries,
+      productionCountries: productionCountries,
       status: status,
       cast: cast,
       crew: crew,
@@ -92,6 +127,22 @@ class DetailMedia {
       seasons: seasons,
       resumeProgress: resumeProgress,
       isInWatchlist: isInWatchlist ?? this.isInWatchlist,
+      belongsToCollection: belongsToCollection,
+      spokenLanguages: spokenLanguages,
+      originCountry: originCountry,
+      createdBy: createdBy,
+      networks: networks,
+      homepage: homepage,
+      imdbId: imdbId,
+      externalIds: externalIds,
+      lastEpisode: lastEpisode,
+      nextEpisode: nextEpisode,
+      type: type,
+      posterPath: posterPath,
+      backdropPath: backdropPath,
+      logoPath: logoPath,
+      trailers: trailers,
+      images: images,
     );
   }
 }
@@ -127,6 +178,8 @@ class DetailEpisode {
     required this.overview,
     required this.progress,
     required this.status,
+    this.stillPath,
+    this.airDate,
   });
 
   final int number;
@@ -135,13 +188,20 @@ class DetailEpisode {
   final String overview;
   final double progress;
   final String status;
+  final String? stillPath;
+  final String? airDate;
 }
 
 class DetailPerson {
-  const DetailPerson({required this.name, required this.role});
+  const DetailPerson({
+    required this.name,
+    required this.role,
+    this.profilePath,
+  });
 
   final String name;
   final String role;
+  final String? profilePath;
 }
 
 class DetailCrew {
@@ -169,6 +229,7 @@ class DetailPosterItem {
     required this.year,
     required this.rating,
     required this.subtitle,
+    this.posterPath,
   });
 
   final String id;
@@ -176,4 +237,5 @@ class DetailPosterItem {
   final String year;
   final String rating;
   final String subtitle;
+  final String? posterPath;
 }

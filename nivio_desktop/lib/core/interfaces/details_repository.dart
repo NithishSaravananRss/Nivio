@@ -1,17 +1,12 @@
+import '../../features/details/models/detail_models.dart';
+import '../../features/details/models/detail_route_args.dart';
+
 /// Contract for loading metadata for a selected media item.
 abstract class DetailsRepository {
-  Future<Map<String, dynamic>?> getMediaDetails({
-    required int mediaId,
-    required String mediaType,
-  });
+  Future<DetailMedia> loadCompleteDetail(DetailRouteArgs args);
 
-  Future<List<Map<String, dynamic>>> getRelatedMedia({
-    required int mediaId,
-    required String mediaType,
-  });
-
-  Future<List<Map<String, dynamic>>> getSeasonEpisodes({
-    required int mediaId,
+  Future<List<DetailEpisode>> getSeasonEpisodes({
+    required int tvId,
     required int seasonNumber,
   });
 }

@@ -1,23 +1,11 @@
-import 'package:flutter/material.dart' hide SearchBar;
+import 'package:flutter/material.dart';
 
 import '../theme/index.dart';
 import '../widgets/buttons/icon_action_button.dart';
-import '../widgets/inputs/search_bar.dart';
 
 /// Top application bar for the desktop shell.
 class DesktopTopbar extends StatelessWidget {
-  const DesktopTopbar({
-    super.key,
-    this.searchController,
-    this.searchFocusNode,
-    this.onSearchChanged,
-    this.onSearchSubmitted,
-  });
-
-  final TextEditingController? searchController;
-  final FocusNode? searchFocusNode;
-  final ValueChanged<String>? onSearchChanged;
-  final ValueChanged<String>? onSearchSubmitted;
+  const DesktopTopbar({super.key});
 
   @override
   Widget build(BuildContext context) {
@@ -38,22 +26,7 @@ class DesktopTopbar extends StatelessWidget {
               ),
             ),
             const SizedBox(width: AppSpacing.xl),
-            Expanded(
-              child: Align(
-                alignment: Alignment.centerLeft,
-                child: ConstrainedBox(
-                  constraints: const BoxConstraints(maxWidth: 760),
-                  child: SearchBar(
-                    controller: searchController,
-                    focusNode: searchFocusNode,
-                    hintText: 'Search movies, series, anime',
-                    semanticLabel: 'Global search',
-                    onChanged: onSearchChanged,
-                    onSubmitted: onSearchSubmitted,
-                  ),
-                ),
-              ),
-            ),
+            const Spacer(),
             const SizedBox(width: AppSpacing.xl),
             Wrap(
               spacing: AppSpacing.sm,

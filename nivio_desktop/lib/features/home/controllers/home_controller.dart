@@ -3,6 +3,31 @@ import '../../../core/interfaces/home_repository.dart';
 import '../../../core/interfaces/watch_history_repository.dart';
 import '../../search/models/search_media_item.dart';
 
+class HomeSectionState {
+  const HomeSectionState({
+    this.isLoading = true,
+    this.items = const [],
+    this.error,
+  });
+
+  final bool isLoading;
+  final List<SearchMediaItem> items;
+  final String? error;
+
+  HomeSectionState copyWith({
+    bool? isLoading,
+    List<SearchMediaItem>? items,
+    String? error,
+    bool clearError = false,
+  }) {
+    return HomeSectionState(
+      isLoading: isLoading ?? this.isLoading,
+      items: items ?? this.items,
+      error: clearError ? null : error ?? this.error,
+    );
+  }
+}
+
 class HomeController extends ChangeNotifier {
   final HomeRepository repository;
   final WatchHistoryRepository watchHistoryRepository;
@@ -12,40 +37,68 @@ class HomeController extends ChangeNotifier {
     required this.watchHistoryRepository,
   });
 
-  bool _isLoadingMovies = true;
-  bool _isLoadingTv = true;
   bool _isLoadingHistory = true;
   bool _isLoadingFeatured = true;
+  bool _isLoadingRecommendations = true;
 
-  bool _isFetchingMovies = false;
-  bool _isFetchingTv = false;
   bool _isFetchingHistory = false;
   bool _isFetchingFeatured = false;
+  bool _isFetchingRecommendations = false;
+  final Set<String> _fetchingSections = {};
 
   List<Map<String, dynamic>> _watchHistory = [];
 
-  bool get isLoadingMovies => _isLoadingMovies;
-  bool get isLoadingTv => _isLoadingTv;
   bool get isLoadingHistory => _isLoadingHistory;
   bool get isLoadingFeatured => _isLoadingFeatured;
+  bool get isLoadingRecommendations => _isLoadingRecommendations;
 
-  String? _moviesError;
-  String? _tvError;
   String? _historyError;
   String? _featuredError;
+  String? _recommendationsError;
 
-  String? get moviesError => _moviesError;
-  String? get tvError => _tvError;
   String? get historyError => _historyError;
   String? get featuredError => _featuredError;
+  String? get recommendationsError => _recommendationsError;
 
-  List<SearchMediaItem> _trendingMovies = [];
-  List<SearchMediaItem> _trendingTv = [];
+  final Map<String, HomeSectionState> _sections = {
+    for (final id in sectionOrder) id: const HomeSectionState(),
+  };
   List<SearchMediaItem> _featuredItems = [];
+  List<SearchMediaItem> _recommendations = [];
 
-  List<SearchMediaItem> get trendingMovies => _trendingMovies;
-  List<SearchMediaItem> get trendingTv => _trendingTv;
+  static const sectionOrder = [
+    'popular_movies',
+    'trending_movies',
+    'top_rated_movies',
+    'popular_tv',
+    'trending_tv',
+    'popular_anime',
+    'trending_anime',
+    'tamil',
+    'telugu',
+    'hindi',
+    'malayalam',
+    'korean',
+  ];
+
+  static const sectionTitles = {
+    'popular_movies': 'All Time Popular',
+    'trending_movies': 'Trending Now',
+    'top_rated_movies': 'Top Rated Movies',
+    'popular_tv': 'Popular TV Shows',
+    'trending_tv': 'Trending TV Shows',
+    'popular_anime': 'Popular Anime',
+    'trending_anime': 'Trending Anime',
+    'tamil': 'Tamil Picks',
+    'telugu': 'Telugu Picks',
+    'hindi': 'Hindi Picks',
+    'malayalam': 'Malayalam Picks',
+    'korean': 'Korean Dramas',
+  };
+
+  Map<String, HomeSectionState> get sections => Map.unmodifiable(_sections);
   List<SearchMediaItem> get featuredItems => _featuredItems;
+  List<SearchMediaItem> get recommendations => _recommendations;
   List<Map<String, dynamic>> get watchHistory => _watchHistory;
 
   SearchMediaItem? get heroItem =>
@@ -60,10 +113,11 @@ class HomeController extends ChangeNotifier {
   }
 
   Future<void> loadAll() async {
-    _loadMovies();
-    _loadTv();
     _loadHistory();
     _loadFeatured();
+    for (final sectionId in sectionOrder) {
+      _loadSection(sectionId);
+    }
   }
 
   Future<void> _loadFeatured() async {
@@ -104,7 +158,8 @@ class HomeController extends ChangeNotifier {
     try {
       final results = await watchHistoryRepository.getWatchHistory();
       if (_isDisposed) return;
-      _watchHistory = results;
+      _watchHistory = results.where(_isIncompleteHistoryItem).take(10).toList();
+      _loadRecommendations();
     } catch (e, stackTrace) {
       if (_isDisposed) return;
       _historyError = _debugError(
@@ -122,68 +177,122 @@ class HomeController extends ChangeNotifier {
     }
   }
 
-  Future<void> _loadMovies() async {
-    if (_isFetchingMovies) return;
-    _isFetchingMovies = true;
-    _isLoadingMovies = true;
-    _moviesError = null;
+  Future<void> _loadRecommendations() async {
+    if (_isFetchingRecommendations) return;
+    if (_watchHistory.isEmpty) {
+      _isLoadingRecommendations = false;
+      _recommendations = [];
+      _recommendationsError = null;
+      notifyListeners();
+      return;
+    }
+    _isFetchingRecommendations = true;
+    _isLoadingRecommendations = true;
+    _recommendationsError = null;
     notifyListeners();
 
     try {
-      final results = await repository.getTrendingMovies();
+      final results = await repository.getRecommendationsForHistory(
+        _watchHistory,
+      );
       if (_isDisposed) return;
-      _trendingMovies = results;
+      _recommendations = results;
     } catch (e, stackTrace) {
       if (_isDisposed) return;
-      _moviesError = _debugError(
-        title: 'Failed to load trending movies.',
-        endpoint: '/3/trending/movie/day',
+      _recommendationsError = _debugError(
+        title: 'Failed to load recommendations.',
+        endpoint: '/3/{mediaType}/{id}/recommendations',
         error: e,
         stackTrace: stackTrace,
       );
     } finally {
       if (!_isDisposed) {
-        _isLoadingMovies = false;
-        _isFetchingMovies = false;
+        _isLoadingRecommendations = false;
+        _isFetchingRecommendations = false;
         notifyListeners();
       }
     }
   }
 
-  Future<void> _loadTv() async {
-    if (_isFetchingTv) return;
-    _isFetchingTv = true;
-    _isLoadingTv = true;
-    _tvError = null;
+  Future<void> _loadSection(String sectionId) async {
+    if (_fetchingSections.contains(sectionId)) return;
+    _fetchingSections.add(sectionId);
+    _sections[sectionId] = (_sections[sectionId] ?? const HomeSectionState())
+        .copyWith(isLoading: true, clearError: true);
     notifyListeners();
 
     try {
-      final results = await repository.getTrendingTv();
+      final results = await _fetchSection(sectionId);
       if (_isDisposed) return;
-      _trendingTv = results;
+      _sections[sectionId] = HomeSectionState(isLoading: false, items: results);
     } catch (e, stackTrace) {
       if (_isDisposed) return;
-      _tvError = _debugError(
-        title: 'Failed to load trending TV shows.',
-        endpoint: '/3/trending/tv/day',
-        error: e,
-        stackTrace: stackTrace,
+      _sections[sectionId] = HomeSectionState(
+        isLoading: false,
+        error: _debugError(
+          title: 'Failed to load ${sectionTitles[sectionId] ?? sectionId}.',
+          endpoint: _sectionEndpoint(sectionId),
+          error: e,
+          stackTrace: stackTrace,
+        ),
       );
     } finally {
-      if (!_isDisposed) {
-        _isLoadingTv = false;
-        _isFetchingTv = false;
-        notifyListeners();
-      }
+      _fetchingSections.remove(sectionId);
+      if (!_isDisposed) notifyListeners();
     }
   }
 
-  Future<void> retryMovies() async {
-    await _loadMovies();
+  Future<List<SearchMediaItem>> _fetchSection(String sectionId) {
+    return switch (sectionId) {
+      'popular_movies' => repository.getPopularMovies(),
+      'trending_movies' => repository.getTrendingMovies(),
+      'top_rated_movies' => repository.getTopRatedMovies(),
+      'popular_tv' => repository.getPopularTv(),
+      'trending_tv' => repository.getTrendingTv(),
+      'popular_anime' => repository.getPopularAnime(),
+      'trending_anime' => repository.getTrendingAnime(),
+      'tamil' => repository.getTamilPicks(),
+      'telugu' => repository.getTeluguPicks(),
+      'hindi' => repository.getHindiPicks(),
+      'malayalam' => repository.getMalayalamPicks(),
+      'korean' => repository.getKoreanDramas(),
+      _ => Future.value(const <SearchMediaItem>[]),
+    };
   }
 
-  Future<void> retryTv() async {
-    await _loadTv();
+  Future<void> retrySection(String sectionId) async {
+    await _loadSection(sectionId);
+  }
+
+  Future<void> retryRecommendations() async {
+    await _loadRecommendations();
+  }
+
+  bool _isIncompleteHistoryItem(Map<String, dynamic> item) {
+    if (item['isCompleted'] == true) return false;
+    final rawProgress = item['progressPercent'] ?? item['progress'];
+    final progress = rawProgress is num
+        ? rawProgress.toDouble()
+        : double.tryParse(rawProgress?.toString() ?? '') ?? 0;
+    return progress < 0.95;
+  }
+
+  String _sectionEndpoint(String sectionId) {
+    return switch (sectionId) {
+      'popular_movies' => '/3/movie/popular',
+      'trending_movies' => '/3/trending/movie/day',
+      'top_rated_movies' => '/3/movie/top_rated',
+      'popular_tv' => '/3/tv/popular',
+      'trending_tv' => '/3/trending/tv/day',
+      'popular_anime' => 'AniList POPULARITY_DESC',
+      'trending_anime' => 'AniList TRENDING_DESC',
+      'tamil' => '/3/discover/movie?with_original_language=ta',
+      'telugu' => '/3/discover/movie?with_original_language=te',
+      'hindi' => '/3/discover/movie?with_original_language=hi',
+      'malayalam' => '/3/discover/movie?with_original_language=ml',
+      'korean' => '/3/discover/tv?with_original_language=ko',
+      _ => sectionId,
+    };
   }
 
   String _debugError({

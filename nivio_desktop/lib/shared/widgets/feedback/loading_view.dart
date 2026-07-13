@@ -10,28 +10,43 @@ class LoadingView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(AppSpacing.emptyState),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const SizedBox(
-              width: 36,
-              height: 36,
-              child: CircularProgressIndicator(strokeWidth: 3),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final shortestSide = constraints.maxWidth < constraints.maxHeight
+            ? constraints.maxWidth
+            : constraints.maxHeight;
+        final padding = (shortestSide * 0.08).clamp(
+          AppSpacing.sm,
+          AppSpacing.emptyState,
+        );
+        return Center(
+          child: Padding(
+            padding: EdgeInsets.all(padding),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const SizedBox(
+                  width: 36,
+                  height: 36,
+                  child: CircularProgressIndicator(strokeWidth: 3),
+                ),
+                if (title != null) ...[
+                  const SizedBox(height: AppSpacing.lg),
+                  Text(title!, style: AppTypography.title),
+                ],
+                if (message != null) ...[
+                  const SizedBox(height: AppSpacing.sm),
+                  Text(
+                    message!,
+                    textAlign: TextAlign.center,
+                    style: AppTypography.body,
+                  ),
+                ],
+              ],
             ),
-            if (title != null) ...[
-              const SizedBox(height: AppSpacing.lg),
-              Text(title!, style: AppTypography.title),
-            ],
-            if (message != null) ...[
-              const SizedBox(height: AppSpacing.sm),
-              Text(message!, textAlign: TextAlign.center, style: AppTypography.body),
-            ],
-          ],
-        ),
-      ),
+          ),
+        );
+      },
     );
   }
 }

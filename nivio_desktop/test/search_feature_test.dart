@@ -13,7 +13,12 @@ void main() {
   testWidgets('opens the search page and filters mock results', (
     WidgetTester tester,
   ) async {
-    await tester.pumpWidget(NivioDesktopApp(searchRepository: MockSearchRepository()));
+    await tester.pumpWidget(
+      NivioDesktopApp(searchRepository: MockSearchRepository()),
+    );
+
+    await tester.tap(find.text('Search').first);
+    await tester.pumpAndSettle();
 
     final searchField = find.byType(TextField).first;
     await tester.enterText(searchField, 'signal');
@@ -26,6 +31,11 @@ void main() {
     expect(find.text('Filters'), findsOneWidget);
 
     expect(find.text('Signal Lost'), findsOneWidget);
+    await tester.scrollUntilVisible(
+      find.text('Halo Signal'),
+      400,
+      scrollable: find.byType(Scrollable).last,
+    );
     expect(find.text('Halo Signal'), findsOneWidget);
     expect(find.text('Blackout City'), findsNothing);
 

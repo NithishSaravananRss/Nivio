@@ -43,29 +43,50 @@ class ProviderCard extends StatelessWidget {
               color: AppColors.surfaceVariant,
               borderRadius: BorderRadius.circular(AppRadius.medium),
               border: Border.all(color: AppColors.borderSubtle),
-              image: logoImage != null
-                  ? DecorationImage(
-                      image: logoImage!,
-                      fit: BoxFit.cover,
-                    )
-                  : null,
             ),
-            child: logoImage == null
-                ? Center(
-                    child: Text(
-                      name.characters.first,
-                      style: AppTypography.sectionTitle.copyWith(fontSize: 18),
-                    ),
+            clipBehavior: Clip.antiAlias,
+            child: logoImage != null
+                ? Image(
+                    image: logoImage!,
+                    fit: BoxFit.cover,
+                    errorBuilder: (context, error, stackTrace) =>
+                        _ProviderFallback(name: name),
                   )
-                : null,
+                : _ProviderFallback(name: name),
           ),
           const SizedBox(height: AppSpacing.md),
-          Text(name, style: AppTypography.title, maxLines: 2, overflow: TextOverflow.ellipsis),
+          Text(
+            name,
+            style: AppTypography.title,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+          ),
           if (label != null) ...[
             const SizedBox(height: AppSpacing.xs),
-            Text(label!, style: AppTypography.caption, maxLines: 2, overflow: TextOverflow.ellipsis),
+            Text(
+              label!,
+              style: AppTypography.caption,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+            ),
           ],
         ],
+      ),
+    );
+  }
+}
+
+class _ProviderFallback extends StatelessWidget {
+  const _ProviderFallback({required this.name});
+
+  final String name;
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Text(
+        name.characters.first,
+        style: AppTypography.sectionTitle.copyWith(fontSize: 18),
       ),
     );
   }

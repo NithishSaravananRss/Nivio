@@ -40,7 +40,8 @@ class _SearchViewState extends State<SearchView> {
 
   void _onScroll() {
     if (!_resultsScrollController.hasClients) return;
-    if (_resultsScrollController.position.pixels >= _resultsScrollController.position.maxScrollExtent - 500) {
+    if (_resultsScrollController.position.pixels >=
+        _resultsScrollController.position.maxScrollExtent - 500) {
       unawaited(widget.controller.loadMore());
     }
   }
@@ -73,17 +74,12 @@ class _SearchViewState extends State<SearchView> {
                 child: AnimatedBuilder(
                   animation: widget.controller,
                   builder: (context, _) {
-                    final showFilters = wideLayout || _filtersVisible;
+                    final showFilters = _filtersVisible;
 
                     return Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
                         const Text('Search', style: AppTypography.pageTitle),
-                        const SizedBox(height: AppSpacing.sm),
-                        Text(
-                          'Mock catalog search with desktop filters and local history.',
-                          style: AppTypography.body,
-                        ),
                         const SizedBox(height: AppSpacing.lg),
                         SearchToolbar(
                           controller: widget.controller,
@@ -97,20 +93,13 @@ class _SearchViewState extends State<SearchView> {
                             }
                           },
                           filtersVisible: showFilters,
-                          onSortSelected: widget.controller.setSort,
-                          onToggleViewMode: () {
-                            widget.controller.setViewMode(
-                              widget.controller.viewMode == SearchViewMode.grid
-                                  ? SearchViewMode.list
-                                  : SearchViewMode.grid,
-                            );
-                          },
                         ),
                         const SizedBox(height: AppSpacing.xl),
                         if (widget.controller.query.isEmpty &&
                             widget.controller.recentSearches.isNotEmpty) ...[
                           _RecentSearchesRow(
                             searches: widget.controller.recentSearches,
+                            onClear: widget.controller.clearRecentSearches,
                             onSelected: (value) {
                               widget.queryController.text = value;
                               widget.controller.setQuery(value);
@@ -126,6 +115,7 @@ class _SearchViewState extends State<SearchView> {
                           child: LayoutBuilder(
                             builder: (context, innerConstraints) {
                               final canUseSidePanel =
+                                  showFilters &&
                                   wideLayout &&
                                   innerConstraints.maxWidth >=
                                       AppBreakpoints.standard;
@@ -143,19 +133,16 @@ class _SearchViewState extends State<SearchView> {
                                       ),
                                     ),
                                     const SizedBox(width: AppSpacing.xl),
-                                  ] else if (showFilters) ...[
-                                    Expanded(
-                                      child: Padding(
-                                        padding: const EdgeInsets.only(
-                                          bottom: AppSpacing.lg,
-                                        ),
-                                        child: SingleChildScrollView(
-                                          child: SearchFilterPanel(
-                                            controller: widget.controller,
-                                          ),
+                                  ] else if (showFilters && !wideLayout) ...[
+                                    SizedBox(
+                                      width: 240,
+                                      child: SingleChildScrollView(
+                                        child: SearchFilterPanel(
+                                          controller: widget.controller,
                                         ),
                                       ),
                                     ),
+                                    const SizedBox(width: AppSpacing.lg),
                                   ],
                                   Expanded(
                                     child: _SearchResultsPane(
@@ -197,17 +184,33 @@ class _SearchViewState extends State<SearchView> {
 }
 
 class _RecentSearchesRow extends StatelessWidget {
-  const _RecentSearchesRow({required this.searches, required this.onSelected});
+  const _RecentSearchesRow({
+    required this.searches,
+    required this.onSelected,
+    required this.onClear,
+  });
 
   final List<String> searches;
   final ValueChanged<String> onSelected;
+  final VoidCallback onClear;
 
   @override
   Widget build(BuildContext context) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text('Recent searches', style: AppTypography.title),
+        Row(
+          children: [
+            Expanded(
+              child: Text('Recent searches', style: AppTypography.title),
+            ),
+            GhostButton(
+              label: 'Clear',
+              onPressed: onClear,
+              minimumSize: const Size(0, 34),
+            ),
+          ],
+        ),
         const SizedBox(height: AppSpacing.sm),
         ResponsiveWrap(
           spacing: AppSpacing.sm,
@@ -300,7 +303,7 @@ class _SearchResultsPane extends StatelessWidget {
             ? 'Start searching'
             : 'No results found',
         message: controller.query.isEmpty
-            ? 'Search the mock catalog using the bar above.'
+            ? 'Search movies, shows, and anime using the field above.'
             : 'Try a different title or loosen the filters.',
       );
     }
@@ -310,7 +313,8 @@ class _SearchResultsPane extends StatelessWidget {
         controller: scrollController,
         child: ListView.separated(
           controller: scrollController,
-          itemCount: controller.results.length + (controller.isLoadingMore ? 1 : 0),
+          itemCount:
+              controller.results.length + (controller.isLoadingMore ? 1 : 0),
           separatorBuilder: (_, _) => const SizedBox(height: AppSpacing.md),
           itemBuilder: (context, index) {
             if (index == controller.results.length) {
@@ -332,8 +336,9 @@ class _SearchResultsPane extends StatelessWidget {
       controller: scrollController,
       child: MediaGrid(
         controller: scrollController,
-        itemCount: controller.results.length + (controller.isLoadingMore ? 1 : 0),
-        minItemWidth: 170,
+        itemCount:
+            controller.results.length + (controller.isLoadingMore ? 1 : 0),
+        minItemWidth: 240,
         itemBuilder: (context, index) {
           if (index == controller.results.length) {
             return const Center(child: CircularProgressIndicator());
@@ -356,16 +361,14 @@ class _SearchResultPosterCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return PosterCard(
+    return MediaCard(
       title: item.title,
       year: item.yearLabel,
       rating: item.ratingLabel,
       subtitle:
           '${item.mediaTypeLabel} · ${item.languageLabel} · ${item.provider}',
-      semanticLabel:
-          '${item.title}, ${item.yearLabel}, ${item.ratingLabel} rating, ${item.languageLabel}, ${item.provider}',
+      posterPath: item.posterPath,
       onTap: () => onOpenDetail?.call(item.id),
-      onSecondaryTap: () => onOpenDetail?.call(item.id),
       onPlay: () => onOpenDetail?.call(item.id),
       onWatchlist: () {},
       onMore: () {},
@@ -407,7 +410,7 @@ class _LoadingGrid extends StatelessWidget {
   Widget build(BuildContext context) {
     return MediaGrid(
       itemCount: 12,
-      minItemWidth: 170,
+      minItemWidth: 240,
       itemBuilder: (context, index) => const PosterSkeleton(),
     );
   }

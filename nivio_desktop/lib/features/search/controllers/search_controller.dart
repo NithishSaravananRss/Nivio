@@ -1,3 +1,5 @@
+// ignore_for_file: prefer_initializing_formals
+
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
@@ -6,8 +8,8 @@ import '../models/search_media_item.dart';
 import '../../../core/interfaces/search_repository.dart';
 
 class SearchController extends ChangeNotifier {
-  // ignore: prefer_initializing_formals
-  SearchController({required SearchRepository repository}) : _repository = repository;
+  SearchController({required SearchRepository repository})
+    : _repository = repository;
 
   final SearchRepository _repository;
   Timer? _debounceTimer;
@@ -21,10 +23,10 @@ class SearchController extends ChangeNotifier {
   bool _hasMore = true;
   final List<String> _recentSearches = <String>[];
   SearchLanguageFilter _language = SearchLanguageFilter.all;
-  SearchMediaTypeFilter _mediaType = SearchMediaTypeFilter.all;
   SearchSortOption _sort = SearchSortOption.defaultOrder;
   SearchViewMode _viewMode = SearchViewMode.grid;
   bool _initialized = false;
+  int _requestId = 0;
 
   String get query => _query;
   bool get isLoading => _isLoading;
@@ -34,14 +36,12 @@ class SearchController extends ChangeNotifier {
   List<SearchMediaItem> get results => List.unmodifiable(_results);
   List<String> get recentSearches => List.unmodifiable(_recentSearches);
   SearchLanguageFilter get language => _language;
-  SearchMediaTypeFilter get mediaType => _mediaType;
   SearchSortOption get sort => _sort;
   SearchViewMode get viewMode => _viewMode;
   bool get hasError => _errorMessage != null;
   bool get hasResults => _results.isNotEmpty;
   bool get hasActiveFilters =>
       _language != SearchLanguageFilter.all ||
-      _mediaType != SearchMediaTypeFilter.all ||
       _sort != SearchSortOption.defaultOrder;
 
   Future<void> initialize() async {
@@ -81,15 +81,6 @@ class SearchController extends ChangeNotifier {
     notifyListeners();
   }
 
-  void setMediaType(SearchMediaTypeFilter value) {
-    if (_mediaType == value) {
-      return;
-    }
-    _mediaType = value;
-    unawaited(_runSearch());
-    notifyListeners();
-  }
-
   void setSort(SearchSortOption value) {
     if (_sort == value) {
       return;
@@ -109,9 +100,13 @@ class SearchController extends ChangeNotifier {
 
   void clearFilters() {
     _language = SearchLanguageFilter.all;
-    _mediaType = SearchMediaTypeFilter.all;
     _sort = SearchSortOption.defaultOrder;
     unawaited(_runSearch());
+    notifyListeners();
+  }
+
+  void clearRecentSearches() {
+    _recentSearches.clear();
     notifyListeners();
   }
 
@@ -126,29 +121,37 @@ class SearchController extends ChangeNotifier {
 
   Future<void> _runSearch() async {
     if (_isDisposed) return;
+    final normalizedQuery = _query.trim();
+    final requestId = ++_requestId;
     _errorMessage = null;
-    _isLoading = true;
     _page = 1;
     _hasMore = true;
     _results = [];
+    if (normalizedQuery.isEmpty) {
+      _isLoading = false;
+      notifyListeners();
+      return;
+    }
+    _isLoading = true;
     notifyListeners();
 
     try {
       final results = await _repository.search(
-        query: _query,
+        query: normalizedQuery,
         language: _language,
-        mediaType: _mediaType,
+        mediaType: SearchMediaTypeFilter.all,
         sort: _sort,
         page: _page,
       );
-      if (_isDisposed) return;
+      if (_isDisposed || requestId != _requestId) return;
       _results = results;
-      _hasMore = results.isNotEmpty; // TMDB typically returns empty list when out of bounds
-      if (_query.trim().isNotEmpty && results.isNotEmpty) {
-        _pushRecentSearch(_query.trim());
+      _hasMore = results
+          .isNotEmpty; // TMDB typically returns empty list when out of bounds
+      if (results.isNotEmpty) {
+        _pushRecentSearch(normalizedQuery);
       }
     } catch (_) {
-      if (_isDisposed) return;
+      if (_isDisposed || requestId != _requestId) return;
       _results = const [];
       _errorMessage = 'We could not load search results right now.';
       _hasMore = false;
@@ -161,7 +164,11 @@ class SearchController extends ChangeNotifier {
   }
 
   Future<void> loadMore() async {
-    if (_isDisposed || _isLoading || _isLoadingMore || !_hasMore || _query.trim().isEmpty) {
+    if (_isDisposed ||
+        _isLoading ||
+        _isLoadingMore ||
+        !_hasMore ||
+        _query.trim().isEmpty) {
       return;
     }
 
@@ -173,7 +180,7 @@ class SearchController extends ChangeNotifier {
       final newResults = await _repository.search(
         query: _query,
         language: _language,
-        mediaType: _mediaType,
+        mediaType: SearchMediaTypeFilter.all,
         sort: _sort,
         page: nextPage,
       );

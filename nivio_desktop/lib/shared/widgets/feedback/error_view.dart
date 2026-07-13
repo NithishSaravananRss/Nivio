@@ -19,24 +19,43 @@ class ErrorView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(AppSpacing.emptyState),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Icon(Icons.error_outline, size: 40, color: AppColors.warning),
-            const SizedBox(height: AppSpacing.lg),
-            Text(title, style: AppTypography.title),
-            const SizedBox(height: AppSpacing.sm),
-            Text(message, textAlign: TextAlign.center, style: AppTypography.body),
-            if (onRetry != null) ...[
-              const SizedBox(height: AppSpacing.lg),
-              PrimaryButton(label: retryLabel, onPressed: onRetry),
-            ],
-          ],
-        ),
-      ),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final shortestSide = constraints.maxWidth < constraints.maxHeight
+            ? constraints.maxWidth
+            : constraints.maxHeight;
+        final padding = (shortestSide * 0.08).clamp(
+          AppSpacing.sm,
+          AppSpacing.emptyState,
+        );
+        return Center(
+          child: Padding(
+            padding: EdgeInsets.all(padding),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(
+                  Icons.error_outline,
+                  size: 40,
+                  color: AppColors.warning,
+                ),
+                const SizedBox(height: AppSpacing.lg),
+                Text(title, style: AppTypography.title),
+                const SizedBox(height: AppSpacing.sm),
+                Text(
+                  message,
+                  textAlign: TextAlign.center,
+                  style: AppTypography.body,
+                ),
+                if (onRetry != null) ...[
+                  const SizedBox(height: AppSpacing.lg),
+                  PrimaryButton(label: retryLabel, onPressed: onRetry),
+                ],
+              ],
+            ),
+          ),
+        );
+      },
     );
   }
 }

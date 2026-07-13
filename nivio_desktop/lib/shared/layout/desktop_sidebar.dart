@@ -22,14 +22,15 @@ class DesktopSidebar extends StatelessWidget {
 
   static const _primaryItems = [
     _SidebarItem(icon: LucideIcons.house, label: 'Home', index: 0),
-    _SidebarItem(icon: LucideIcons.libraryBig, label: 'Library', index: 1),
-    _SidebarItem(icon: LucideIcons.tv, label: 'Live TV', index: 2),
-    _SidebarItem(icon: LucideIcons.partyPopper, label: 'Party', index: 3),
+    _SidebarItem(icon: LucideIcons.search, label: 'Search', index: 1),
+    _SidebarItem(icon: LucideIcons.libraryBig, label: 'Library', index: 2),
+    _SidebarItem(icon: LucideIcons.tv, label: 'Live TV', index: 3),
+    _SidebarItem(icon: LucideIcons.partyPopper, label: 'Party', index: 4),
   ];
 
   static const _bottomItems = [
-    _SidebarItem(icon: LucideIcons.user, label: 'Profile', index: 4),
-    _SidebarItem(icon: LucideIcons.settings, label: 'Settings', index: 5),
+    _SidebarItem(icon: LucideIcons.user, label: 'Profile', index: 5),
+    _SidebarItem(icon: LucideIcons.settings, label: 'Settings', index: 6),
   ];
 
   @override
@@ -75,18 +76,20 @@ class DesktopSidebar extends StatelessWidget {
             const SizedBox(height: AppSpacing.xs),
           ],
           const Spacer(),
-          const Divider(),
-          const SizedBox(height: AppSpacing.xs),
-          for (final item in _bottomItems) ...[
-            _SidebarButton(
-              item: item,
-              showLabel: showLabels,
-              isSelected: item.index == selectedIndex,
-              onPressed: onDestinationSelected == null
-                  ? null
-                  : () => onDestinationSelected!(item.index),
-            ),
+          if (_bottomItems.isNotEmpty) ...[
+            const Divider(),
             const SizedBox(height: AppSpacing.xs),
+            for (final item in _bottomItems) ...[
+              _SidebarButton(
+                item: item,
+                showLabel: showLabels,
+                isSelected: item.index == selectedIndex,
+                onPressed: onDestinationSelected == null
+                    ? null
+                    : () => onDestinationSelected!(item.index),
+              ),
+              const SizedBox(height: AppSpacing.xs),
+            ],
           ],
         ],
       ),

@@ -238,39 +238,36 @@ class _HomeViewState extends State<HomeView> {
                     ),
                   ),
 
-                  // 3. Trending Movies
-                  SectionPadding(
-                    child: _TrendingMoviesSection(
-                      items: ctrl.trendingMovies,
-                      isLoading: ctrl.isLoadingMovies,
-                      error: ctrl.moviesError,
-                      onRetry: () => ctrl.retryMovies(),
-                      onOpenDetail: widget.onOpenDetail,
-                    ),
-                  ),
-                  const SectionPadding(
-                    child: SizedBox(height: AppSpacing.xxxl),
-                  ),
-
-                  // 4. Trending TV
-                  SectionPadding(
-                    child: _TrendingTvSection(
-                      items: ctrl.trendingTv,
-                      isLoading: ctrl.isLoadingTv,
-                      error: ctrl.tvError,
-                      onRetry: () => ctrl.retryTv(),
-                      onOpenDetail: widget.onOpenDetail,
-                    ),
-                  ),
-                  const SectionPadding(
-                    child: SizedBox(height: AppSpacing.xxxl),
-                  ),
-
-                  // 5. Trending Anime (Hidden completely per Android parity)
-                  const SectionPadding(child: _TrendingAnimeSection()),
-
-                  // 6. Providers
+                  // 3. Providers
                   const SectionPadding(child: _ProvidersSection()),
+
+                  // 4. Recommended for You (hidden if history/recommendations are empty)
+                  SectionPadding(
+                    child: _MediaSection(
+                      title: 'Recommended for You',
+                      items: ctrl.recommendations,
+                      isLoading: ctrl.isLoadingRecommendations,
+                      error: ctrl.recommendationsError,
+                      hideWhenEmpty: true,
+                      onRetry: ctrl.retryRecommendations,
+                      onOpenDetail: widget.onOpenDetail,
+                    ),
+                  ),
+
+                  for (final sectionId in HomeController.sectionOrder)
+                    SectionPadding(
+                      child: _MediaSection(
+                        title:
+                            HomeController.sectionTitles[sectionId] ??
+                            sectionId,
+                        items: ctrl.sections[sectionId]?.items ?? const [],
+                        isLoading: ctrl.sections[sectionId]?.isLoading ?? true,
+                        error: ctrl.sections[sectionId]?.error,
+                        onRetry: () => ctrl.retrySection(sectionId),
+                        onOpenDetail: widget.onOpenDetail,
+                      ),
+                    ),
+                  const SizedBox(height: AppSpacing.massive),
                 ],
               ),
             ),
@@ -324,10 +321,29 @@ class _ContinueWatchingSection extends StatelessWidget {
                 ? 'Season $season · Episode $episode'
                 : null;
 
+            final imagePath =
+                (item['posterPath'] ??
+                        item['poster_path'] ??
+                        item['backdropPath'] ??
+                        item['backdrop_path'])
+                    ?.toString();
+            final remainingSeconds =
+                ((item['totalDurationSeconds'] as num?)?.toInt() ?? 0) -
+                ((item['lastPositionSeconds'] as num?)?.toInt() ?? 0);
+            final remainingMinutes = remainingSeconds > 0
+                ? remainingSeconds ~/ 60
+                : 0;
+
             return ContinueWatchingCard(
               title: title,
               episodeLabel: episodeLabel,
+              trailingLabel: remainingMinutes > 0
+                  ? '${remainingMinutes}m'
+                  : null,
               posterLabel: title,
+              imageProvider: imagePath != null && imagePath.isNotEmpty
+                  ? NetworkImage(TmdbImageBuilder.backdrop(imagePath))
+                  : null,
               progress: progress,
               onResume: id == null ? null : () => onOpenDetail?.call(id),
             );
@@ -338,53 +354,42 @@ class _ContinueWatchingSection extends StatelessWidget {
   }
 }
 
-class _TrendingMoviesSection extends StatelessWidget {
-  const _TrendingMoviesSection({
+class _MediaSection extends StatelessWidget {
+  const _MediaSection({
+    required this.title,
     required this.items,
     required this.isLoading,
     this.error,
+    this.hideWhenEmpty = false,
     this.onRetry,
     this.onOpenDetail,
   });
 
+  final String title;
   final List<SearchMediaItem> items;
   final bool isLoading;
   final String? error;
+  final bool hideWhenEmpty;
   final VoidCallback? onRetry;
   final ValueChanged<String>? onOpenDetail;
 
   @override
   Widget build(BuildContext context) {
+    if (!isLoading && error == null && items.isEmpty && hideWhenEmpty) {
+      return const SizedBox.shrink();
+    }
+
     if (error != null && !isLoading) {
       return Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          const SectionHeader(title: 'Trending Movies', onSeeAllPressed: _noop),
+          SectionHeader(title: title, onSeeAllPressed: _noop),
           const SizedBox(height: AppSpacing.lg),
-          Container(
-            padding: const EdgeInsets.all(AppSpacing.xl),
-            decoration: BoxDecoration(
-              color: AppColors.surface,
-              borderRadius: BorderRadius.circular(AppRadius.large),
-              border: Border.all(color: AppColors.borderSubtle),
-            ),
-            child: Column(
-              children: [
-                const Icon(
-                  Icons.warning_amber_rounded,
-                  color: Colors.amber,
-                  size: 40,
-                ),
-                const SizedBox(height: AppSpacing.md),
-                SelectableText(
-                  error!,
-                  style: const TextStyle(color: AppColors.textMuted),
-                  textAlign: TextAlign.center,
-                ),
-                const SizedBox(height: AppSpacing.md),
-                PrimaryButton(label: 'Retry', onPressed: onRetry),
-              ],
-            ),
+          _SectionStatus(
+            icon: Icons.warning_amber_rounded,
+            message: error!,
+            actionLabel: 'Retry',
+            onAction: onRetry,
           ),
         ],
       );
@@ -393,144 +398,90 @@ class _TrendingMoviesSection extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        const SectionHeader(title: 'Trending Movies', onSeeAllPressed: _noop),
+        SectionHeader(title: title, onSeeAllPressed: _noop),
         const SizedBox(height: AppSpacing.lg),
-        ResponsiveGrid(
-          minItemWidth: 170,
-          childAspectRatio: 0.66,
-          children: isLoading
-              ? List.generate(
-                  6,
-                  (index) => const PosterCard(title: '', isLoading: true),
-                )
-              : items
-                    .map(
-                      (item) => PosterCard(
-                        title: item.title,
-                        year: item.year > 0 ? item.yearLabel : null,
-                        rating: item.rating > 0 ? item.ratingLabel : null,
-                        subtitle: item.mediaTypeLabel,
-                        imageProvider:
-                            item.posterPath != null &&
-                                item.posterPath!.isNotEmpty
-                            ? NetworkImage(
-                                TmdbImageBuilder.poster(item.posterPath!),
-                              )
-                            : null,
-                        onTap: () => onOpenDetail?.call(item.id),
-                        onSecondaryTap: () => onOpenDetail?.call(item.id),
-                        onPlay: () => onOpenDetail?.call(item.id),
-                        onWatchlist: _noop,
-                        onMore: () => onOpenDetail?.call(item.id),
-                      ),
-                    )
-                    .toList(),
-        ),
+        if (!isLoading && items.isEmpty)
+          _SectionStatus(
+            icon: Icons.movie_filter_outlined,
+            message: 'No titles available right now.',
+            actionLabel: 'Retry',
+            onAction: onRetry,
+          )
+        else
+          MediaRail(
+            itemWidth: 180,
+            height: 330,
+            children: isLoading
+                ? List.generate(
+                    8,
+                    (index) => const PosterCard(title: '', isLoading: true),
+                  )
+                : items
+                      .map(
+                        (item) => PosterCard(
+                          title: item.title,
+                          year: item.year > 0 ? item.yearLabel : null,
+                          rating: item.rating > 0 ? item.ratingLabel : null,
+                          subtitle: item.mediaTypeLabel,
+                          imageProvider:
+                              item.posterPath != null &&
+                                  item.posterPath!.isNotEmpty
+                              ? NetworkImage(
+                                  TmdbImageBuilder.poster(item.posterPath!),
+                                )
+                              : null,
+                          onTap: () => onOpenDetail?.call(item.id),
+                          onSecondaryTap: () => onOpenDetail?.call(item.id),
+                          onPlay: () => onOpenDetail?.call(item.id),
+                          onWatchlist: _noop,
+                          onMore: () => onOpenDetail?.call(item.id),
+                        ),
+                      )
+                      .toList(),
+          ),
       ],
     );
   }
 }
 
-class _TrendingTvSection extends StatelessWidget {
-  const _TrendingTvSection({
-    required this.items,
-    required this.isLoading,
-    this.error,
-    this.onRetry,
-    this.onOpenDetail,
+class _SectionStatus extends StatelessWidget {
+  const _SectionStatus({
+    required this.icon,
+    required this.message,
+    this.actionLabel,
+    this.onAction,
   });
 
-  final List<SearchMediaItem> items;
-  final bool isLoading;
-  final String? error;
-  final VoidCallback? onRetry;
-  final ValueChanged<String>? onOpenDetail;
+  final IconData icon;
+  final String message;
+  final String? actionLabel;
+  final VoidCallback? onAction;
 
   @override
   Widget build(BuildContext context) {
-    if (error != null && !isLoading) {
-      return Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
+    return Container(
+      padding: const EdgeInsets.all(AppSpacing.xl),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(AppRadius.large),
+        border: Border.all(color: AppColors.borderSubtle),
+      ),
+      child: Column(
         children: [
-          const SectionHeader(title: 'Trending TV', onSeeAllPressed: _noop),
-          const SizedBox(height: AppSpacing.lg),
-          Container(
-            padding: const EdgeInsets.all(AppSpacing.xl),
-            decoration: BoxDecoration(
-              color: AppColors.surface,
-              borderRadius: BorderRadius.circular(AppRadius.large),
-              border: Border.all(color: AppColors.borderSubtle),
-            ),
-            child: Column(
-              children: [
-                const Icon(
-                  Icons.warning_amber_rounded,
-                  color: Colors.amber,
-                  size: 40,
-                ),
-                const SizedBox(height: AppSpacing.md),
-                SelectableText(
-                  error!,
-                  style: const TextStyle(color: AppColors.textMuted),
-                  textAlign: TextAlign.center,
-                ),
-                const SizedBox(height: AppSpacing.md),
-                PrimaryButton(label: 'Retry', onPressed: onRetry),
-              ],
-            ),
+          Icon(icon, color: AppColors.textMuted, size: 40),
+          const SizedBox(height: AppSpacing.md),
+          SelectableText(
+            message,
+            style: const TextStyle(color: AppColors.textMuted),
+            textAlign: TextAlign.center,
           ),
+          if (actionLabel != null) ...[
+            const SizedBox(height: AppSpacing.md),
+            PrimaryButton(label: actionLabel!, onPressed: onAction),
+          ],
         ],
-      );
-    }
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        const SectionHeader(title: 'Trending TV', onSeeAllPressed: _noop),
-        const SizedBox(height: AppSpacing.lg),
-        ResponsiveGrid(
-          minItemWidth: 170,
-          childAspectRatio: 0.66,
-          children: isLoading
-              ? List.generate(
-                  6,
-                  (index) => const PosterCard(title: '', isLoading: true),
-                )
-              : items
-                    .map(
-                      (item) => PosterCard(
-                        title: item.title,
-                        year: item.year > 0 ? item.yearLabel : null,
-                        rating: item.rating > 0 ? item.ratingLabel : null,
-                        subtitle: item.mediaTypeLabel,
-                        imageProvider:
-                            item.posterPath != null &&
-                                item.posterPath!.isNotEmpty
-                            ? NetworkImage(
-                                TmdbImageBuilder.poster(item.posterPath!),
-                              )
-                            : null,
-                        onTap: () => onOpenDetail?.call(item.id),
-                        onSecondaryTap: () => onOpenDetail?.call(item.id),
-                        onPlay: () => onOpenDetail?.call(item.id),
-                        onWatchlist: _noop,
-                        onMore: () => onOpenDetail?.call(item.id),
-                      ),
-                    )
-                    .toList(),
-        ),
-      ],
+      ),
     );
-  }
-}
-
-class _TrendingAnimeSection extends StatelessWidget {
-  const _TrendingAnimeSection();
-
-  @override
-  Widget build(BuildContext context) {
-    // Hide completely until implemented per Android parity guidelines
-    return const SizedBox.shrink();
   }
 }
 

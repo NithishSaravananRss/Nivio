@@ -158,4 +158,32 @@ class TmdbClient {
       throw NetworkErrorMapper.fromError(e);
     }
   }
+
+  Future<Map<String, dynamic>> getDetails(
+    int id,
+    String mediaType, {
+    String? appendToResponse,
+  }) async {
+    try {
+      final response = await _dio.get(
+        '/3/$mediaType/$id',
+        queryParameters: {
+          'append_to_response':? appendToResponse,
+          'language': 'en',
+        },
+      );
+      return response.data as Map<String, dynamic>;
+    } catch (e) {
+      throw NetworkErrorMapper.fromError(e);
+    }
+  }
+
+  Future<Map<String, dynamic>> getImages(int id, String mediaType) async {
+    try {
+      final response = await _dio.get('/3/$mediaType/$id/images');
+      return response.data as Map<String, dynamic>;
+    } catch (e) {
+      throw NetworkErrorMapper.fromError(e);
+    }
+  }
 }

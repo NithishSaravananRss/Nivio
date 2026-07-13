@@ -18,7 +18,7 @@ class MediaMapper {
       title: dto.title,
       year: year,
       rating: dto.voteAverage,
-      language: SearchLanguageFilter.all, // Should map from language code later if needed
+      language: _languageFromCode(dto.originalLanguage),
       mediaType: typeFilter,
       provider: 'N/A', // Will be enriched by watch providers
       genres: const [], // To be added based on genre IDs
@@ -28,5 +28,17 @@ class MediaMapper {
       posterPath: dto.posterPath,
       backdropPath: dto.backdropPath,
     );
+  }
+
+  static SearchLanguageFilter _languageFromCode(String? code) {
+    return switch (code) {
+      'en' => SearchLanguageFilter.english,
+      'ta' => SearchLanguageFilter.tamil,
+      'te' => SearchLanguageFilter.telugu,
+      'hi' => SearchLanguageFilter.hindi,
+      'ko' => SearchLanguageFilter.korean,
+      'ja' => SearchLanguageFilter.japanese,
+      _ => SearchLanguageFilter.all,
+    };
   }
 }

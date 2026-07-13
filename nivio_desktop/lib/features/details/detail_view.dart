@@ -3,18 +3,22 @@ import 'package:lucide_flutter/lucide_flutter.dart';
 
 import '../../shared/theme/index.dart';
 import '../../shared/widgets/widgets.dart';
-import 'data/mock_detail_catalog.dart';
+import '../../core/network/image/tmdb_image_builder.dart';
 import 'models/detail_models.dart';
+import 'models/detail_route_args.dart';
+import 'controllers/detail_controller.dart';
 
 class DetailView extends StatefulWidget {
   const DetailView({
     super.key,
-    required this.mediaId,
+    required this.args,
+    required this.controller,
     required this.onBack,
     required this.onOpenDetail,
   });
 
-  final String mediaId;
+  final DetailRouteArgs args;
+  final DetailController controller;
   final VoidCallback onBack;
   final ValueChanged<String> onOpenDetail;
 
@@ -24,120 +28,258 @@ class DetailView extends StatefulWidget {
 
 class _DetailViewState extends State<DetailView> {
   final ScrollController _scrollController = ScrollController();
-  DetailMediaTab _selectedTab = DetailMediaTab.overview;
-  late DetailMedia _media = detailForId(widget.mediaId);
-  int _selectedSeason = 1;
-  int _selectedEpisode = 1;
+  DetailMedia? _media;
   double _watchProgress = 0;
 
   @override
   void initState() {
     super.initState();
-    _syncMedia(widget.mediaId);
+    _syncMedia();
+    widget.controller.addListener(_onControllerChanged);
   }
 
   @override
   void didUpdateWidget(covariant DetailView oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.mediaId != widget.mediaId) {
-      _syncMedia(widget.mediaId);
+    if (oldWidget.args != widget.args) {
+      _syncMedia();
+    }
+    if (oldWidget.controller != widget.controller) {
+      oldWidget.controller.removeListener(_onControllerChanged);
+      widget.controller.addListener(_onControllerChanged);
     }
   }
 
   @override
   void dispose() {
+    widget.controller.removeListener(_onControllerChanged);
     _scrollController.dispose();
     super.dispose();
   }
 
-  void _syncMedia(String id) {
-    _media = detailForId(id);
-    _selectedTab = DetailMediaTab.overview;
-    _selectedSeason = _media.seasons.isEmpty ? 1 : _media.seasons.first.number;
-    _selectedEpisode = 1;
-    _watchProgress = _media.resumeProgress;
+  void _syncMedia() {
+    final m = widget.controller.media;
+    if (m != null) {
+      _media = m;
+      _watchProgress = m.resumeProgress;
+    }
+  }
+
+  void _onControllerChanged() {
+    final m = widget.controller.media;
+    if (m != null) {
+      setState(() {
+        _media = m;
+        _watchProgress = m.resumeProgress;
+      });
+    }
   }
 
   @override
   Widget build(BuildContext context) {
-    final tabs = DetailMediaTab.values
-        .where((tab) => _media.isSeries || tab != DetailMediaTab.episodes)
-        .toList(growable: false);
+    return ListenableBuilder(
+      listenable: widget.controller,
+      builder: (context, _) {
+        final status = widget.controller.status;
+        final media = widget.controller.media;
 
-    return DesktopScrollbar(
-      controller: _scrollController,
-      child: SingleChildScrollView(
-        controller: _scrollController,
-        physics: const BouncingScrollPhysics(),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            _DetailHero(
-              media: _media,
-              watchProgress: _watchProgress,
-              onBack: widget.onBack,
-              onAction: _showActionFeedback,
-              onToggleWatchlist: _toggleWatchlist,
+        if (status == DetailStatus.loading || status == DetailStatus.retrying) {
+          return const Scaffold(
+            backgroundColor: AppColors.background,
+            body: Center(
+              child: CircularProgressIndicator(color: AppColors.primary),
             ),
-            PageContainer(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  const SizedBox(height: AppSpacing.xxl),
-                  _DetailTabs(
-                    tabs: tabs,
-                    selectedTab: _selectedTab,
-                    onSelected: (tab) => setState(() => _selectedTab = tab),
+          );
+        }
+
+        if (status == DetailStatus.offline) {
+          return Scaffold(
+            backgroundColor: AppColors.background,
+            body: Stack(
+              children: [
+                Center(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      const Icon(
+                        LucideIcons.wifiOff,
+                        size: 64,
+                        color: AppColors.textSecondary,
+                      ),
+                      const SizedBox(height: AppSpacing.md),
+                      Text('Offline', style: AppTypography.sectionTitle),
+                      const SizedBox(height: AppSpacing.sm),
+                      Text(
+                        widget.controller.errorMessage ??
+                            'No internet connection',
+                        style: AppTypography.body,
+                      ),
+                      const SizedBox(height: AppSpacing.lg),
+                      ElevatedButton(
+                        onPressed: widget.controller.retry,
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: AppColors.primary,
+                          foregroundColor: AppColors.textPrimary,
+                        ),
+                        child: const Text('Retry'),
+                      ),
+                    ],
                   ),
-                  const SizedBox(height: AppSpacing.xxl),
-                  _buildTabContent(),
-                  const SizedBox(height: AppSpacing.massive),
-                ],
-              ),
+                ),
+                Positioned(
+                  top: AppSpacing.xl,
+                  left: AppSpacing.xl,
+                  child: _FloatingBackButton(onTap: widget.onBack),
+                ),
+              ],
             ),
-          ],
-        ),
-      ),
+          );
+        }
+
+        if (status == DetailStatus.apiError || status == DetailStatus.error) {
+          return Scaffold(
+            backgroundColor: AppColors.background,
+            body: Stack(
+              children: [
+                Center(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      const Icon(
+                        LucideIcons.alertTriangle,
+                        size: 64,
+                        color: AppColors.primary,
+                      ),
+                      const SizedBox(height: AppSpacing.md),
+                      Text(
+                        'Error Loading Details',
+                        style: AppTypography.sectionTitle,
+                      ),
+                      const SizedBox(height: AppSpacing.sm),
+                      Padding(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: AppSpacing.xl,
+                        ),
+                        child: Text(
+                          widget.controller.errorMessage ?? 'An error occurred',
+                          style: AppTypography.body,
+                          textAlign: TextAlign.center,
+                        ),
+                      ),
+                      const SizedBox(height: AppSpacing.lg),
+                      ElevatedButton(
+                        onPressed: widget.controller.retry,
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: AppColors.primary,
+                          foregroundColor: AppColors.textPrimary,
+                        ),
+                        child: const Text('Retry'),
+                      ),
+                    ],
+                  ),
+                ),
+                Positioned(
+                  top: AppSpacing.xl,
+                  left: AppSpacing.xl,
+                  child: _FloatingBackButton(onTap: widget.onBack),
+                ),
+              ],
+            ),
+          );
+        }
+
+        if (media == null || status == DetailStatus.empty) {
+          return Scaffold(
+            backgroundColor: AppColors.background,
+            body: Stack(
+              children: [
+                const Center(child: Text('No details found')),
+                Positioned(
+                  top: AppSpacing.xl,
+                  left: AppSpacing.xl,
+                  child: _FloatingBackButton(onTap: widget.onBack),
+                ),
+              ],
+            ),
+          );
+        }
+
+        _media = media;
+        _watchProgress = media.resumeProgress;
+
+        return Scaffold(
+          backgroundColor: AppColors.background,
+          body: Stack(
+            children: [
+              DesktopScrollbar(
+                controller: _scrollController,
+                child: SingleChildScrollView(
+                  controller: _scrollController,
+                  physics: const BouncingScrollPhysics(),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      HeroSection(
+                        title: media.title,
+                        backdropPath: media.backdropPath,
+                        poster: _HeroPoster(
+                          title: media.title,
+                          posterPath: media.posterPath,
+                        ),
+                        content: _HeroDetailsContent(
+                          media: media,
+                          watchProgress: _watchProgress,
+                          onAction: _showActionFeedback,
+                          onToggleWatchlist: _toggleWatchlist,
+                        ),
+                      ),
+                      PageContainer(
+                        child: _DetailStoryFlow(
+                          media: media,
+                          crew: _getCrewList(media),
+                          onOpenDetail: widget.onOpenDetail,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              Positioned(
+                top: AppSpacing.xl,
+                left: AppSpacing.xl,
+                child: _FloatingBackButton(onTap: widget.onBack),
+              ),
+            ],
+          ),
+        );
+      },
     );
   }
 
-  Widget _buildTabContent() {
-    return switch (_selectedTab) {
-      DetailMediaTab.overview => _OverviewTab(media: _media),
-      DetailMediaTab.episodes => _EpisodesTab(
-        media: _media,
-        selectedSeason: _selectedSeason,
-        selectedEpisode: _selectedEpisode,
-        onSeasonChanged: (season) => setState(() {
-          _selectedSeason = season;
-          _selectedEpisode = 1;
-        }),
-        onEpisodeSelected: (episode) => setState(() {
-          _selectedEpisode = episode.number;
-          _watchProgress = episode.progress;
-        }),
-      ),
-      DetailMediaTab.cast => _PeopleRail(title: 'Cast', people: _media.cast),
-      DetailMediaTab.crew => _CrewTab(crew: _media.crew),
-      DetailMediaTab.related => _PosterRail(
-        title: 'Related',
-        items: _media.related,
-        onOpenDetail: widget.onOpenDetail,
-      ),
-      DetailMediaTab.moreLikeThis => _PosterRail(
-        title: 'More Like This',
-        items: _media.moreLikeThis,
-        onOpenDetail: widget.onOpenDetail,
-      ),
-    };
+  List<DetailPerson> _getCrewList(DetailMedia media) {
+    return [
+      if (media.crew.director != 'N/A')
+        DetailPerson(name: media.crew.director, role: 'Director'),
+      if (media.crew.writer != 'N/A')
+        DetailPerson(name: media.crew.writer, role: 'Writer'),
+      if (media.crew.producer != 'N/A')
+        DetailPerson(name: media.crew.producer, role: 'Producer'),
+      if (media.crew.composer != 'N/A')
+        DetailPerson(name: media.crew.composer, role: 'Music'),
+      if (media.crew.editor != 'N/A')
+        DetailPerson(name: media.crew.editor, role: 'Cinematography'),
+    ];
   }
 
   void _toggleWatchlist() {
+    final media = _media;
+    if (media == null) return;
+
     setState(() {
-      _media = _media.copyWith(isInWatchlist: !_media.isInWatchlist);
+      _media = media.copyWith(isInWatchlist: !media.isInWatchlist);
     });
     _showActionFeedback(
-      _media.isInWatchlist ? 'Added to watchlist' : 'Removed from watchlist',
+      _media!.isInWatchlist ? 'Added to watchlist' : 'Removed from watchlist',
     );
   }
 
@@ -148,212 +290,46 @@ class _DetailViewState extends State<DetailView> {
   }
 }
 
-enum DetailMediaTab { overview, episodes, cast, crew, related, moreLikeThis }
+class _FloatingBackButton extends StatefulWidget {
+  const _FloatingBackButton({required this.onTap});
 
-extension _DetailMediaTabLabel on DetailMediaTab {
-  String get label => switch (this) {
-    DetailMediaTab.overview => 'Overview',
-    DetailMediaTab.episodes => 'Episodes',
-    DetailMediaTab.cast => 'Cast',
-    DetailMediaTab.crew => 'Crew',
-    DetailMediaTab.related => 'Related',
-    DetailMediaTab.moreLikeThis => 'More Like This',
-  };
+  final VoidCallback onTap;
+
+  @override
+  State<_FloatingBackButton> createState() => _FloatingBackButtonState();
 }
 
-class _DetailHero extends StatelessWidget {
-  const _DetailHero({
-    required this.media,
-    required this.watchProgress,
-    required this.onBack,
-    required this.onAction,
-    required this.onToggleWatchlist,
-  });
-
-  final DetailMedia media;
-  final double watchProgress;
-  final VoidCallback onBack;
-  final ValueChanged<String> onAction;
-  final VoidCallback onToggleWatchlist;
+class _FloatingBackButtonState extends State<_FloatingBackButton> {
+  bool _isHovered = false;
 
   @override
   Widget build(BuildContext context) {
-    return SizedBox(
-      width: double.infinity,
-      child: Stack(
-        children: [
-          Positioned.fill(child: _BackdropArtwork(title: media.title)),
-          Positioned.fill(
-            child: DecoratedBox(
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
-                  colors: [
-                    Colors.transparent,
-                    AppColors.background.withValues(alpha: 0.6),
-                    AppColors.background,
-                  ],
-                  stops: const [0, 0.7, 1],
-                ),
-              ),
-            ),
-          ),
-          Positioned(
-            top: AppSpacing.xxl,
-            left: AppSpacing.xxxl,
-            child: _HeroBackButton(onBack: onBack),
-          ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(48, 92, 48, 56),
-            child: Center(
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(
-                  maxWidth: AppBreakpoints.contentMaxWidth,
-                  minHeight: 560,
-                ),
-                child: LayoutBuilder(
-                  builder: (context, constraints) {
-                    final isWide =
-                        constraints.maxWidth >= AppBreakpoints.standard;
-                    final posterWidth = isWide ? 380.0 : 260.0;
-                    final poster = _PosterBlock(title: media.title);
-                    final content = _HeroContent(
-                      media: media,
-                      watchProgress: watchProgress,
-                      onAction: onAction,
-                      onToggleWatchlist: onToggleWatchlist,
-                    );
-
-                    if (!isWide) {
-                      return Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          SizedBox(width: posterWidth, child: poster),
-                          const SizedBox(height: AppSpacing.xxl),
-                          content,
-                        ],
-                      );
-                    }
-
-                    return Row(
-                      crossAxisAlignment: CrossAxisAlignment.center,
-                      children: [
-                        SizedBox(width: posterWidth, child: poster),
-                        const SizedBox(width: 56),
-                        Expanded(child: content),
-                      ],
-                    );
-                  },
-                ),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _BackdropArtwork extends StatelessWidget {
-  const _BackdropArtwork({required this.title});
-
-  final String title;
-
-  @override
-  Widget build(BuildContext context) {
-    return Stack(
-      fit: StackFit.expand,
-      children: [
-        Container(
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      onEnter: (_) => setState(() => _isHovered = true),
+      onExit: (_) => setState(() => _isHovered = false),
+      child: GestureDetector(
+        onTap: widget.onTap,
+        child: AnimatedContainer(
+          duration: AppAnimation.hover,
+          curve: AppAnimation.standard,
+          width: 48,
+          height: 48,
           decoration: BoxDecoration(
-            gradient: RadialGradient(
-              center: Alignment.topCenter,
-              radius: 1.4,
-              colors: [
-                AppColors.primary.withValues(alpha: 0.20),
-                AppColors.primary.withValues(alpha: 0.07),
-                Colors.transparent,
-              ],
-              stops: const [0.0, 0.40, 1.0],
+            shape: BoxShape.circle,
+            color: _isHovered
+                ? AppColors.primary
+                : Colors.black.withValues(alpha: 0.5),
+            border: Border.all(
+              color: _isHovered ? AppColors.primary : AppColors.borderSubtle,
+              width: 1.5,
             ),
+            boxShadow: AppShadows.hover,
           ),
-        ),
-        Align(
-          alignment: Alignment.centerRight,
-          child: FractionallySizedBox(
-            widthFactor: 0.62,
-            heightFactor: 1,
-            child: Center(
-              child: Text(
-                title,
-                textAlign: TextAlign.center,
-                style: AppTypography.display.copyWith(
-                  color: AppColors.textPrimary.withValues(alpha: 0.03),
-                  fontSize: 120,
-                  fontWeight: FontWeight.w900,
-                  height: 1.0,
-                ),
-              ),
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _HeroBackButton extends StatelessWidget {
-  const _HeroBackButton({required this.onBack});
-
-  final VoidCallback onBack;
-
-  @override
-  Widget build(BuildContext context) {
-    return IconButton(
-      icon: const Icon(LucideIcons.arrowLeft, size: 28),
-      color: AppColors.textPrimary,
-      tooltip: 'Back',
-      onPressed: onBack,
-    );
-  }
-}
-
-class _PosterBlock extends StatelessWidget {
-  const _PosterBlock({required this.title});
-
-  final String title;
-
-  @override
-  Widget build(BuildContext context) {
-    return AspectRatio(
-      aspectRatio: AppBreakpoints.posterRatio,
-      child: DecoratedBox(
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(AppRadius.extraLarge),
-          border: Border.all(color: AppColors.glassStroke),
-          boxShadow: AppShadows.hover,
-          gradient: LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: [
-              AppColors.surfaceVariant,
-              AppColors.primary.withValues(alpha: 0.18),
-              AppColors.background,
-            ],
-          ),
-        ),
-        child: Center(
-          child: Padding(
-            padding: const EdgeInsets.all(AppSpacing.xl),
-            child: Text(
-              title,
-              textAlign: TextAlign.center,
-              style: AppTypography.pageTitle.copyWith(
-                color: AppColors.textPrimary.withValues(alpha: 0.72),
-                fontWeight: FontWeight.w800,
-              ),
-            ),
+          child: Icon(
+            Icons.arrow_back,
+            color: _isHovered ? AppColors.background : AppColors.textPrimary,
+            size: 24,
           ),
         ),
       ),
@@ -361,8 +337,8 @@ class _PosterBlock extends StatelessWidget {
   }
 }
 
-class _HeroContent extends StatelessWidget {
-  const _HeroContent({
+class _HeroDetailsContent extends StatelessWidget {
+  const _HeroDetailsContent({
     required this.media,
     required this.watchProgress,
     required this.onAction,
@@ -376,7 +352,7 @@ class _HeroContent extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final primaryLabel = watchProgress > 0 ? 'Resume' : 'Play';
+    final primaryGenre = media.genres.take(2).toList(growable: false);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -385,359 +361,255 @@ class _HeroContent extends StatelessWidget {
         Text(
           media.title,
           style: AppTypography.display.copyWith(
-            fontSize: 64,
+            fontSize: 76,
             fontWeight: FontWeight.w900,
+            color: Colors.white,
+            height: 0.94,
           ),
         ),
-        if (media.originalTitle != null) ...[
-          const SizedBox(height: AppSpacing.sm),
-          Text(media.originalTitle!, style: AppTypography.title),
-        ],
-        const SizedBox(height: AppSpacing.lg),
-        Wrap(
-          spacing: AppSpacing.sm,
-          runSpacing: AppSpacing.sm,
-          children: [
-            MetadataBadge(label: media.releaseYear),
-            MetadataBadge(label: media.runtime),
-            RatingBadge(rating: media.rating.toStringAsFixed(1)),
-            MetadataBadge(label: media.certification),
+        const SizedBox(height: AppSpacing.md),
+        _InlineMetadata(
+          items: [
+            media.rating.toStringAsFixed(1),
+            media.releaseYear,
+            media.mediaType.label,
+            media.runtime,
+            if (media.languages.isNotEmpty) media.languages.first,
+            ...primaryGenre,
           ],
         ),
+        if (media.overview.isNotEmpty) ...[
+          const SizedBox(height: AppSpacing.lg),
+          ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 760),
+            child: _ExpandableSynopsis(
+              text: media.overview,
+              collapsedLines: 4,
+              style: AppTypography.body.copyWith(
+                color: AppColors.textPrimary.withValues(alpha: 0.86),
+                fontSize: 16,
+                height: 1.55,
+              ),
+            ),
+          ),
+        ],
         const SizedBox(height: AppSpacing.lg),
         Wrap(
           spacing: AppSpacing.sm,
           runSpacing: AppSpacing.sm,
-          children:
-              media.genres.map((genre) => GenreChip(label: genre)).toList(),
-        ),
-        const SizedBox(height: AppSpacing.xl),
-        ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 920),
-          child: Text(
-            media.overview,
-            style: AppTypography.body.copyWith(height: 1.55),
-          ),
-        ),
-        if (watchProgress > 0) ...[
-          const SizedBox(height: AppSpacing.xl),
-          SizedBox(
-            width: 420,
-            child: LinearProgressIndicator(value: watchProgress.clamp(0, 1)),
-          ),
-        ],
-        const SizedBox(height: AppSpacing.xxl),
-        Wrap(
-          spacing: AppSpacing.md,
-          runSpacing: AppSpacing.md,
           children: [
-            PrimaryButton(
-              label: primaryLabel,
-              icon: Icon(
-                watchProgress > 0 ? LucideIcons.rotateCcw : LucideIcons.play,
-              ),
-              minimumSize: const Size(150, 48),
-              onPressed: () => onAction(
-                watchProgress > 0 ? 'Resuming playback' : 'Opening player',
-              ),
+            StreamingActionButton(
+              onTap: () => onAction('Starting playback...'),
+              icon: Icons.play_arrow,
+              label: 'Play',
+              type: StreamingActionButtonType.primary,
             ),
-            SecondaryButton(
-              label: media.isInWatchlist ? 'Watchlisted' : 'Watchlist',
-              icon: Icon(
-                media.isInWatchlist ? LucideIcons.heartOff : LucideIcons.heart,
-              ),
-              minimumSize: const Size(132, 48),
-              onPressed: onToggleWatchlist,
+            StreamingActionButton(
+              onTap: onToggleWatchlist,
+              icon: media.isInWatchlist ? Icons.check : Icons.add,
+              label: media.isInWatchlist ? 'In Watchlist' : 'Watchlist',
+              type: StreamingActionButtonType.secondary,
             ),
-            SecondaryButton(
-              label: 'Download',
-              icon: const Icon(LucideIcons.download),
-              minimumSize: const Size(132, 48),
-              onPressed: () => onAction('Preparing download'),
-            ),
-            SecondaryButton(
-              label: 'Share',
-              icon: const Icon(LucideIcons.share2),
-              minimumSize: const Size(112, 48),
-              onPressed: () => onAction('Share link prepared'),
-            ),
-            SecondaryButton(
+            StreamingActionButton(
+              onTap: () => onAction('Opening trailer...'),
+              icon: Icons.movie_outlined,
               label: 'Trailer',
-              icon: const Icon(LucideIcons.circlePlay),
-              minimumSize: const Size(118, 48),
-              onPressed: () => onAction('Opening trailer'),
+              type: StreamingActionButtonType.secondary,
+            ),
+            StreamingActionButton(
+              onTap: () => onAction('Downloading...'),
+              icon: Icons.download,
+              tooltip: 'Download',
+              type: StreamingActionButtonType.iconOnly,
+            ),
+            StreamingActionButton(
+              onTap: () => onAction('Link copied to clipboard!'),
+              icon: Icons.share,
+              tooltip: 'Share',
+              type: StreamingActionButtonType.iconOnly,
             ),
           ],
         ),
-        const SizedBox(height: AppSpacing.xxl),
-        _ChipGroup(title: 'Providers', values: media.providers),
-        _ChipGroup(title: 'Languages', values: media.languages),
-        _ChipGroup(title: 'Audio', values: media.audioTracks),
-        _ChipGroup(title: 'Subtitles', values: media.subtitleTracks),
       ],
     );
   }
 }
 
-class _ChipGroup extends StatelessWidget {
-  const _ChipGroup({required this.title, required this.values});
+class _InlineMetadata extends StatelessWidget {
+  const _InlineMetadata({required this.items});
+
+  final List<String> items;
+
+  @override
+  Widget build(BuildContext context) {
+    final visibleItems = items
+        .where((item) => item.trim().isNotEmpty && item.trim() != 'N/A')
+        .toList(growable: false);
+
+    return Wrap(
+      spacing: AppSpacing.sm,
+      runSpacing: AppSpacing.xs,
+      crossAxisAlignment: WrapCrossAlignment.center,
+      children: [
+        for (var i = 0; i < visibleItems.length; i++) ...[
+          if (i > 0)
+            Text(
+              '|',
+              style: AppTypography.body.copyWith(
+                color: AppColors.textMuted.withValues(alpha: 0.6),
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          Text(
+            visibleItems[i],
+            style: AppTypography.body.copyWith(
+              color: i == 0 ? AppColors.primary : AppColors.textSecondary,
+              fontSize: 15,
+              fontWeight: i == 0 ? FontWeight.w800 : FontWeight.w600,
+              height: 1.2,
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+}
+
+class _HeroPoster extends StatefulWidget {
+  const _HeroPoster({required this.title, this.posterPath});
 
   final String title;
-  final List<String> values;
+  final String? posterPath;
 
   @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(top: AppSpacing.sm),
-      child: Wrap(
-        spacing: AppSpacing.sm,
-        runSpacing: AppSpacing.xs,
-        crossAxisAlignment: WrapCrossAlignment.center,
-        children: [
-          Text('$title:', style: AppTypography.metadata),
-          ...values.map((value) => MetadataBadge(label: value)),
-        ],
-      ),
-    );
-  }
+  State<_HeroPoster> createState() => _HeroPosterState();
 }
 
-class _DetailTabs extends StatelessWidget {
-  const _DetailTabs({
-    required this.tabs,
-    required this.selectedTab,
-    required this.onSelected,
-  });
-
-  final List<DetailMediaTab> tabs;
-  final DetailMediaTab selectedTab;
-  final ValueChanged<DetailMediaTab> onSelected;
+class _HeroPosterState extends State<_HeroPoster> {
+  bool _isHovered = false;
 
   @override
   Widget build(BuildContext context) {
-    return SingleChildScrollView(
-      scrollDirection: Axis.horizontal,
-      child: SegmentedButton<DetailMediaTab>(
-        segments: [
-          for (final tab in tabs)
-            ButtonSegment(
-              value: tab,
-              label: Padding(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: AppSpacing.md,
-                  vertical: AppSpacing.sm,
-                ),
-                child: Text(
-                  tab.label,
-                  style: AppTypography.title.copyWith(fontSize: 16),
-                ),
-              ),
-            ),
-        ],
-        selected: {selectedTab},
-        showSelectedIcon: false,
-        onSelectionChanged: (selection) => onSelected(selection.first),
-      ),
-    );
-  }
-}
+    final imageProvider =
+        (widget.posterPath != null && widget.posterPath!.isNotEmpty)
+        ? NetworkImage(TmdbImageBuilder.poster(widget.posterPath!))
+        : null;
 
-class _OverviewTab extends StatelessWidget {
-  const _OverviewTab({required this.media});
-
-  final DetailMedia media;
-
-  @override
-  Widget build(BuildContext context) {
-    final rows = [
-      ('Synopsis', media.overview),
-      ('Tagline', media.tagline),
-      ('Release Date', media.releaseDate),
-      ('Runtime', media.runtime),
-      ('Genres', media.genres.join(', ')),
-      ('Production Companies', media.productionCompanies.join(', ')),
-      ('Countries', media.countries.join(', ')),
-      ('Languages', media.languages.join(', ')),
-      ('Status', media.status),
-      ('Vote Average', media.rating.toStringAsFixed(1)),
-      ('Vote Count', media.voteCount.toString()),
-      ('Popularity', media.popularity.toStringAsFixed(1)),
-    ];
-
-    return _InfoPanel(
-      children: [
-        Wrap(
-          spacing: AppSpacing.xl,
-          runSpacing: 0,
-          children:
-              rows
-                  .map(
-                    (row) => SizedBox(
-                      width: 400,
-                      child: _InfoRow(label: row.$1, value: row.$2),
-                    ),
-                  )
-                  .toList(),
-        ),
-      ],
-    );
-  }
-}
-
-class _EpisodesTab extends StatelessWidget {
-  const _EpisodesTab({
-    required this.media,
-    required this.selectedSeason,
-    required this.selectedEpisode,
-    required this.onSeasonChanged,
-    required this.onEpisodeSelected,
-  });
-
-  final DetailMedia media;
-  final int selectedSeason;
-  final int selectedEpisode;
-  final ValueChanged<int> onSeasonChanged;
-  final ValueChanged<DetailEpisode> onEpisodeSelected;
-
-  @override
-  Widget build(BuildContext context) {
-    final season = media.seasons.firstWhere(
-      (item) => item.number == selectedSeason,
-      orElse: () => media.seasons.first,
-    );
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        Row(
-          children: [
-            const Expanded(child: SectionHeader(title: 'Episodes')),
-            DropdownButton<int>(
-              value: season.number,
-              items: media.seasons
-                  .map(
-                    (season) => DropdownMenuItem(
-                      value: season.number,
-                      child: Text(season.name),
-                    ),
-                  )
-                  .toList(),
-              onChanged: (value) {
-                if (value != null) {
-                  onSeasonChanged(value);
-                }
-              },
-            ),
-          ],
-        ),
-        const SizedBox(height: AppSpacing.lg),
-        for (final episode in season.episodes)
-          _EpisodeCard(
-            episode: episode,
-            selected: episode.number == selectedEpisode,
-            onSelected: () => onEpisodeSelected(episode),
-          ),
-      ],
-    );
-  }
-}
-
-class _EpisodeCard extends StatelessWidget {
-  const _EpisodeCard({
-    required this.episode,
-    required this.selected,
-    required this.onSelected,
-  });
-
-  final DetailEpisode episode;
-  final bool selected;
-  final VoidCallback onSelected;
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: AppSpacing.md),
-      child: HoverCard(
-        onTap: onSelected,
-        padding: EdgeInsets.zero,
-        child: Padding(
-          padding: const EdgeInsets.all(AppSpacing.lg),
-          child: Row(
-            children: [
-              SizedBox(
-                width: 240,
-                child: AspectRatio(
-                  aspectRatio: AppBreakpoints.landscapeRatio,
-                  child: DecoratedBox(
-                    decoration: BoxDecoration(
-                      color: AppColors.surfaceVariant,
-                      borderRadius: BorderRadius.circular(AppRadius.medium),
-                      border: Border.all(
-                        color: selected
-                            ? AppColors.primary
-                            : AppColors.borderSubtle,
-                      ),
-                    ),
-                    child: const Center(
-                      child: Icon(
-                        LucideIcons.image,
-                        color: AppColors.textMuted,
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-              const SizedBox(width: AppSpacing.lg),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Episode ${episode.number} · ${episode.title}',
-                      style: AppTypography.title,
-                    ),
-                    const SizedBox(height: AppSpacing.xs),
-                    Text(
-                      '${episode.runtime} · ${episode.status}',
-                      style: AppTypography.caption,
-                    ),
-                    const SizedBox(height: AppSpacing.sm),
-                    Text(episode.overview, style: AppTypography.body),
-                    const SizedBox(height: AppSpacing.sm),
-                    LinearProgressIndicator(
-                      value: episode.progress.clamp(0, 1),
-                    ),
-                  ],
-                ),
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      onEnter: (_) => setState(() => _isHovered = true),
+      onExit: (_) => setState(() => _isHovered = false),
+      child: AnimatedScale(
+        scale: _isHovered ? 1.035 : 1,
+        duration: AppAnimation.hover,
+        curve: AppAnimation.standard,
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(16),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: _isHovered ? 0.68 : 0.52),
+                blurRadius: _isHovered ? 46 : 34,
+                spreadRadius: -4,
+                offset: const Offset(0, 24),
               ),
             ],
           ),
+          child: AspectRatio(
+            aspectRatio: AppBreakpoints.posterRatio,
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(16),
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  color: AppColors.surfaceVariant,
+                  image: imageProvider != null
+                      ? DecorationImage(image: imageProvider, fit: BoxFit.cover)
+                      : null,
+                ),
+                child: imageProvider == null
+                    ? Center(
+                        child: Padding(
+                          padding: const EdgeInsets.all(AppSpacing.lg),
+                          child: Text(
+                            widget.title,
+                            maxLines: 3,
+                            textAlign: TextAlign.center,
+                            overflow: TextOverflow.ellipsis,
+                            style: AppTypography.title.copyWith(
+                              color: AppColors.textPrimary,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                        ),
+                      )
+                    : const SizedBox.shrink(),
+              ),
+            ),
+          ),
         ),
       ),
     );
   }
 }
 
-class _PeopleRail extends StatelessWidget {
-  const _PeopleRail({required this.title, required this.people});
+class _ExpandableSynopsis extends StatefulWidget {
+  const _ExpandableSynopsis({
+    required this.text,
+    required this.style,
+    this.collapsedLines = 4,
+  });
 
-  final String title;
-  final List<DetailPerson> people;
+  final String text;
+  final TextStyle style;
+  final int collapsedLines;
+
+  @override
+  State<_ExpandableSynopsis> createState() => _ExpandableSynopsisState();
+}
+
+class _ExpandableSynopsisState extends State<_ExpandableSynopsis> {
+  bool _expanded = false;
 
   @override
   Widget build(BuildContext context) {
     return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        SectionHeader(title: title),
-        const SizedBox(height: AppSpacing.lg),
-        SizedBox(
-          height: 280,
-          child: ListView.separated(
-            scrollDirection: Axis.horizontal,
-            itemCount: people.length,
-            separatorBuilder: (_, _) => const SizedBox(width: AppSpacing.lg),
-            itemBuilder: (context, index) => _PersonCard(person: people[index]),
+        ShaderMask(
+          shaderCallback: (bounds) {
+            if (_expanded) {
+              return const LinearGradient(
+                colors: [Colors.white, Colors.white],
+              ).createShader(bounds);
+            }
+            return LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: [
+                Colors.white,
+                Colors.white,
+                Colors.white.withValues(alpha: 0.18),
+              ],
+              stops: const [0, 0.72, 1],
+            ).createShader(bounds);
+          },
+          blendMode: BlendMode.dstIn,
+          child: Text(
+            widget.text,
+            maxLines: _expanded ? null : widget.collapsedLines,
+            overflow: _expanded ? TextOverflow.visible : TextOverflow.fade,
+            style: widget.style,
+          ),
+        ),
+        const SizedBox(height: AppSpacing.sm),
+        GestureDetector(
+          onTap: () => setState(() => _expanded = !_expanded),
+          child: Text(
+            _expanded ? 'Show Less' : 'Read More',
+            style: AppTypography.caption.copyWith(
+              color: AppColors.primary,
+              fontWeight: FontWeight.w800,
+            ),
           ),
         ),
       ],
@@ -745,138 +617,359 @@ class _PeopleRail extends StatelessWidget {
   }
 }
 
-class _PersonCard extends StatelessWidget {
-  const _PersonCard({required this.person});
-
-  final DetailPerson person;
-
-  @override
-  Widget build(BuildContext context) {
-    return SizedBox(
-      width: 180,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Expanded(
-            child: DecoratedBox(
-              decoration: BoxDecoration(
-                color: AppColors.surfaceVariant,
-                borderRadius: BorderRadius.circular(AppRadius.large),
-                border: Border.all(color: AppColors.borderSubtle),
-              ),
-              child: const Center(
-                child: Icon(
-                  LucideIcons.user,
-                  color: AppColors.textMuted,
-                  size: 40,
-                ),
-              ),
-            ),
-          ),
-          const SizedBox(height: AppSpacing.sm),
-          Text(
-            person.name,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: AppTypography.title,
-          ),
-          Text(
-            person.role,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: AppTypography.caption,
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _CrewTab extends StatelessWidget {
-  const _CrewTab({required this.crew});
-
-  final DetailCrew crew;
-
-  @override
-  Widget build(BuildContext context) {
-    return _InfoPanel(
-      children: [
-        Wrap(
-          spacing: AppSpacing.xl,
-          runSpacing: 0,
-          children: [
-            SizedBox(
-              width: 400,
-              child: _InfoRow(label: 'Director', value: crew.director),
-            ),
-            SizedBox(
-              width: 400,
-              child: _InfoRow(label: 'Writer', value: crew.writer),
-            ),
-            SizedBox(
-              width: 400,
-              child: _InfoRow(label: 'Producer', value: crew.producer),
-            ),
-            SizedBox(
-              width: 400,
-              child: _InfoRow(label: 'Composer', value: crew.composer),
-            ),
-            SizedBox(
-              width: 400,
-              child: _InfoRow(label: 'Editor', value: crew.editor),
-            ),
-            SizedBox(
-              width: 400,
-              child: _InfoRow(label: 'Production', value: crew.production),
-            ),
-          ],
-        ),
-      ],
-    );
-  }
-}
-
-class _PosterRail extends StatelessWidget {
-  const _PosterRail({
-    required this.title,
-    required this.items,
+class _DetailStoryFlow extends StatelessWidget {
+  const _DetailStoryFlow({
+    required this.media,
+    required this.crew,
     required this.onOpenDetail,
   });
 
-  final String title;
-  final List<DetailPosterItem> items;
+  final DetailMedia media;
+  final List<DetailPerson> crew;
   final ValueChanged<String> onOpenDetail;
 
   @override
   Widget build(BuildContext context) {
+    final recommendations = _mergedRecommendations(media);
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        SectionHeader(title: title),
-        const SizedBox(height: AppSpacing.lg),
-        SizedBox(
-          height: 390,
-          child: ListView.separated(
-            scrollDirection: Axis.horizontal,
-            itemCount: items.length,
-            separatorBuilder: (_, _) => const SizedBox(width: AppSpacing.lg),
-            itemBuilder: (context, index) {
-              final item = items[index];
-              return SizedBox(
-                width: 190,
-                child: PosterCard(
+        const SizedBox(height: AppSpacing.massive),
+        _FadeInSection(
+          delay: const Duration(milliseconds: 80),
+          child: _AboutAndMetadataSection(media: media),
+        ),
+        if (media.cast.isNotEmpty) ...[
+          const SizedBox(height: AppSpacing.massive),
+          _FadeInSection(
+            delay: const Duration(milliseconds: 150),
+            child: PersonCarousel(
+              title: 'Cast',
+              itemCount: media.cast.length,
+              height: 276,
+              itemWidth: 140,
+              itemBuilder: (context, index) {
+                final person = media.cast[index];
+                return PersonCard(
+                  title: person.name,
+                  subtitle: person.role,
+                  profilePath: person.profilePath,
+                );
+              },
+            ),
+          ),
+        ],
+        if (crew.isNotEmpty) ...[
+          const SizedBox(height: AppSpacing.massive),
+          _FadeInSection(
+            delay: const Duration(milliseconds: 220),
+            child: _CrewSection(crew: crew),
+          ),
+        ],
+        if (recommendations.isNotEmpty) ...[
+          const SizedBox(height: AppSpacing.massive),
+          _FadeInSection(
+            delay: const Duration(milliseconds: 290),
+            child: MediaCarousel(
+              title: 'You May Also Like',
+              itemCount: recommendations.length,
+              itemBuilder: (context, index) {
+                final item = recommendations[index];
+                return MediaCard(
                   title: item.title,
+                  posterPath: item.posterPath,
                   year: item.year,
                   rating: item.rating,
                   subtitle: item.subtitle,
                   onTap: () => onOpenDetail(item.id),
                   onPlay: () => onOpenDetail(item.id),
-                  onSecondaryTap: () => onOpenDetail(item.id),
-                  onWatchlist: () {},
                   onMore: () => onOpenDetail(item.id),
+                );
+              },
+            ),
+          ),
+        ],
+        const SizedBox(height: AppSpacing.massive),
+      ],
+    );
+  }
+
+  List<DetailPosterItem> _mergedRecommendations(DetailMedia media) {
+    final seen = <String>{};
+    final items = <DetailPosterItem>[];
+
+    for (final item in [...media.related, ...media.moreLikeThis]) {
+      if (seen.add(item.id)) {
+        items.add(item);
+      }
+      if (items.length == 20) break;
+    }
+
+    return items;
+  }
+}
+
+class _CrewSection extends StatelessWidget {
+  const _CrewSection({required this.crew});
+
+  final List<DetailPerson> crew;
+
+  @override
+  Widget build(BuildContext context) {
+    return _EditorialSection(
+      title: 'Crew',
+      child: Wrap(
+        spacing: AppSpacing.xl,
+        runSpacing: AppSpacing.lg,
+        children: [
+          for (final person in crew)
+            SizedBox(
+              width: 240,
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Container(
+                    width: 44,
+                    height: 44,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: AppColors.surfaceVariant.withValues(alpha: 0.7),
+                      border: Border.all(
+                        color: AppColors.borderSubtle.withValues(alpha: 0.5),
+                      ),
+                    ),
+                    child: Icon(
+                      _crewIcon(person.role),
+                      color: AppColors.textSecondary,
+                      size: 20,
+                    ),
+                  ),
+                  const SizedBox(width: AppSpacing.md),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          person.role,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: AppTypography.metadata.copyWith(
+                            color: AppColors.textMuted,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                        const SizedBox(height: AppSpacing.xs),
+                        Text(
+                          person.name,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: AppTypography.body.copyWith(
+                            color: AppColors.textPrimary,
+                            fontWeight: FontWeight.w700,
+                            height: 1.25,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  IconData _crewIcon(String role) {
+    return switch (role) {
+      'Director' => LucideIcons.clapperboard,
+      'Writer' => LucideIcons.penLine,
+      'Producer' => LucideIcons.badgeCheck,
+      'Music' => LucideIcons.music,
+      'Cinematography' => LucideIcons.camera,
+      _ => LucideIcons.user,
+    };
+  }
+}
+
+class _AboutAndMetadataSection extends StatelessWidget {
+  const _AboutAndMetadataSection({required this.media});
+
+  final DetailMedia media;
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final useColumns = constraints.maxWidth >= 980;
+        final about = _EditorialSection(
+          title: 'About',
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              if (media.tagline.isNotEmpty) ...[
+                Text(
+                  '"${media.tagline}"',
+                  style: AppTypography.body.copyWith(
+                    color: AppColors.textMuted,
+                    fontStyle: FontStyle.italic,
+                    height: 1.4,
+                  ),
                 ),
-              );
-            },
+                const SizedBox(height: AppSpacing.lg),
+              ],
+              Text(
+                media.overview.isEmpty
+                    ? 'Synopsis unavailable.'
+                    : media.overview,
+                style: AppTypography.body.copyWith(
+                  color: AppColors.textPrimary.withValues(alpha: 0.88),
+                  fontSize: 16,
+                  height: 1.65,
+                ),
+              ),
+              if (media.providers.isNotEmpty) ...[
+                const SizedBox(height: AppSpacing.xl),
+                ProviderRow(providers: media.providers),
+              ],
+            ],
+          ),
+        );
+
+        final details = _EditorialSection(
+          title: 'Details',
+          child: _InfoGrid(
+            items: [
+              _InfoItem('Runtime', media.runtime),
+              _InfoItem('Release', media.releaseDate),
+              _InfoItem('Language', media.languages.join(', ')),
+              _InfoItem('Country', media.productionCountries.join(', ')),
+              _InfoItem('Genres', media.genres.join(', ')),
+              _InfoItem('Status', media.status),
+              _InfoItem('Studios', media.productionCompanies.join(', ')),
+              _InfoItem('Homepage', media.homepage ?? ''),
+              _InfoItem('IMDb', media.imdbId ?? ''),
+            ],
+          ),
+        );
+
+        if (!useColumns) {
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              about,
+              const SizedBox(height: AppSpacing.massive),
+              details,
+            ],
+          );
+        }
+
+        return Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(flex: 6, child: about),
+            const SizedBox(width: 56),
+            Expanded(flex: 5, child: details),
+          ],
+        );
+      },
+    );
+  }
+}
+
+class _EditorialSection extends StatelessWidget {
+  const _EditorialSection({required this.title, required this.child});
+
+  final String title;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          title,
+          style: AppTypography.sectionTitle.copyWith(
+            fontSize: 24,
+            fontWeight: FontWeight.w800,
+          ),
+        ),
+        const SizedBox(height: AppSpacing.lg),
+        child,
+      ],
+    );
+  }
+}
+
+class _InfoGrid extends StatelessWidget {
+  const _InfoGrid({required this.items});
+
+  final List<_InfoItem> items;
+
+  @override
+  Widget build(BuildContext context) {
+    final visibleItems = items
+        .where(
+          (item) => item.value.trim().isNotEmpty && item.value.trim() != 'N/A',
+        )
+        .toList(growable: false);
+
+    if (visibleItems.isEmpty) {
+      return Text(
+        'Details unavailable.',
+        style: AppTypography.body.copyWith(color: AppColors.textMuted),
+      );
+    }
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final columns = constraints.maxWidth >= 460 ? 2 : 1;
+        return Wrap(
+          spacing: AppSpacing.xl,
+          runSpacing: AppSpacing.lg,
+          children: [
+            for (final item in visibleItems)
+              SizedBox(
+                width: columns == 2
+                    ? (constraints.maxWidth - AppSpacing.xl) / 2
+                    : constraints.maxWidth,
+                child: _InfoTile(item: item),
+              ),
+          ],
+        );
+      },
+    );
+  }
+}
+
+class _InfoTile extends StatelessWidget {
+  const _InfoTile({required this.item});
+
+  final _InfoItem item;
+
+  @override
+  Widget build(BuildContext context) {
+    final value = item.value.trim();
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          item.label.toUpperCase(),
+          style: AppTypography.metadata.copyWith(
+            color: AppColors.textMuted,
+            fontWeight: FontWeight.w800,
+          ),
+        ),
+        const SizedBox(height: AppSpacing.xs),
+        Text(
+          value,
+          maxLines: 3,
+          overflow: TextOverflow.ellipsis,
+          style: AppTypography.body.copyWith(
+            color: AppColors.textPrimary.withValues(alpha: 0.88),
+            height: 1.35,
           ),
         ),
       ],
@@ -884,47 +977,60 @@ class _PosterRail extends StatelessWidget {
   }
 }
 
-class _InfoPanel extends StatelessWidget {
-  const _InfoPanel({required this.children});
-
-  final List<Widget> children;
-
-  @override
-  Widget build(BuildContext context) {
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        color: AppColors.surface,
-        border: Border.all(color: AppColors.borderSubtle),
-        borderRadius: BorderRadius.circular(AppRadius.large),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.all(AppSpacing.xl),
-        child: Column(children: children),
-      ),
-    );
-  }
-}
-
-class _InfoRow extends StatelessWidget {
-  const _InfoRow({required this.label, required this.value});
+class _InfoItem {
+  const _InfoItem(this.label, this.value);
 
   final String label;
   final String value;
+}
+
+class _FadeInSection extends StatefulWidget {
+  const _FadeInSection({required this.child, required this.delay});
+
+  final Widget child;
+  final Duration delay;
+
+  @override
+  State<_FadeInSection> createState() => _FadeInSectionState();
+}
+
+class _FadeInSectionState extends State<_FadeInSection>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller;
+  late final Animation<double> _opacity;
+  late final Animation<Offset> _offset;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 520),
+    );
+    _opacity = CurvedAnimation(
+      parent: _controller,
+      curve: AppAnimation.standard,
+    );
+    _offset = Tween<Offset>(begin: const Offset(0, 0.035), end: Offset.zero)
+        .animate(
+          CurvedAnimation(parent: _controller, curve: AppAnimation.emphasized),
+        );
+    Future<void>.delayed(widget.delay, () {
+      if (mounted) _controller.forward();
+    });
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: AppSpacing.sm),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          SizedBox(
-            width: 190,
-            child: Text(label, style: AppTypography.metadata),
-          ),
-          Expanded(child: Text(value, style: AppTypography.body)),
-        ],
-      ),
+    return FadeTransition(
+      opacity: _opacity,
+      child: SlideTransition(position: _offset, child: widget.child),
     );
   }
 }
