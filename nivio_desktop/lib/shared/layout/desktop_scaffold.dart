@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import '../../features/details/detail_view.dart';
 import '../../features/home/home_view.dart';
 import '../../features/library/library_view.dart';
+import '../../features/live_tv/live_tv_view.dart';
 
 import '../../core/interfaces/search_repository.dart';
 import '../../core/interfaces/home_repository.dart';
@@ -235,10 +236,7 @@ class _DesktopScaffoldState extends State<DesktopScaffold> {
         onOpenDetail: _openDetail,
       ),
       _libraryIndex => LibraryView(onOpenDetail: _openDetail),
-      _liveTvIndex => const EmptyState(
-        title: 'Live TV',
-        message: 'Live TV will be loaded here.',
-      ),
+      _liveTvIndex => const LiveTvView(),
       _partyIndex => const EmptyState(
         title: 'Party',
         message: 'Watch party tools will be loaded here.',

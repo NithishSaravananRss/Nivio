@@ -146,20 +146,36 @@ class _CalendarDay extends StatelessWidget {
                 ? AppColors.sidebarSelected
                 : AppColors.surfaceVariant,
             border: Border.all(
-              color: isSelected || isToday
+              color: isSelected
                   ? AppColors.primary
+                  : isToday
+                  ? AppColors.borderSubtle.withValues(alpha: 0.75)
                   : AppColors.borderSubtle,
             ),
             shape: BoxShape.circle,
           ),
-          child: Center(
-            child: Text(
-              '${date.day}',
-              style: AppTypography.caption.copyWith(
-                color: AppColors.textPrimary,
-                fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
+          child: Stack(
+            alignment: Alignment.center,
+            children: [
+              Text(
+                '${date.day}',
+                style: AppTypography.caption.copyWith(
+                  color: AppColors.textPrimary,
+                  fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
+                ),
               ),
-            ),
+              if (isToday && !isSelected)
+                Positioned(
+                  bottom: AppSpacing.xs,
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      color: AppColors.primary.withValues(alpha: 0.55),
+                      shape: BoxShape.circle,
+                    ),
+                    child: const SizedBox.square(dimension: 4),
+                  ),
+                ),
+            ],
           ),
         ),
       ),

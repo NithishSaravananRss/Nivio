@@ -1,7 +1,8 @@
+import '../../config/app_environment.dart';
+
 /// Utility class for generating TMDB image URLs.
 class TmdbImageBuilder {
-  static const String _baseUrl =
-      'https://tmdb-proxy.nirmaleeswar30.workers.dev/t/p/';
+  static String get _baseUrl => '${AppEnvironment.imageProxyUrl}/t/p/';
 
   static String poster(String? path, {String size = 'w500'}) {
     if (path == null || path.isEmpty) return '';

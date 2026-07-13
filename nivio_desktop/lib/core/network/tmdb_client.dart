@@ -5,12 +5,12 @@ import '../constants/constants.dart';
 class TmdbClient {
   final Dio _dio;
 
-  TmdbClient({required String apiKey, String baseUrl = tmdbBaseUrl, Dio? dio})
+  TmdbClient({required String apiKey, String? baseUrl, Dio? dio})
     : _dio =
           dio ??
           Dio(
             BaseOptions(
-              baseUrl: baseUrl,
+              baseUrl: baseUrl ?? tmdbBaseUrl,
               connectTimeout: const Duration(seconds: 15),
               receiveTimeout: const Duration(seconds: 15),
               queryParameters: {'api_key': apiKey},
@@ -168,7 +168,7 @@ class TmdbClient {
       final response = await _dio.get(
         '/3/$mediaType/$id',
         queryParameters: {
-          'append_to_response':? appendToResponse,
+          'append_to_response': ?appendToResponse,
           'language': 'en',
         },
       );

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../../core/network/image/tmdb_image_builder.dart';
 import '../../theme/index.dart';
 
 class HeroSection extends StatefulWidget {
@@ -196,11 +197,10 @@ class _BackdropImage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (backdropPath != null && backdropPath!.isNotEmpty) {
-      // Backdrop path exists
-      final url =
-          'https://tmdb-proxy.nirmaleeswar30.workers.dev/t/p/w1280$backdropPath';
       return Image(
-        image: NetworkImage(url),
+        image: NetworkImage(
+          TmdbImageBuilder.backdrop(backdropPath, size: 'w1280'),
+        ),
         fit: BoxFit.cover,
         errorBuilder: (context, error, stackTrace) => const SizedBox.shrink(),
       );

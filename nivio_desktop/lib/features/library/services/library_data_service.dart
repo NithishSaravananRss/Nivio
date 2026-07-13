@@ -4,6 +4,7 @@ import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 
+import '../../../core/config/app_environment.dart';
 import '../../../core/constants/constants.dart';
 import '../models/library_models.dart';
 import 'library_persistence.dart';
@@ -143,7 +144,7 @@ class LibraryScheduleService {
           aniListDio ??
           Dio(
             BaseOptions(
-              baseUrl: 'https://graphql.anilist.co',
+              baseUrl: AppEnvironment.anilistApiUrl,
               connectTimeout: const Duration(seconds: 30),
               receiveTimeout: const Duration(seconds: 30),
             ),

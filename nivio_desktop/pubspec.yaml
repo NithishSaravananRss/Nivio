@@ -21,12 +21,14 @@ dependencies:
 
   # Networking
   dio: ^5.9.0
+  flutter_dotenv: ^6.0.0
   http: ^1.5.0
 
   # Local persistence
   hive: ^2.2.3
   hive_flutter: ^1.1.0
   path_provider: ^2.1.5
+  shared_preferences: ^2.5.3
 
   # UI
   cached_network_image: ^3.4.1
@@ -44,9 +46,8 @@ flutter:
   uses-material-design: true
 
   # Assets
-  # assets:
-  #   - assets/images/
-  #   - assets/icons/
+  assets:
+    - .env
 
   # Fonts
   # fonts:

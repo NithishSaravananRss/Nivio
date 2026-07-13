@@ -1,33 +1,33 @@
 import 'package:dio/dio.dart';
+import '../config/app_environment.dart';
 import '../errors/network_errors.dart';
 
 class AniListClient {
   final Dio _dio;
 
   AniListClient({Dio? dio})
-      : _dio = dio ??
-            Dio(
-              BaseOptions(
-                baseUrl: 'https://graphql.anilist.co',
-                connectTimeout: const Duration(seconds: 10),
-                receiveTimeout: const Duration(seconds: 10),
-              ),
-            );
+    : _dio =
+          dio ??
+          Dio(
+            BaseOptions(
+              baseUrl: AppEnvironment.anilistApiUrl,
+              connectTimeout: const Duration(seconds: 10),
+              receiveTimeout: const Duration(seconds: 10),
+            ),
+          );
 
-  Future<Map<String, dynamic>> query(String query, {Map<String, dynamic>? variables}) async {
+  Future<Map<String, dynamic>> query(
+    String query, {
+    Map<String, dynamic>? variables,
+  }) async {
     try {
-      final requestData = <String, dynamic>{
-        'query': query,
-      };
+      final requestData = <String, dynamic>{'query': query};
       if (variables != null) {
         requestData['variables'] = variables;
       }
-      
-      final response = await _dio.post(
-        '',
-        data: requestData,
-      );
-      
+
+      final response = await _dio.post('', data: requestData);
+
       final data = response.data;
       if (data is Map<String, dynamic> && data.containsKey('errors')) {
         throw ApiError(data['errors'].toString());
