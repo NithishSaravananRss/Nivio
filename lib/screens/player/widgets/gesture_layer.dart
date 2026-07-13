@@ -48,11 +48,6 @@ class _PlayerGestureLayerState extends State<PlayerGestureLayer>
   @override
   void dispose() {
     FlutterVolumeController.removeListener();
-    try {
-      ScreenBrightness().resetScreenBrightness();
-    } catch (e) {
-      debugPrint('Error resetting screen brightness: $e');
-    }
     super.dispose();
   }
 

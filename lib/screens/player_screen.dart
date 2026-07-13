@@ -1,5 +1,6 @@
 import 'package:better_player_plus/better_player_plus.dart';
 import 'package:simple_pip_mode/actions/pip_actions_layout.dart';
+import 'package:screen_brightness/screen_brightness.dart';
 import 'package:simple_pip_mode/simple_pip.dart';
 import 'dart:ui';
 import 'package:cached_network_image/cached_network_image.dart';
@@ -2988,6 +2989,11 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
 
   @override
   void dispose() {
+    try {
+      ScreenBrightness().resetScreenBrightness();
+    } catch (e) {
+      debugPrint('Error resetting screen brightness: $e');
+    }
     const MethodChannel('com.nivio/gesture_exclusion').invokeMethod('setCanEnterPip', {'value': false});
     const MethodChannel('com.nivio/gesture_exclusion').setMethodCallHandler(null);
     const MethodChannel('puntito.simple_pip_mode').setMethodCallHandler(null);
