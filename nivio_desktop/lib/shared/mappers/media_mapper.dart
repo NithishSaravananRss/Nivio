@@ -14,7 +14,7 @@ class MediaMapper {
     if (dto.type == 'anime') typeFilter = SearchMediaTypeFilter.anime;
 
     return SearchMediaItem(
-      id: dto.id.toString(),
+      id: '${dto.type}:${dto.id}',
       title: dto.title,
       year: year,
       rating: dto.voteAverage,
@@ -22,7 +22,7 @@ class MediaMapper {
       mediaType: typeFilter,
       provider: 'N/A', // Will be enriched by watch providers
       genres: const [], // To be added based on genre IDs
-      posterLabel: dto.type.toUpperCase(),
+      posterLabel: dto.title,
       overview: dto.overview,
       runtimeLabel: '',
     );

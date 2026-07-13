@@ -52,6 +52,22 @@ class TmdbClient {
     }
   }
 
+  Future<Map<String, dynamic>> searchMulti(String query, {int page = 1}) async {
+    try {
+      final response = await _dio.get(
+        '/3/search/multi',
+        queryParameters: {
+          'query': query,
+          'page': page,
+          'include_adult': false,
+        },
+      );
+      return response.data as Map<String, dynamic>;
+    } catch (e) {
+      throw NetworkErrorMapper.fromError(e);
+    }
+  }
+
   Future<Map<String, dynamic>> getSeriesInfo(int showId) async {
     try {
       final response = await _dio.get('/3/tv/$showId');

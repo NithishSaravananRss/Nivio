@@ -1,10 +1,11 @@
-/// Contract for searching movies, TV shows, anime, and other media.
-abstract class SearchRepository {
-  Future<List<Map<String, dynamic>>> searchMedia(
-    String query, {
-    int page = 1,
-    String? mediaType,
-  });
+import '../../features/search/models/search_media_item.dart';
 
-  Future<List<Map<String, dynamic>>> getSearchSuggestions(String query);
+abstract class SearchRepository {
+  Future<List<SearchMediaItem>> search({
+    required String query,
+    required SearchLanguageFilter language,
+    required SearchMediaTypeFilter mediaType,
+    required SearchSortOption sort,
+    int page = 1,
+  });
 }

@@ -1,18 +1,21 @@
 import 'dart:async';
 
+import '../../../core/interfaces/search_repository.dart';
 import '../models/search_media_item.dart';
 
-class MockSearchRepository {
+class MockSearchRepository implements SearchRepository {
   MockSearchRepository({List<SearchMediaItem>? items})
     : _items = items ?? mockSearchItems;
 
   final List<SearchMediaItem> _items;
 
+  @override
   Future<List<SearchMediaItem>> search({
     required String query,
     required SearchLanguageFilter language,
     required SearchMediaTypeFilter mediaType,
     required SearchSortOption sort,
+    int page = 1,
   }) async {
     await Future<void>.delayed(const Duration(milliseconds: 650));
 
@@ -20,6 +23,8 @@ class MockSearchRepository {
     if (normalizedQuery == 'error' || normalizedQuery == '__error__') {
       throw StateError('Mock search failed.');
     }
+
+    if (page > 1) return [];
 
     var results = _items
         .where((item) {

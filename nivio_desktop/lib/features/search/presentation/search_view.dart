@@ -35,10 +35,19 @@ class _SearchViewState extends State<SearchView> {
   void initState() {
     super.initState();
     unawaited(widget.controller.initialize());
+    _resultsScrollController.addListener(_onScroll);
+  }
+
+  void _onScroll() {
+    if (!_resultsScrollController.hasClients) return;
+    if (_resultsScrollController.position.pixels >= _resultsScrollController.position.maxScrollExtent - 500) {
+      unawaited(widget.controller.loadMore());
+    }
   }
 
   @override
   void dispose() {
+    _resultsScrollController.removeListener(_onScroll);
     _resultsScrollController.dispose();
     super.dispose();
   }
@@ -301,12 +310,20 @@ class _SearchResultsPane extends StatelessWidget {
         controller: scrollController,
         child: ListView.separated(
           controller: scrollController,
-          itemCount: controller.results.length,
+          itemCount: controller.results.length + (controller.isLoadingMore ? 1 : 0),
           separatorBuilder: (_, _) => const SizedBox(height: AppSpacing.md),
-          itemBuilder: (context, index) => _SearchResultListItem(
-            item: controller.results[index],
-            onOpenDetail: onOpenDetail,
-          ),
+          itemBuilder: (context, index) {
+            if (index == controller.results.length) {
+              return const Padding(
+                padding: EdgeInsets.all(AppSpacing.md),
+                child: Center(child: CircularProgressIndicator()),
+              );
+            }
+            return _SearchResultListItem(
+              item: controller.results[index],
+              onOpenDetail: onOpenDetail,
+            );
+          },
         ),
       );
     }
@@ -315,12 +332,17 @@ class _SearchResultsPane extends StatelessWidget {
       controller: scrollController,
       child: MediaGrid(
         controller: scrollController,
-        itemCount: controller.results.length,
+        itemCount: controller.results.length + (controller.isLoadingMore ? 1 : 0),
         minItemWidth: 170,
-        itemBuilder: (context, index) => _SearchResultPosterCard(
-          item: controller.results[index],
-          onOpenDetail: onOpenDetail,
-        ),
+        itemBuilder: (context, index) {
+          if (index == controller.results.length) {
+            return const Center(child: CircularProgressIndicator());
+          }
+          return _SearchResultPosterCard(
+            item: controller.results[index],
+            onOpenDetail: onOpenDetail,
+          );
+        },
       ),
     );
   }

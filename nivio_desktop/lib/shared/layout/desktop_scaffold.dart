@@ -4,9 +4,13 @@ import 'package:flutter/services.dart';
 import '../../features/details/detail_view.dart';
 import '../../features/home/home_view.dart';
 import '../../features/library/library_view.dart';
-import '../../features/search/controllers/mock_search_repository.dart';
+
+import '../../core/interfaces/search_repository.dart';
 import '../../features/search/controllers/search_controller.dart';
 import '../../features/search/presentation/search_view.dart';
+import '../../core/repositories/tmdb_search_repository.dart';
+import '../../core/network/tmdb_client.dart';
+import '../../core/constants.dart';
 import '../widgets/feedback/empty_state.dart';
 import '../theme/index.dart';
 import 'desktop_sidebar.dart';
@@ -14,7 +18,9 @@ import 'desktop_topbar.dart';
 
 /// Permanent desktop shell used by future feature screens.
 class DesktopScaffold extends StatefulWidget {
-  const DesktopScaffold({super.key});
+  final SearchRepository? searchRepository;
+
+  const DesktopScaffold({super.key, this.searchRepository});
 
   @override
   State<DesktopScaffold> createState() => _DesktopScaffoldState();
@@ -33,7 +39,9 @@ class _DesktopScaffoldState extends State<DesktopScaffold> {
   final FocusNode _topbarSearchFocusNode = FocusNode();
   final FocusNode _searchPageFocusNode = FocusNode();
   late final SearchController _searchStateController = SearchController(
-    repository: MockSearchRepository(),
+    repository: widget.searchRepository ?? TmdbSearchRepository(
+      client: TmdbClient(apiKey: tmdbApiKey),
+    ),
   );
 
   int _selectedIndex = _homeIndex;

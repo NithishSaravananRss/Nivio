@@ -8,6 +8,7 @@ class MediaDto {
   final String overview;
   final double voteAverage;
   final String? releaseDate;
+  final String? originalLanguage;
 
   const MediaDto({
     required this.id,
@@ -19,6 +20,7 @@ class MediaDto {
     required this.overview,
     required this.voteAverage,
     this.releaseDate,
+    this.originalLanguage,
   });
 
   factory MediaDto.fromJson(Map<String, dynamic> json) {
@@ -32,6 +34,7 @@ class MediaDto {
       overview: json['overview'] ?? json['description'] ?? '',
       voteAverage: (json['vote_average'] as num?)?.toDouble() ?? 0.0,
       releaseDate: json['release_date'] ?? json['first_air_date'],
+      originalLanguage: json['original_language'],
     );
   }
 }

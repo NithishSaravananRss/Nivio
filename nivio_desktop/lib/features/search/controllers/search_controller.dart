@@ -3,18 +3,22 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 
 import '../models/search_media_item.dart';
-import 'mock_search_repository.dart';
+import '../../../core/interfaces/search_repository.dart';
 
 class SearchController extends ChangeNotifier {
-  SearchController({required this._repository});
+  // ignore: prefer_initializing_formals
+  SearchController({required SearchRepository repository}) : _repository = repository;
 
-  final MockSearchRepository _repository;
+  final SearchRepository _repository;
   Timer? _debounceTimer;
 
   String _query = '';
   bool _isLoading = false;
+  bool _isLoadingMore = false;
   String? _errorMessage;
   List<SearchMediaItem> _results = const [];
+  int _page = 1;
+  bool _hasMore = true;
   final List<String> _recentSearches = <String>[];
   SearchLanguageFilter _language = SearchLanguageFilter.all;
   SearchMediaTypeFilter _mediaType = SearchMediaTypeFilter.all;
@@ -24,6 +28,8 @@ class SearchController extends ChangeNotifier {
 
   String get query => _query;
   bool get isLoading => _isLoading;
+  bool get isLoadingMore => _isLoadingMore;
+  bool get hasMore => _hasMore;
   String? get errorMessage => _errorMessage;
   List<SearchMediaItem> get results => List.unmodifiable(_results);
   List<String> get recentSearches => List.unmodifiable(_recentSearches);
@@ -116,9 +122,15 @@ class SearchController extends ChangeNotifier {
     });
   }
 
+  bool _isDisposed = false;
+
   Future<void> _runSearch() async {
+    if (_isDisposed) return;
     _errorMessage = null;
     _isLoading = true;
+    _page = 1;
+    _hasMore = true;
+    _results = [];
     notifyListeners();
 
     try {
@@ -127,17 +139,61 @@ class SearchController extends ChangeNotifier {
         language: _language,
         mediaType: _mediaType,
         sort: _sort,
+        page: _page,
       );
+      if (_isDisposed) return;
       _results = results;
+      _hasMore = results.isNotEmpty; // TMDB typically returns empty list when out of bounds
       if (_query.trim().isNotEmpty && results.isNotEmpty) {
         _pushRecentSearch(_query.trim());
       }
     } catch (_) {
+      if (_isDisposed) return;
       _results = const [];
       _errorMessage = 'We could not load search results right now.';
+      _hasMore = false;
     } finally {
-      _isLoading = false;
-      notifyListeners();
+      if (!_isDisposed) {
+        _isLoading = false;
+        notifyListeners();
+      }
+    }
+  }
+
+  Future<void> loadMore() async {
+    if (_isDisposed || _isLoading || _isLoadingMore || !_hasMore || _query.trim().isEmpty) {
+      return;
+    }
+
+    _isLoadingMore = true;
+    notifyListeners();
+
+    try {
+      final nextPage = _page + 1;
+      final newResults = await _repository.search(
+        query: _query,
+        language: _language,
+        mediaType: _mediaType,
+        sort: _sort,
+        page: nextPage,
+      );
+
+      if (_isDisposed) return;
+
+      if (newResults.isEmpty) {
+        _hasMore = false;
+      } else {
+        _page = nextPage;
+        _results = [..._results, ...newResults];
+      }
+    } catch (_) {
+      if (_isDisposed) return;
+      _hasMore = false;
+    } finally {
+      if (!_isDisposed) {
+        _isLoadingMore = false;
+        notifyListeners();
+      }
     }
   }
 
@@ -151,6 +207,7 @@ class SearchController extends ChangeNotifier {
 
   @override
   void dispose() {
+    _isDisposed = true;
     _debounceTimer?.cancel();
     super.dispose();
   }
