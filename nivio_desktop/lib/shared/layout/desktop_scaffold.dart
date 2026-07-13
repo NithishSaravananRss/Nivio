@@ -5,6 +5,7 @@ import '../../features/details/detail_view.dart';
 import '../../features/home/home_view.dart';
 import '../../features/library/library_view.dart';
 import '../../features/live_tv/live_tv_view.dart';
+import '../../features/party/party_view.dart';
 
 import '../../core/interfaces/search_repository.dart';
 import '../../core/interfaces/home_repository.dart';
@@ -237,10 +238,7 @@ class _DesktopScaffoldState extends State<DesktopScaffold> {
       ),
       _libraryIndex => LibraryView(onOpenDetail: _openDetail),
       _liveTvIndex => const LiveTvView(),
-      _partyIndex => const EmptyState(
-        title: 'Party',
-        message: 'Watch party tools will be loaded here.',
-      ),
+      _partyIndex => const PartyView(),
       _profileIndex => const EmptyState(
         title: 'Profile',
         message: 'Profile details will be loaded here.',
