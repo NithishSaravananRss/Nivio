@@ -19,6 +19,8 @@ class SearchMediaItem {
     required this.posterLabel,
     required this.overview,
     required this.runtimeLabel,
+    this.posterPath,
+    this.backdropPath,
   });
 
   final String id;
@@ -32,6 +34,8 @@ class SearchMediaItem {
   final String posterLabel;
   final String overview;
   final String runtimeLabel;
+  final String? posterPath;
+  final String? backdropPath;
 
   String get yearLabel => year.toString();
   String get ratingLabel => rating.toStringAsFixed(1);

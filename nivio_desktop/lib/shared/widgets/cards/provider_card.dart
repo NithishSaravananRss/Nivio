@@ -7,6 +7,7 @@ class ProviderCard extends StatelessWidget {
   const ProviderCard({
     super.key,
     required this.name,
+    this.logoImage,
     this.label,
     this.semanticLabel,
     this.focusNode,
@@ -15,6 +16,7 @@ class ProviderCard extends StatelessWidget {
   });
 
   final String name;
+  final ImageProvider? logoImage;
   final String? label;
   final String? semanticLabel;
   final FocusNode? focusNode;
@@ -41,13 +43,21 @@ class ProviderCard extends StatelessWidget {
               color: AppColors.surfaceVariant,
               borderRadius: BorderRadius.circular(AppRadius.medium),
               border: Border.all(color: AppColors.borderSubtle),
+              image: logoImage != null
+                  ? DecorationImage(
+                      image: logoImage!,
+                      fit: BoxFit.cover,
+                    )
+                  : null,
             ),
-            child: Center(
-              child: Text(
-                name.characters.first,
-                style: AppTypography.sectionTitle.copyWith(fontSize: 18),
-              ),
-            ),
+            child: logoImage == null
+                ? Center(
+                    child: Text(
+                      name.characters.first,
+                      style: AppTypography.sectionTitle.copyWith(fontSize: 18),
+                    ),
+                  )
+                : null,
           ),
           const SizedBox(height: AppSpacing.md),
           Text(name, style: AppTypography.title, maxLines: 2, overflow: TextOverflow.ellipsis),

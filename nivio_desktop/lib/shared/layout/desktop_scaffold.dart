@@ -6,21 +6,26 @@ import '../../features/home/home_view.dart';
 import '../../features/library/library_view.dart';
 
 import '../../core/interfaces/search_repository.dart';
+import '../../core/interfaces/home_repository.dart';
 import '../../features/search/controllers/search_controller.dart';
+import '../../features/home/controllers/home_controller.dart';
 import '../../features/search/presentation/search_view.dart';
 import '../../core/repositories/tmdb_search_repository.dart';
+import '../../core/repositories/tmdb_home_repository.dart';
 import '../../core/network/tmdb_client.dart';
 import '../../core/constants.dart';
 import '../widgets/feedback/empty_state.dart';
 import '../theme/index.dart';
 import 'desktop_sidebar.dart';
 import 'desktop_topbar.dart';
+import '../../core/repositories/empty_watch_history_repository.dart';
 
 /// Permanent desktop shell used by future feature screens.
 class DesktopScaffold extends StatefulWidget {
   final SearchRepository? searchRepository;
+  final HomeRepository? homeRepository;
 
-  const DesktopScaffold({super.key, this.searchRepository});
+  const DesktopScaffold({super.key, this.searchRepository, this.homeRepository});
 
   @override
   State<DesktopScaffold> createState() => _DesktopScaffoldState();
@@ -44,6 +49,13 @@ class _DesktopScaffoldState extends State<DesktopScaffold> {
     ),
   );
 
+  late final HomeController _homeStateController = HomeController(
+    repository: widget.homeRepository ?? TmdbHomeRepository(
+      client: TmdbClient(apiKey: tmdbApiKey),
+    ),
+    watchHistoryRepository: EmptyWatchHistoryRepository(),
+  );
+
   int _selectedIndex = _homeIndex;
   int _lastSidebarIndex = _homeIndex;
   bool _isSidebarExpanded = true;
@@ -52,6 +64,7 @@ class _DesktopScaffoldState extends State<DesktopScaffold> {
   @override
   void initState() {
     super.initState();
+    _homeStateController.loadAll();
   }
 
   @override
@@ -60,6 +73,7 @@ class _DesktopScaffoldState extends State<DesktopScaffold> {
     _topbarSearchFocusNode.dispose();
     _searchPageFocusNode.dispose();
     _searchStateController.dispose();
+    _homeStateController.dispose();
     super.dispose();
   }
 
@@ -217,7 +231,7 @@ class _DesktopScaffoldState extends State<DesktopScaffold> {
     }
 
     return switch (_selectedIndex) {
-      _homeIndex => HomeView(onOpenDetail: _openDetail),
+      _homeIndex => HomeView(controller: _homeStateController, onOpenDetail: _openDetail),
       _libraryIndex => LibraryView(onOpenDetail: _openDetail),
       _liveTvIndex => const EmptyState(
         title: 'Live TV',
@@ -241,7 +255,7 @@ class _DesktopScaffoldState extends State<DesktopScaffold> {
         searchFocusNode: _searchPageFocusNode,
         onOpenDetail: _openDetail,
       ),
-      _ => const HomeView(),
+      _ => HomeView(controller: _homeStateController, onOpenDetail: _openDetail),
     };
   }
 }

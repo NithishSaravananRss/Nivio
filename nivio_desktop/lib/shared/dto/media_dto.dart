@@ -25,8 +25,8 @@ class MediaDto {
 
   factory MediaDto.fromJson(Map<String, dynamic> json) {
     return MediaDto(
-      id: json['id'] as int,
-      malId: json['idMal'] as int?,
+      id: (json['id'] as num?)?.toInt() ?? 0,
+      malId: (json['idMal'] as num?)?.toInt(),
       title: json['title'] ?? json['name'] ?? '',
       type: json['media_type'] ?? 'unknown',
       posterPath: json['poster_path'] ?? json['coverImage']?['extraLarge'],

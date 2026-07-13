@@ -1,11 +1,18 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
+import '../../core/constants/providers_data.dart';
+import '../../core/network/image/tmdb_image_builder.dart';
 import '../../shared/theme/index.dart';
 import '../../shared/widgets/widgets.dart';
+import '../search/models/search_media_item.dart';
+import 'controllers/home_controller.dart';
 
 class HomeView extends StatefulWidget {
-  const HomeView({super.key, this.onOpenDetail});
+  const HomeView({super.key, required this.controller, this.onOpenDetail});
 
+  final HomeController controller;
   final ValueChanged<String>? onOpenDetail;
 
   @override
@@ -14,64 +21,283 @@ class HomeView extends StatefulWidget {
 
 class _HomeViewState extends State<HomeView> {
   final ScrollController _scrollController = ScrollController();
+  late final PageController _pageController;
+  Timer? _carouselTimer;
+  int _currentPage = 0;
+  bool _isHovering = false;
+  Timer? _resumeAutoplayTimer;
+
+  @override
+  void initState() {
+    super.initState();
+    _pageController = PageController(initialPage: 0);
+    _startCarouselTimer();
+  }
 
   @override
   void dispose() {
     _scrollController.dispose();
+    _carouselTimer?.cancel();
+    _resumeAutoplayTimer?.cancel();
+    _pageController.dispose();
     super.dispose();
+  }
+
+  void _startCarouselTimer() {
+    _carouselTimer?.cancel();
+    _carouselTimer = Timer.periodic(const Duration(seconds: 6), (timer) {
+      if (!mounted) return;
+      if (_isHovering) return;
+      if (!_pageController.hasClients) return;
+
+      final items = widget.controller.featuredItems;
+      if (items.isEmpty) return;
+
+      _pageController.animateToPage(
+        _currentPage + 1,
+        duration: const Duration(milliseconds: 1200),
+        curve: Curves.easeInOutCubic,
+      );
+    });
+  }
+
+  void _onPageUserInteraction() {
+    _carouselTimer?.cancel();
+    _resumeAutoplayTimer?.cancel();
+    _resumeAutoplayTimer = Timer(const Duration(seconds: 6), () {
+      if (mounted) {
+        _startCarouselTimer();
+      }
+    });
   }
 
   @override
   Widget build(BuildContext context) {
-    return DesktopScrollbar(
-      controller: _scrollController,
-      child: SingleChildScrollView(
-        controller: _scrollController,
-        physics: const BouncingScrollPhysics(),
-        child: PageContainer(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              const SectionPadding(
-                vertical: AppSpacing.xxl,
-                child: HeroBanner(
-                  title: 'Blackout City',
-                  overview:
-                      'A damaged ex-courier crosses a neon city to deliver a memory vault that every faction wants, while an old promise pulls him back into the frame.',
-                  rating: 'TV-MA',
-                  year: '2026',
-                  runtime: '2h 18m',
-                  genres: ['Action', 'Sci-Fi', 'Thriller'],
-                  primaryActionLabel: 'Play now',
-                  secondaryActionLabel: 'Add to watchlist',
-                  posterLabel: 'Blackout\nCity',
-                  backdropLabel: 'Blackout City',
-                ),
+    return ListenableBuilder(
+      listenable: widget.controller,
+      builder: (context, _) {
+        final ctrl = widget.controller;
+        final featuredItems = ctrl.featuredItems;
+
+        return DesktopScrollbar(
+          controller: _scrollController,
+          child: SingleChildScrollView(
+            controller: _scrollController,
+            physics: const BouncingScrollPhysics(),
+            child: PageContainer(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  // 1. Dynamic Hero Carousel Section
+                  SectionPadding(
+                    vertical: AppSpacing.xxl,
+                    child: ctrl.isLoadingFeatured
+                        ? Container(
+                            height: 400,
+                            decoration: BoxDecoration(
+                              color: AppColors.surface,
+                              borderRadius: BorderRadius.circular(
+                                AppRadius.panel,
+                              ),
+                              border: Border.all(color: AppColors.borderSubtle),
+                            ),
+                            child: const Center(
+                              child: CircularProgressIndicator(),
+                            ),
+                          )
+                        : featuredItems.isEmpty
+                        ? const SizedBox.shrink()
+                        : MouseRegion(
+                            onEnter: (_) => setState(() => _isHovering = true),
+                            onExit: (_) => setState(() => _isHovering = false),
+                            child: Focus(
+                              autofocus: true,
+                              onKeyEvent: (node, event) {
+                                if (event is KeyDownEvent) {
+                                  if (event.logicalKey ==
+                                      LogicalKeyboardKey.arrowLeft) {
+                                    _onPageUserInteraction();
+                                    _pageController.previousPage(
+                                      duration: const Duration(
+                                        milliseconds: 1200,
+                                      ),
+                                      curve: Curves.easeInOutCubic,
+                                    );
+                                    return KeyEventResult.handled;
+                                  } else if (event.logicalKey ==
+                                      LogicalKeyboardKey.arrowRight) {
+                                    _onPageUserInteraction();
+                                    _pageController.nextPage(
+                                      duration: const Duration(
+                                        milliseconds: 1200,
+                                      ),
+                                      curve: Curves.easeInOutCubic,
+                                    );
+                                    return KeyEventResult.handled;
+                                  }
+                                }
+                                return KeyEventResult.ignored;
+                              },
+                              child: Column(
+                                children: [
+                                  SizedBox(
+                                    height: 400,
+                                    child: PageView.builder(
+                                      controller: _pageController,
+                                      itemCount: featuredItems.length + 1,
+                                      onPageChanged: (index) {
+                                        setState(() {
+                                          _currentPage = index;
+                                        });
+
+                                        // Replicate Android loop jump back
+                                        if (index == featuredItems.length) {
+                                          WidgetsBinding.instance
+                                              .addPostFrameCallback((_) {
+                                                if (!_pageController
+                                                    .hasClients) {
+                                                  return;
+                                                }
+                                                _pageController.jumpToPage(0);
+                                                setState(
+                                                  () => _currentPage = 0,
+                                                );
+                                              });
+                                        }
+                                      },
+                                      itemBuilder: (context, index) {
+                                        final actualIndex =
+                                            index % featuredItems.length;
+                                        final item = featuredItems[actualIndex];
+
+                                        return HeroBanner(
+                                          item: item,
+                                          primaryActionLabel: 'Play now',
+                                          secondaryActionLabel:
+                                              'Add to watchlist',
+                                          onPrimaryAction: () => widget
+                                              .onOpenDetail
+                                              ?.call(item.id),
+                                          onSecondaryAction: () {},
+                                        );
+                                      },
+                                    ),
+                                  ),
+                                  const SizedBox(height: AppSpacing.md),
+                                  // Page Indicators
+                                  Row(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: List.generate(
+                                      featuredItems.length,
+                                      (index) {
+                                        final isSelected =
+                                            (_currentPage %
+                                                featuredItems.length) ==
+                                            index;
+                                        return GestureDetector(
+                                          onTap: () {
+                                            _onPageUserInteraction();
+                                            _pageController.animateToPage(
+                                              index,
+                                              duration: const Duration(
+                                                milliseconds: 1200,
+                                              ),
+                                              curve: Curves.easeInOutCubic,
+                                            );
+                                          },
+                                          child: Container(
+                                            width: 8,
+                                            height: 8,
+                                            margin: const EdgeInsets.symmetric(
+                                              horizontal: 4,
+                                            ),
+                                            decoration: BoxDecoration(
+                                              shape: BoxShape.circle,
+                                              color: isSelected
+                                                  ? AppColors.primary
+                                                  : AppColors.textMuted
+                                                        .withValues(alpha: 0.4),
+                                            ),
+                                          ),
+                                        );
+                                      },
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                  ),
+
+                  // 2. Continue Watching (Only visible if not empty)
+                  SectionPadding(
+                    child: _ContinueWatchingSection(
+                      items: ctrl.watchHistory,
+                      isLoading: ctrl.isLoadingHistory,
+                      onOpenDetail: widget.onOpenDetail,
+                    ),
+                  ),
+
+                  // 3. Trending Movies
+                  SectionPadding(
+                    child: _TrendingMoviesSection(
+                      items: ctrl.trendingMovies,
+                      isLoading: ctrl.isLoadingMovies,
+                      error: ctrl.moviesError,
+                      onRetry: () => ctrl.retryMovies(),
+                      onOpenDetail: widget.onOpenDetail,
+                    ),
+                  ),
+                  const SectionPadding(
+                    child: SizedBox(height: AppSpacing.xxxl),
+                  ),
+
+                  // 4. Trending TV
+                  SectionPadding(
+                    child: _TrendingTvSection(
+                      items: ctrl.trendingTv,
+                      isLoading: ctrl.isLoadingTv,
+                      error: ctrl.tvError,
+                      onRetry: () => ctrl.retryTv(),
+                      onOpenDetail: widget.onOpenDetail,
+                    ),
+                  ),
+                  const SectionPadding(
+                    child: SizedBox(height: AppSpacing.xxxl),
+                  ),
+
+                  // 5. Trending Anime (Hidden completely per Android parity)
+                  const SectionPadding(child: _TrendingAnimeSection()),
+
+                  // 6. Providers
+                  const SectionPadding(child: _ProvidersSection()),
+                ],
               ),
-              SectionPadding(
-                child: _ContinueWatchingSection(
-                  onOpenDetail: widget.onOpenDetail,
-                ),
-              ),
-              SectionPadding(
-                child: _TrendingSection(onOpenDetail: widget.onOpenDetail),
-              ),
-              const SectionPadding(child: _ProvidersSection()),
-            ],
+            ),
           ),
-        ),
-      ),
+        );
+      },
     );
   }
 }
 
 class _ContinueWatchingSection extends StatelessWidget {
-  const _ContinueWatchingSection({this.onOpenDetail});
+  const _ContinueWatchingSection({
+    required this.items,
+    required this.isLoading,
+    this.onOpenDetail,
+  });
 
+  final List<Map<String, dynamic>> items;
+  final bool isLoading;
   final ValueChanged<String>? onOpenDetail;
 
   @override
   Widget build(BuildContext context) {
+    if (items.isEmpty) {
+      return const SizedBox.shrink();
+    }
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -83,49 +309,87 @@ class _ContinueWatchingSection extends StatelessWidget {
         MediaRail(
           itemWidth: 360,
           height: 340,
-          children: [
-            ContinueWatchingCard(
-              title: 'The Last Circuit',
-              episodeLabel: 'Season 2 · Episode 4',
-              posterLabel: 'The Last Circuit',
-              progress: 0.62,
-              onResume: () => onOpenDetail?.call('night-protocol'),
-            ),
-            ContinueWatchingCard(
-              title: 'Moon Harbor',
-              episodeLabel: 'Season 1 · Episode 9',
-              posterLabel: 'Moon Harbor',
-              progress: 0.34,
-              onResume: () => onOpenDetail?.call('moon-harbor'),
-            ),
-            ContinueWatchingCard(
-              title: 'Shatterline',
-              episodeLabel: 'Episode 11',
-              posterLabel: 'Shatterline',
-              progress: 0.79,
-              onResume: () => onOpenDetail?.call('sky-forge'),
-            ),
-            ContinueWatchingCard(
-              title: 'Arcadia Drift',
-              episodeLabel: 'Season 3 · Episode 2',
-              posterLabel: 'Arcadia Drift',
-              progress: 0.48,
-              onResume: () => onOpenDetail?.call('signal-lost'),
-            ),
-          ],
+          children: items.map((item) {
+            final id = item['id']?.toString();
+            final title = (item['title'] ?? item['name'] ?? 'Untitled')
+                .toString();
+            final season = item['currentSeason'] ?? item['season'];
+            final episode = item['currentEpisode'] ?? item['episode'];
+            final rawProgress =
+                (item['progressPercent'] as num?)?.toDouble() ??
+                (item['progress'] as num?)?.toDouble() ??
+                0;
+            final progress = rawProgress > 1 ? rawProgress / 100 : rawProgress;
+            final episodeLabel = season != null && episode != null
+                ? 'Season $season · Episode $episode'
+                : null;
+
+            return ContinueWatchingCard(
+              title: title,
+              episodeLabel: episodeLabel,
+              posterLabel: title,
+              progress: progress,
+              onResume: id == null ? null : () => onOpenDetail?.call(id),
+            );
+          }).toList(),
         ),
       ],
     );
   }
 }
 
-class _TrendingSection extends StatelessWidget {
-  const _TrendingSection({this.onOpenDetail});
+class _TrendingMoviesSection extends StatelessWidget {
+  const _TrendingMoviesSection({
+    required this.items,
+    required this.isLoading,
+    this.error,
+    this.onRetry,
+    this.onOpenDetail,
+  });
 
+  final List<SearchMediaItem> items;
+  final bool isLoading;
+  final String? error;
+  final VoidCallback? onRetry;
   final ValueChanged<String>? onOpenDetail;
 
   @override
   Widget build(BuildContext context) {
+    if (error != null && !isLoading) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          const SectionHeader(title: 'Trending Movies', onSeeAllPressed: _noop),
+          const SizedBox(height: AppSpacing.lg),
+          Container(
+            padding: const EdgeInsets.all(AppSpacing.xl),
+            decoration: BoxDecoration(
+              color: AppColors.surface,
+              borderRadius: BorderRadius.circular(AppRadius.large),
+              border: Border.all(color: AppColors.borderSubtle),
+            ),
+            child: Column(
+              children: [
+                const Icon(
+                  Icons.warning_amber_rounded,
+                  color: Colors.amber,
+                  size: 40,
+                ),
+                const SizedBox(height: AppSpacing.md),
+                SelectableText(
+                  error!,
+                  style: const TextStyle(color: AppColors.textMuted),
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: AppSpacing.md),
+                PrimaryButton(label: 'Retry', onPressed: onRetry),
+              ],
+            ),
+          ),
+        ],
+      );
+    }
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -134,227 +398,139 @@ class _TrendingSection extends StatelessWidget {
         ResponsiveGrid(
           minItemWidth: 170,
           childAspectRatio: 0.66,
-          children: [
-            PosterCard(
-              title: 'Signal Lost',
-              year: '2026',
-              rating: '8.4',
-              subtitle: 'Action · Drama',
-              onTap: () => onOpenDetail?.call('signal-lost'),
-              onSecondaryTap: () => onOpenDetail?.call('signal-lost'),
-              onPlay: () => onOpenDetail?.call('signal-lost'),
-              onWatchlist: _noop,
-              onMore: () => onOpenDetail?.call('signal-lost'),
-            ),
-            PosterCard(
-              title: 'Midnight Harbor',
-              year: '2025',
-              rating: '7.9',
-              subtitle: 'Mystery · Thriller',
-              onTap: () => onOpenDetail?.call('midnight-harbor'),
-              onSecondaryTap: () => onOpenDetail?.call('midnight-harbor'),
-              onPlay: () => onOpenDetail?.call('midnight-harbor'),
-              onWatchlist: _noop,
-              onMore: () => onOpenDetail?.call('midnight-harbor'),
-            ),
-            PosterCard(
-              title: 'Zero Day',
-              year: '2026',
-              rating: '8.1',
-              subtitle: 'Sci-Fi · Action',
-              onTap: () => onOpenDetail?.call('zero-day'),
-              onSecondaryTap: () => onOpenDetail?.call('zero-day'),
-              onPlay: () => onOpenDetail?.call('zero-day'),
-              onWatchlist: _noop,
-              onMore: () => onOpenDetail?.call('zero-day'),
-            ),
-            PosterCard(
-              title: 'Glass Orbit',
-              year: '2024',
-              rating: '7.5',
-              subtitle: 'Adventure · Sci-Fi',
-              onTap: () => onOpenDetail?.call('glass-orbit'),
-              onSecondaryTap: () => onOpenDetail?.call('glass-orbit'),
-              onPlay: () => onOpenDetail?.call('glass-orbit'),
-              onWatchlist: _noop,
-              onMore: () => onOpenDetail?.call('glass-orbit'),
-            ),
-            PosterCard(
-              title: 'Cold Front',
-              year: '2025',
-              rating: '8.0',
-              subtitle: 'Crime · Thriller',
-              onTap: () => onOpenDetail?.call('cold-front'),
-              onSecondaryTap: () => onOpenDetail?.call('cold-front'),
-              onPlay: () => onOpenDetail?.call('cold-front'),
-              onWatchlist: _noop,
-              onMore: () => onOpenDetail?.call('cold-front'),
-            ),
-            PosterCard(
-              title: 'Northbound',
-              year: '2024',
-              rating: '7.7',
-              subtitle: 'Adventure · Drama',
-              onTap: () => onOpenDetail?.call('northbound'),
-              onSecondaryTap: () => onOpenDetail?.call('northbound'),
-              onPlay: () => onOpenDetail?.call('northbound'),
-              onWatchlist: _noop,
-              onMore: () => onOpenDetail?.call('northbound'),
-            ),
-          ],
+          children: isLoading
+              ? List.generate(
+                  6,
+                  (index) => const PosterCard(title: '', isLoading: true),
+                )
+              : items
+                    .map(
+                      (item) => PosterCard(
+                        title: item.title,
+                        year: item.year > 0 ? item.yearLabel : null,
+                        rating: item.rating > 0 ? item.ratingLabel : null,
+                        subtitle: item.mediaTypeLabel,
+                        imageProvider:
+                            item.posterPath != null &&
+                                item.posterPath!.isNotEmpty
+                            ? NetworkImage(
+                                TmdbImageBuilder.poster(item.posterPath!),
+                              )
+                            : null,
+                        onTap: () => onOpenDetail?.call(item.id),
+                        onSecondaryTap: () => onOpenDetail?.call(item.id),
+                        onPlay: () => onOpenDetail?.call(item.id),
+                        onWatchlist: _noop,
+                        onMore: () => onOpenDetail?.call(item.id),
+                      ),
+                    )
+                    .toList(),
         ),
-        const SizedBox(height: AppSpacing.xxxl),
+      ],
+    );
+  }
+}
+
+class _TrendingTvSection extends StatelessWidget {
+  const _TrendingTvSection({
+    required this.items,
+    required this.isLoading,
+    this.error,
+    this.onRetry,
+    this.onOpenDetail,
+  });
+
+  final List<SearchMediaItem> items;
+  final bool isLoading;
+  final String? error;
+  final VoidCallback? onRetry;
+  final ValueChanged<String>? onOpenDetail;
+
+  @override
+  Widget build(BuildContext context) {
+    if (error != null && !isLoading) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          const SectionHeader(title: 'Trending TV', onSeeAllPressed: _noop),
+          const SizedBox(height: AppSpacing.lg),
+          Container(
+            padding: const EdgeInsets.all(AppSpacing.xl),
+            decoration: BoxDecoration(
+              color: AppColors.surface,
+              borderRadius: BorderRadius.circular(AppRadius.large),
+              border: Border.all(color: AppColors.borderSubtle),
+            ),
+            child: Column(
+              children: [
+                const Icon(
+                  Icons.warning_amber_rounded,
+                  color: Colors.amber,
+                  size: 40,
+                ),
+                const SizedBox(height: AppSpacing.md),
+                SelectableText(
+                  error!,
+                  style: const TextStyle(color: AppColors.textMuted),
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: AppSpacing.md),
+                PrimaryButton(label: 'Retry', onPressed: onRetry),
+              ],
+            ),
+          ),
+        ],
+      );
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
         const SectionHeader(title: 'Trending TV', onSeeAllPressed: _noop),
         const SizedBox(height: AppSpacing.lg),
         ResponsiveGrid(
           minItemWidth: 170,
           childAspectRatio: 0.66,
-          children: [
-            PosterCard(
-              title: 'Night Protocol',
-              year: '2026',
-              rating: '8.5',
-              subtitle: 'TV · Crime',
-              onTap: () => onOpenDetail?.call('night-protocol'),
-              onSecondaryTap: () => onOpenDetail?.call('night-protocol'),
-              onPlay: () => onOpenDetail?.call('night-protocol'),
-              onWatchlist: _noop,
-              onMore: () => onOpenDetail?.call('night-protocol'),
-            ),
-            PosterCard(
-              title: 'Halo Signal',
-              year: '2025',
-              rating: '8.0',
-              subtitle: 'TV · Sci-Fi',
-              onTap: _noop,
-              onSecondaryTap: _noop,
-              onPlay: _noop,
-              onWatchlist: _noop,
-              onMore: _noop,
-            ),
-            PosterCard(
-              title: 'Archive West',
-              year: '2024',
-              rating: '7.8',
-              subtitle: 'TV · Drama',
-              onTap: _noop,
-              onSecondaryTap: _noop,
-              onPlay: _noop,
-              onWatchlist: _noop,
-              onMore: _noop,
-            ),
-            PosterCard(
-              title: 'After Hours',
-              year: '2026',
-              rating: '8.2',
-              subtitle: 'TV · Comedy',
-              onTap: _noop,
-              onSecondaryTap: _noop,
-              onPlay: _noop,
-              onWatchlist: _noop,
-              onMore: _noop,
-            ),
-            PosterCard(
-              title: 'Signal House',
-              year: '2025',
-              rating: '7.6',
-              subtitle: 'TV · Thriller',
-              onTap: _noop,
-              onSecondaryTap: _noop,
-              onPlay: _noop,
-              onWatchlist: _noop,
-              onMore: _noop,
-            ),
-            PosterCard(
-              title: 'Lunar Grid',
-              year: '2024',
-              rating: '8.1',
-              subtitle: 'TV · Action',
-              onTap: _noop,
-              onSecondaryTap: _noop,
-              onPlay: _noop,
-              onWatchlist: _noop,
-              onMore: _noop,
-            ),
-          ],
-        ),
-        const SizedBox(height: AppSpacing.xxxl),
-        const SectionHeader(title: 'Trending Anime', onSeeAllPressed: _noop),
-        const SizedBox(height: AppSpacing.lg),
-        ResponsiveGrid(
-          minItemWidth: 170,
-          childAspectRatio: 0.66,
-          children: [
-            PosterCard(
-              title: 'Sky Forge',
-              year: '2026',
-              rating: '9.0',
-              subtitle: 'Anime · Action',
-              onTap: () => onOpenDetail?.call('sky-forge'),
-              onSecondaryTap: () => onOpenDetail?.call('sky-forge'),
-              onPlay: () => onOpenDetail?.call('sky-forge'),
-              onWatchlist: _noop,
-              onMore: () => onOpenDetail?.call('sky-forge'),
-            ),
-            PosterCard(
-              title: 'Violet Loop',
-              year: '2025',
-              rating: '8.7',
-              subtitle: 'Anime · Sci-Fi',
-              onTap: _noop,
-              onSecondaryTap: _noop,
-              onPlay: _noop,
-              onWatchlist: _noop,
-              onMore: _noop,
-            ),
-            PosterCard(
-              title: 'Redline Bloom',
-              year: '2024',
-              rating: '8.5',
-              subtitle: 'Anime · Adventure',
-              onTap: _noop,
-              onSecondaryTap: _noop,
-              onPlay: _noop,
-              onWatchlist: _noop,
-              onMore: _noop,
-            ),
-            PosterCard(
-              title: 'Echo Garden',
-              year: '2026',
-              rating: '8.3',
-              subtitle: 'Anime · Fantasy',
-              onTap: _noop,
-              onSecondaryTap: _noop,
-              onPlay: _noop,
-              onWatchlist: _noop,
-              onMore: _noop,
-            ),
-            PosterCard(
-              title: 'Nova Tides',
-              year: '2024',
-              rating: '8.2',
-              subtitle: 'Anime · Drama',
-              onTap: _noop,
-              onSecondaryTap: _noop,
-              onPlay: _noop,
-              onWatchlist: _noop,
-              onMore: _noop,
-            ),
-            PosterCard(
-              title: 'Neon Relay',
-              year: '2025',
-              rating: '8.4',
-              subtitle: 'Anime · Action',
-              onTap: _noop,
-              onSecondaryTap: _noop,
-              onPlay: _noop,
-              onWatchlist: _noop,
-              onMore: _noop,
-            ),
-          ],
+          children: isLoading
+              ? List.generate(
+                  6,
+                  (index) => const PosterCard(title: '', isLoading: true),
+                )
+              : items
+                    .map(
+                      (item) => PosterCard(
+                        title: item.title,
+                        year: item.year > 0 ? item.yearLabel : null,
+                        rating: item.rating > 0 ? item.ratingLabel : null,
+                        subtitle: item.mediaTypeLabel,
+                        imageProvider:
+                            item.posterPath != null &&
+                                item.posterPath!.isNotEmpty
+                            ? NetworkImage(
+                                TmdbImageBuilder.poster(item.posterPath!),
+                              )
+                            : null,
+                        onTap: () => onOpenDetail?.call(item.id),
+                        onSecondaryTap: () => onOpenDetail?.call(item.id),
+                        onPlay: () => onOpenDetail?.call(item.id),
+                        onWatchlist: _noop,
+                        onMore: () => onOpenDetail?.call(item.id),
+                      ),
+                    )
+                    .toList(),
         ),
       ],
     );
+  }
+}
+
+class _TrendingAnimeSection extends StatelessWidget {
+  const _TrendingAnimeSection();
+
+  @override
+  Widget build(BuildContext context) {
+    // Hide completely until implemented per Android parity guidelines
+    return const SizedBox.shrink();
   }
 }
 
@@ -363,25 +539,27 @@ class _ProvidersSection extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final providers = allProviders.take(20).toList();
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        const SectionHeader(title: 'Popular Providers', onSeeAllPressed: _noop),
+        const SectionHeader(title: 'Studios', onSeeAllPressed: _noop),
         const SizedBox(height: AppSpacing.lg),
         ResponsiveGrid(
           minItemWidth: 150,
           childAspectRatio: 0.9,
-          children: const [
-            ProviderCard(name: 'Netflix', label: 'Mock provider'),
-            ProviderCard(name: 'Prime Video', label: 'Mock provider'),
-            ProviderCard(name: 'Disney+', label: 'Mock provider'),
-            ProviderCard(name: 'Apple TV', label: 'Mock provider'),
-            ProviderCard(name: 'Crunchyroll', label: 'Mock provider'),
-            ProviderCard(name: 'Hulu', label: 'Mock provider'),
-            ProviderCard(name: 'Plex', label: 'Mock provider'),
-            ProviderCard(name: 'YouTube', label: 'Mock provider'),
-            ProviderCard(name: 'Sun NXT', label: 'Mock provider'),
-          ],
+          children: providers.map((provider) {
+            final logoPath = provider['logo_path'] as String?;
+            final name = provider['name'] as String;
+            return ProviderCard(
+              name: name,
+              logoImage: logoPath != null
+                  ? NetworkImage(TmdbImageBuilder.logo(logoPath))
+                  : null,
+              onTap: () {},
+            );
+          }).toList(),
         ),
         const SizedBox(height: AppSpacing.massive),
       ],

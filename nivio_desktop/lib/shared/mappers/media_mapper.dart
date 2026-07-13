@@ -25,6 +25,8 @@ class MediaMapper {
       posterLabel: dto.title,
       overview: dto.overview,
       runtimeLabel: '',
+      posterPath: dto.posterPath,
+      backdropPath: dto.backdropPath,
     );
   }
 }

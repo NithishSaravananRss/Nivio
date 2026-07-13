@@ -1,10 +1,15 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:nivio_desktop/app/app.dart';
 
 import 'package:nivio_desktop/features/search/controllers/mock_search_repository.dart';
+import 'test_helper.dart';
 
 void main() {
+  setUpAll(() {
+    HttpOverrides.global = MockHttpOverrides();
+  });
   testWidgets('opens the search page and filters mock results', (
     WidgetTester tester,
   ) async {
