@@ -400,6 +400,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     });
 
     try {
+      await _loadSubtitleDelay();
       final historyService = ref.read(watchHistoryServiceProvider);
       await historyService.init();
       _currentHistory = await historyService.getHistory(widget.mediaId);
@@ -737,6 +738,23 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
         play: true,
       );
 
+      // Load custom remote subtitle if saved
+      try {
+        final prefs = await SharedPreferences.getInstance();
+        final customSubKey = 'custom_sub_${widget.mediaId}_${widget.season}_$_currentEpisode';
+        final customSubJson = prefs.getString(customSubKey);
+        if (customSubJson != null) {
+          final data = json.decode(customSubJson);
+          final url = data['url'] as String;
+          final name = data['name'] as String;
+          if (url.isNotEmpty) {
+            await _player.setSubtitleTrack(SubtitleTrack.uri(url, title: name));
+          }
+        }
+      } catch (e) {
+        print('Error loading saved custom remote subtitle: $e');
+      }
+
       if (startAt != null && startAt.inSeconds > 0) {
         print('🎬 SEEK_DEBUG: startAt is $startAt');
         late StreamSubscription<Duration> seekSub;
@@ -944,6 +962,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
     } else if (preferredSubtitle == 'Auto' || preferredSubtitle.isEmpty) {
       _player.setSubtitleTrack(SubtitleTrack.auto());
     } else {
+      bool foundNative = false;
       for (final track in subtitleTracks) {
         final title = track.title ?? '';
         final lang = track.language ?? '';
@@ -951,7 +970,16 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
             _isLanguageMatch(title, preferredSubtitle) ||
             _isLanguageMatch(lang, preferredSubtitle)) {
           _player.setSubtitleTrack(track);
+          foundNative = true;
           break;
+        }
+      }
+      if (!foundNative && _streamResult != null && _streamResult!.subtitles.isNotEmpty) {
+        for (final sub in _streamResult!.subtitles) {
+          if (sub.lang == preferredSubtitle || _isLanguageMatch(sub.lang, preferredSubtitle)) {
+            _player.setSubtitleTrack(SubtitleTrack.uri(sub.url, title: sub.lang));
+            break;
+          }
         }
       }
     }
@@ -3387,12 +3415,18 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen>
                                               children: [
                                                 IconButton(
                                                   icon: const Icon(Icons.remove, color: Colors.white),
-                                                  onPressed: () => _updateSubtitleDelay(-250),
+                                                  onPressed: () {
+                                                    _updateSubtitleDelay(-250);
+                                                    setDialogState(() {});
+                                                  },
                                                 ),
                                                 Text('${_subtitleDelayMs > 0 ? "+" : ""}$_subtitleDelayMs ms', style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
                                                 IconButton(
                                                   icon: const Icon(Icons.add, color: Colors.white),
-                                                  onPressed: () => _updateSubtitleDelay(250),
+                                                  onPressed: () {
+                                                    _updateSubtitleDelay(250);
+                                                    setDialogState(() {});
+                                                  },
                                                 ),
                                               ],
                                             ),
