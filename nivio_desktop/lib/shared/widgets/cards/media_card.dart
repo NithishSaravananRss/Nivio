@@ -17,6 +17,7 @@ class MediaCard extends StatelessWidget {
     this.onTap,
     this.onPlay,
     this.onWatchlist,
+    this.isInWatchlist = false,
     this.onMore,
   });
 
@@ -29,6 +30,7 @@ class MediaCard extends StatelessWidget {
   final VoidCallback? onTap;
   final VoidCallback? onPlay;
   final VoidCallback? onWatchlist;
+  final bool isInWatchlist;
   final VoidCallback? onMore;
 
   @override
@@ -190,7 +192,7 @@ class MediaCard extends StatelessWidget {
                               ),
                             if (onWatchlist != null)
                               _CircleActionButton(
-                                icon: Icons.add,
+                                icon: isInWatchlist ? Icons.check : Icons.add,
                                 onTap: onWatchlist!,
                               ),
                             if (onMore != null)

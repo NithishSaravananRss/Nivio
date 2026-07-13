@@ -4,6 +4,7 @@ import 'package:flutter/material.dart' hide SearchController;
 
 import '../../../shared/theme/index.dart';
 import '../../../shared/widgets/widgets.dart';
+import '../../library/services/watchlist_sync_controller.dart';
 import '../controllers/search_controller.dart';
 import '../models/search_media_item.dart';
 import '../widgets/search_filter_panel.dart';
@@ -361,17 +362,25 @@ class _SearchResultPosterCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return MediaCard(
-      title: item.title,
-      year: item.yearLabel,
-      rating: item.ratingLabel,
-      subtitle:
-          '${item.mediaTypeLabel} · ${item.languageLabel} · ${item.provider}',
-      posterPath: item.posterPath,
-      onTap: () => onOpenDetail?.call(item.id),
-      onPlay: () => onOpenDetail?.call(item.id),
-      onWatchlist: () {},
-      onMore: () {},
+    final watchlist = WatchlistSyncController.instance;
+    return ListenableBuilder(
+      listenable: watchlist,
+      builder: (context, _) {
+        final isInWatchlist = watchlist.isInWatchlist(item.id);
+        return MediaCard(
+          title: item.title,
+          year: item.yearLabel,
+          rating: item.ratingLabel,
+          subtitle:
+              '${item.mediaTypeLabel} · ${item.languageLabel} · ${item.provider}',
+          posterPath: item.posterPath,
+          onTap: () => onOpenDetail?.call(item.id),
+          onPlay: () => onOpenDetail?.call(item.id),
+          isInWatchlist: isInWatchlist,
+          onWatchlist: () => watchlist.toggleSearchItem(item),
+          onMore: () => onOpenDetail?.call(item.id),
+        );
+      },
     );
   }
 }
@@ -384,21 +393,30 @@ class _SearchResultListItem extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return LandscapeCard(
-      title: item.title,
-      subtitle: item.overview,
-      metadata: [
-        item.yearLabel,
-        item.ratingLabel,
-        item.mediaTypeLabel,
-        item.languageLabel,
-        item.provider,
-      ],
-      semanticLabel:
-          '${item.title}, ${item.yearLabel}, ${item.ratingLabel} rating, ${item.languageLabel}, ${item.provider}',
-      onTap: () => onOpenDetail?.call(item.id),
-      onSecondaryTap: () => onOpenDetail?.call(item.id),
-      onDoubleTap: () => onOpenDetail?.call(item.id),
+    final watchlist = WatchlistSyncController.instance;
+    return ListenableBuilder(
+      listenable: watchlist,
+      builder: (context, _) {
+        final isInWatchlist = watchlist.isInWatchlist(item.id);
+        return LandscapeCard(
+          title: item.title,
+          subtitle: item.overview,
+          metadata: [
+            item.yearLabel,
+            item.ratingLabel,
+            item.mediaTypeLabel,
+            item.languageLabel,
+            item.provider,
+          ],
+          semanticLabel:
+              '${item.title}, ${item.yearLabel}, ${item.ratingLabel} rating, ${item.languageLabel}, ${item.provider}',
+          onTap: () => onOpenDetail?.call(item.id),
+          onSecondaryTap: () => onOpenDetail?.call(item.id),
+          onDoubleTap: () => onOpenDetail?.call(item.id),
+          isInWatchlist: isInWatchlist,
+          onWatchlist: () => watchlist.toggleSearchItem(item),
+        );
+      },
     );
   }
 }

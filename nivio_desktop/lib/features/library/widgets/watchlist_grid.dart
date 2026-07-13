@@ -1,82 +1,171 @@
 import 'package:flutter/material.dart';
 
+import '../../../shared/theme/index.dart';
 import '../../../shared/widgets/widgets.dart';
+import '../models/library_models.dart';
+import '../services/library_data_service.dart';
+import 'library_empty_state.dart';
 
-class WatchlistGrid extends StatelessWidget {
-  const WatchlistGrid({super.key, this.onOpenDetail});
+class WatchlistGrid extends StatefulWidget {
+  const WatchlistGrid({
+    super.key,
+    required this.items,
+    required this.service,
+    this.onOpenDetail,
+  });
 
+  final List<LibraryWatchlistItem> items;
+  final LibraryWatchlistService service;
   final ValueChanged<String>? onOpenDetail;
 
-  static const _items = [
-    _WatchlistItem(
-      'signal-lost',
-      'Signal Lost',
-      '2026',
-      '8.4',
-      'Action · Drama',
-    ),
-    _WatchlistItem(
-      'midnight-harbor',
-      'Midnight Harbor',
-      '2025',
-      '7.9',
-      'Mystery · Thriller',
-    ),
-    _WatchlistItem('sky-forge', 'Sky Forge', '2026', '9.0', 'Anime · Action'),
-    _WatchlistItem('archive-west', 'Archive West', '2024', '7.8', 'TV · Drama'),
-    _WatchlistItem(
-      'moon-harbor',
-      'Moon Harbor',
-      '2025',
-      '8.1',
-      'Drama · Mystery',
-    ),
-    _WatchlistItem(
-      'glass-orbit',
-      'Glass Orbit',
-      '2024',
-      '7.5',
-      'Adventure · Sci-Fi',
-    ),
-  ];
+  @override
+  State<WatchlistGrid> createState() => _WatchlistGridState();
+}
+
+class _WatchlistGridState extends State<WatchlistGrid> {
+  final TextEditingController _searchController = TextEditingController();
+  var _isListView = false;
+  var _query = '';
+
+  @override
+  void initState() {
+    super.initState();
+    _searchController.addListener(() {
+      setState(() => _query = _searchController.text);
+    });
+  }
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
-    return ResponsiveGrid(
-      minItemWidth: 170,
-      childAspectRatio: 0.66,
+    final filtered = widget.items.where((item) {
+      if (_query.isEmpty) return true;
+      return item.title.toLowerCase().contains(_query.toLowerCase());
+    }).toList();
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        for (final item in _items)
-          PosterCard(
-            title: item.title,
-            year: item.year,
-            rating: item.rating,
-            subtitle: item.subtitle,
-            onTap: () => onOpenDetail?.call(item.id),
-            onSecondaryTap: () => onOpenDetail?.call(item.id),
-            onPlay: () => onOpenDetail?.call(item.id),
-            onWatchlist: _noop,
-            onMore: _noop,
+        Row(
+          children: [
+            Expanded(
+              child: TextField(
+                controller: _searchController,
+                decoration: InputDecoration(
+                  hintText: 'Search watchlist...',
+                  prefixIcon: const Icon(Icons.search),
+                  suffixIcon: _query.isEmpty
+                      ? null
+                      : IconButton(
+                          tooltip: 'Clear search',
+                          icon: const Icon(Icons.clear),
+                          onPressed: _searchController.clear,
+                        ),
+                ),
+              ),
+            ),
+            const SizedBox(width: AppSpacing.md),
+            IconButton(
+              tooltip: _isListView ? 'Grid view' : 'List view',
+              onPressed: () => setState(() => _isListView = !_isListView),
+              icon: Icon(_isListView ? Icons.grid_view : Icons.view_list),
+            ),
+          ],
+        ),
+        const SizedBox(height: AppSpacing.lg),
+        if (filtered.isEmpty)
+          LibraryEmptyState(
+            title: _query.isEmpty
+                ? 'Your watchlist is empty'
+                : 'No results found for "$_query"',
+            message: _query.isEmpty
+                ? 'Add movies and TV shows to watch later.'
+                : 'Try a different title.',
+          )
+        else if (_isListView)
+          Column(
+            children: [
+              for (final item in filtered)
+                _WatchlistListItem(
+                  item: item,
+                  service: widget.service,
+                  onOpenDetail: widget.onOpenDetail,
+                ),
+            ],
+          )
+        else
+          ResponsiveGrid(
+            minItemWidth: 170,
+            childAspectRatio: 0.66,
+            children: [
+              for (final item in filtered)
+                MediaCard(
+                  title: item.title,
+                  posterPath: item.posterPath,
+                  year: _year(item.releaseDate),
+                  rating: item.voteAverage?.toStringAsFixed(1),
+                  subtitle: item.mediaType.toUpperCase(),
+                  onTap: () => widget.onOpenDetail?.call('${item.id}'),
+                  onPlay: () => widget.onOpenDetail?.call('${item.id}'),
+                  onMore: () => widget.onOpenDetail?.call('${item.id}'),
+                  isInWatchlist: true,
+                  onWatchlist: () => widget.service.remove(item.id),
+                ),
+            ],
           ),
       ],
     );
   }
+
+  String? _year(String? releaseDate) {
+    if (releaseDate == null || releaseDate.length < 4) return null;
+    return releaseDate.substring(0, 4);
+  }
 }
 
-class _WatchlistItem {
-  const _WatchlistItem(
-    this.id,
-    this.title,
-    this.year,
-    this.rating,
-    this.subtitle,
-  );
+class _WatchlistListItem extends StatelessWidget {
+  const _WatchlistListItem({
+    required this.item,
+    required this.service,
+    this.onOpenDetail,
+  });
 
-  final String id;
-  final String title;
-  final String year;
-  final String rating;
-  final String subtitle;
+  final LibraryWatchlistItem item;
+  final LibraryWatchlistService service;
+  final ValueChanged<String>? onOpenDetail;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+      child: ListTile(
+        shape: RoundedRectangleBorder(
+          side: const BorderSide(color: AppColors.borderSubtle),
+          borderRadius: BorderRadius.circular(AppRadius.large),
+        ),
+        tileColor: AppColors.surface,
+        leading: const Icon(Icons.movie_outlined),
+        title: Text(item.title, maxLines: 1, overflow: TextOverflow.ellipsis),
+        subtitle: Text(
+          [
+            item.mediaType.toUpperCase(),
+            if (item.releaseDate != null && item.releaseDate!.length >= 4)
+              item.releaseDate!.substring(0, 4),
+            if (item.voteAverage != null) item.voteAverage!.toStringAsFixed(1),
+          ].join(' · '),
+        ),
+        onTap: () => onOpenDetail?.call('${item.id}'),
+        trailing: IconButton(
+          tooltip: 'Remove from watchlist',
+          icon: const Icon(Icons.close),
+          onPressed: () => service.remove(item.id),
+        ),
+      ),
+    );
+  }
 }
-
-void _noop() {}

@@ -26,6 +26,7 @@ class PosterCard extends StatelessWidget {
     this.isLoading = false,
     this.onPlay,
     this.onWatchlist,
+    this.isInWatchlist = false,
     this.onMore,
   });
 
@@ -43,6 +44,7 @@ class PosterCard extends StatelessWidget {
   final bool isLoading;
   final VoidCallback? onPlay;
   final VoidCallback? onWatchlist;
+  final bool isInWatchlist;
   final VoidCallback? onMore;
 
   @override
@@ -67,16 +69,31 @@ class PosterCard extends StatelessWidget {
                 Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    Expanded(child: _PosterArtwork(imageProvider: imageProvider, isLoading: isLoading)),
+                    Expanded(
+                      child: _PosterArtwork(
+                        imageProvider: imageProvider,
+                        isLoading: isLoading,
+                      ),
+                    ),
                     Padding(
                       padding: const EdgeInsets.all(AppSpacing.md),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text(title, maxLines: 2, overflow: TextOverflow.ellipsis, style: AppTypography.title),
+                          Text(
+                            title,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: AppTypography.title,
+                          ),
                           if (subtitle != null) ...[
                             const SizedBox(height: AppSpacing.xs),
-                            Text(subtitle!, maxLines: 1, overflow: TextOverflow.ellipsis, style: AppTypography.caption),
+                            Text(
+                              subtitle!,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: AppTypography.caption,
+                            ),
                           ],
                           const SizedBox(height: AppSpacing.sm),
                           Wrap(
@@ -112,14 +129,25 @@ class PosterCard extends StatelessWidget {
                           mainAxisAlignment: MainAxisAlignment.end,
                           crossAxisAlignment: CrossAxisAlignment.stretch,
                           children: [
-                            PrimaryButton(label: 'Play', onPressed: onPlay ?? onTap),
+                            PrimaryButton(
+                              label: 'Play',
+                              onPressed: onPlay ?? onTap,
+                            ),
                             const SizedBox(height: AppSpacing.sm),
                             Wrap(
                               spacing: AppSpacing.sm,
                               runSpacing: AppSpacing.sm,
                               children: [
-                                SecondaryButton(label: 'Watchlist', onPressed: onWatchlist),
-                                GhostButton(label: 'More', onPressed: onMore ?? onSecondaryTap),
+                                SecondaryButton(
+                                  label: isInWatchlist
+                                      ? 'In Watchlist'
+                                      : 'Watchlist',
+                                  onPressed: onWatchlist,
+                                ),
+                                GhostButton(
+                                  label: 'More',
+                                  onPressed: onMore ?? onSecondaryTap,
+                                ),
                               ],
                             ),
                           ],
@@ -150,7 +178,9 @@ class _PosterArtwork extends StatelessWidget {
     }
 
     return ClipRRect(
-      borderRadius: const BorderRadius.vertical(top: Radius.circular(AppRadius.large)),
+      borderRadius: const BorderRadius.vertical(
+        top: Radius.circular(AppRadius.large),
+      ),
       child: Image(
         image: imageProvider!,
         fit: BoxFit.cover,
@@ -160,7 +190,8 @@ class _PosterArtwork extends StatelessWidget {
           }
           return const _Placeholder();
         },
-        errorBuilder: (context, error, stackTrace) => const _Placeholder(errorState: true),
+        errorBuilder: (context, error, stackTrace) =>
+            const _Placeholder(errorState: true),
       ),
     );
   }
@@ -184,7 +215,9 @@ class _Placeholder extends StatelessWidget {
     return Container(
       decoration: BoxDecoration(
         gradient: gradient,
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(AppRadius.large)),
+        borderRadius: const BorderRadius.vertical(
+          top: Radius.circular(AppRadius.large),
+        ),
       ),
       child: Center(
         child: AnimatedFadeContainer(

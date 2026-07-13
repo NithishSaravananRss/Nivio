@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:hive_flutter/hive_flutter.dart';
 
 import '../../shared/theme/index.dart';
 import '../../shared/widgets/widgets.dart';
+import 'models/library_models.dart';
+import 'services/library_data_service.dart';
 import 'widgets/downloads_grid.dart';
 import 'widgets/library_empty_state.dart';
 import 'widgets/library_tabs.dart';
@@ -20,11 +23,23 @@ class LibraryView extends StatefulWidget {
 
 class _LibraryViewState extends State<LibraryView> {
   final ScrollController _scrollController = ScrollController();
+  final LibraryScheduleService _scheduleService = LibraryScheduleService();
+  final LibraryWatchlistService _watchlistService = LibraryWatchlistService();
+  final LibraryDownloadsService _downloadsService = LibraryDownloadsService();
+
   LibraryTab _selectedTab = LibraryTab.schedule;
-  String _selectedMonth = 'January 2026';
-  DateTime _selectedScheduleDate = DateTime(2026, 1, 15);
+  late DateTime _focusedDate;
+  late DateTime _selectedScheduleDate;
   bool _watchlistOnly = true;
-  String _watchlistSort = 'Recently Added';
+  late Future<LibrarySectionResult<List<LibraryScheduleItem>>> _scheduleFuture;
+
+  @override
+  void initState() {
+    super.initState();
+    _focusedDate = DateTime.now();
+    _selectedScheduleDate = _focusedDate;
+    _scheduleFuture = _loadSchedule();
+  }
 
   @override
   void dispose() {
@@ -53,27 +68,7 @@ class _LibraryViewState extends State<LibraryView> {
                 ),
               ),
               const SizedBox(height: AppSpacing.xxl),
-              _LibraryTabContent(
-                selectedTab: _selectedTab,
-                selectedMonth: _selectedMonth,
-                selectedScheduleDate: _selectedScheduleDate,
-                watchlistOnly: _watchlistOnly,
-                watchlistSort: _watchlistSort,
-                onMonthChanged: (value) => setState(() {
-                  _selectedMonth = value;
-                  _selectedScheduleDate = _dateForMonth(
-                    value,
-                    _selectedScheduleDate.day,
-                  );
-                }),
-                onScheduleDateChanged: (value) =>
-                    setState(() => _selectedScheduleDate = value),
-                onScheduleFilterChanged: (value) =>
-                    setState(() => _watchlistOnly = value),
-                onWatchlistSortChanged: (value) =>
-                    setState(() => _watchlistSort = value),
-                onOpenDetail: widget.onOpenDetail,
-              ),
+              _buildSelectedTab(),
               const SizedBox(height: AppSpacing.massive),
             ],
           ),
@@ -82,79 +77,99 @@ class _LibraryViewState extends State<LibraryView> {
     );
   }
 
-  DateTime _dateForMonth(String month, int day) {
-    final monthIndex = switch (month) {
-      'February 2026' => 2,
-      'March 2026' => 3,
-      _ => 1,
-    };
-    final clampedDay = monthIndex == 2 && day > 28 ? 28 : day;
-    return DateTime(2026, monthIndex, clampedDay);
-  }
-}
-
-class _LibraryTabContent extends StatelessWidget {
-  const _LibraryTabContent({
-    required this.selectedTab,
-    required this.selectedMonth,
-    required this.selectedScheduleDate,
-    required this.watchlistOnly,
-    required this.watchlistSort,
-    required this.onMonthChanged,
-    required this.onScheduleDateChanged,
-    required this.onScheduleFilterChanged,
-    required this.onWatchlistSortChanged,
-    this.onOpenDetail,
-  });
-
-  final LibraryTab selectedTab;
-  final String selectedMonth;
-  final DateTime selectedScheduleDate;
-  final bool watchlistOnly;
-  final String watchlistSort;
-  final ValueChanged<String> onMonthChanged;
-  final ValueChanged<DateTime> onScheduleDateChanged;
-  final ValueChanged<bool> onScheduleFilterChanged;
-  final ValueChanged<String> onWatchlistSortChanged;
-  final ValueChanged<String>? onOpenDetail;
-
-  @override
-  Widget build(BuildContext context) {
-    return switch (selectedTab) {
+  Widget _buildSelectedTab() {
+    return switch (_selectedTab) {
       LibraryTab.schedule => _ScheduleTab(
-        selectedMonth: selectedMonth,
-        selectedDate: selectedScheduleDate,
-        watchlistOnly: watchlistOnly,
-        onMonthChanged: onMonthChanged,
-        onDateSelected: onScheduleDateChanged,
-        onFilterChanged: onScheduleFilterChanged,
+        focusedDate: _focusedDate,
+        selectedDate: _selectedScheduleDate,
+        watchlistOnly: _watchlistOnly,
+        scheduleFuture: _scheduleFuture,
+        onPreviousWeek: () => _moveWeek(-1),
+        onNextWeek: () => _moveWeek(1),
+        onPickMonth: _showMonthPicker,
+        onDateSelected: (date) {
+          setState(() {
+            _focusedDate = date;
+            _selectedScheduleDate = date;
+            _scheduleFuture = _loadSchedule();
+          });
+        },
+        onFilterChanged: (value) {
+          setState(() {
+            _watchlistOnly = value;
+            _scheduleFuture = _loadSchedule();
+          });
+        },
+        onRetry: () => setState(() => _scheduleFuture = _loadSchedule()),
+        onOpenDetail: widget.onOpenDetail,
       ),
       LibraryTab.watchlist => _WatchlistTab(
-        selectedSort: watchlistSort,
-        onSortChanged: onWatchlistSortChanged,
-        onOpenDetail: onOpenDetail,
+        service: _watchlistService,
+        onOpenDetail: widget.onOpenDetail,
       ),
-      LibraryTab.downloads => const _DownloadsTab(),
+      LibraryTab.downloads => _DownloadsTab(
+        service: _downloadsService,
+        onOpenDetail: widget.onOpenDetail,
+      ),
     };
+  }
+
+  Future<LibrarySectionResult<List<LibraryScheduleItem>>> _loadSchedule() {
+    return _scheduleService.fetchForDate(
+      _selectedScheduleDate,
+      watchlistOnly: _watchlistOnly,
+    );
+  }
+
+  void _moveWeek(int direction) {
+    setState(() {
+      _focusedDate = _focusedDate.add(Duration(days: 7 * direction));
+    });
+  }
+
+  Future<void> _showMonthPicker() async {
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: _focusedDate,
+      firstDate: DateTime(2020),
+      lastDate: DateTime(2030, 12, 31),
+      initialDatePickerMode: DatePickerMode.year,
+    );
+    if (picked == null) return;
+    setState(() {
+      _focusedDate = picked;
+      _selectedScheduleDate = picked;
+      _scheduleFuture = _loadSchedule();
+    });
   }
 }
 
 class _ScheduleTab extends StatelessWidget {
   const _ScheduleTab({
-    required this.selectedMonth,
+    required this.focusedDate,
     required this.selectedDate,
     required this.watchlistOnly,
-    required this.onMonthChanged,
+    required this.scheduleFuture,
+    required this.onPreviousWeek,
+    required this.onNextWeek,
+    required this.onPickMonth,
     required this.onDateSelected,
     required this.onFilterChanged,
+    required this.onRetry,
+    this.onOpenDetail,
   });
 
-  final String selectedMonth;
+  final DateTime focusedDate;
   final DateTime selectedDate;
   final bool watchlistOnly;
-  final ValueChanged<String> onMonthChanged;
+  final Future<LibrarySectionResult<List<LibraryScheduleItem>>> scheduleFuture;
+  final VoidCallback onPreviousWeek;
+  final VoidCallback onNextWeek;
+  final VoidCallback onPickMonth;
   final ValueChanged<DateTime> onDateSelected;
   final ValueChanged<bool> onFilterChanged;
+  final VoidCallback onRetry;
+  final ValueChanged<String>? onOpenDetail;
 
   @override
   Widget build(BuildContext context) {
@@ -162,68 +177,75 @@ class _ScheduleTab extends StatelessWidget {
       builder: (context, constraints) {
         final isWide = constraints.maxWidth >= AppBreakpoints.standard;
         final calendar = ScheduleCalendar(
-          selectedMonth: selectedMonth,
+          focusedDate: focusedDate,
           selectedDate: selectedDate,
-          onMonthChanged: onMonthChanged,
+          onPreviousWeek: onPreviousWeek,
+          onNextWeek: onNextWeek,
+          onPickMonth: onPickMonth,
           onDateSelected: onDateSelected,
         );
         final filters = _ScheduleFilters(
           watchlistOnly: watchlistOnly,
           onFilterChanged: onFilterChanged,
         );
-        final timeline = ReleaseTimeline(
-          releases: _filteredScheduleReleases(selectedDate, watchlistOnly),
-          watchlistOnly: watchlistOnly,
-        );
+        final timeline =
+            FutureBuilder<LibrarySectionResult<List<LibraryScheduleItem>>>(
+              future: scheduleFuture,
+              builder: (context, snapshot) {
+                if (snapshot.connectionState != ConnectionState.done) {
+                  return const LoadingView(message: 'Loading schedule...');
+                }
+                final result = snapshot.data;
+                if (snapshot.hasError || result == null || result.hasError) {
+                  return _SectionError(
+                    title: result?.isOffline == true
+                        ? 'Schedule unavailable offline'
+                        : 'Schedule failed to load',
+                    message: 'Retry to refresh releases for the selected date.',
+                    onRetry: onRetry,
+                  );
+                }
+                return ReleaseTimeline(
+                  releases: result.data ?? const [],
+                  watchlistOnly: watchlistOnly,
+                  onOpenDetail: onOpenDetail,
+                );
+              },
+            );
+
+        if (isWide) {
+          return Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              SizedBox(
+                width: 420,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    calendar,
+                    const SizedBox(height: AppSpacing.lg),
+                    filters,
+                  ],
+                ),
+              ),
+              const SizedBox(width: AppSpacing.xxl),
+              Expanded(child: timeline),
+            ],
+          );
+        }
 
         return Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            if (isWide)
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  SizedBox(
-                    width: 420,
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        calendar,
-                        const SizedBox(height: AppSpacing.lg),
-                        filters,
-                      ],
-                    ),
-                  ),
-                  const SizedBox(width: AppSpacing.xxl),
-                  Expanded(child: timeline),
-                ],
-              )
-            else ...[
-              calendar,
-              const SizedBox(height: AppSpacing.lg),
-              filters,
-              const SizedBox(height: AppSpacing.xxl),
-              timeline,
-            ],
+            calendar,
+            const SizedBox(height: AppSpacing.lg),
+            filters,
+            const SizedBox(height: AppSpacing.xxl),
+            timeline,
           ],
         );
       },
     );
-  }
-
-  List<ScheduleRelease> _filteredScheduleReleases(
-    DateTime selectedDate,
-    bool watchlistOnly,
-  ) {
-    return _mockScheduleReleases
-        .where((release) {
-          final sameDay =
-              release.releaseDate.year == selectedDate.year &&
-              release.releaseDate.month == selectedDate.month &&
-              release.releaseDate.day == selectedDate.day;
-          return sameDay && (!watchlistOnly || release.isInWatchlist);
-        })
-        .toList(growable: false);
   }
 }
 
@@ -247,18 +269,14 @@ class _ScheduleFilters extends StatelessWidget {
           label: const Text('My Watchlist'),
           selected: watchlistOnly,
           onSelected: (selected) {
-            if (selected) {
-              onFilterChanged(true);
-            }
+            if (selected) onFilterChanged(true);
           },
         ),
         ChoiceChip(
           label: const Text('Discover'),
           selected: !watchlistOnly,
           onSelected: (selected) {
-            if (selected) {
-              onFilterChanged(false);
-            }
+            if (selected) onFilterChanged(false);
           },
         ),
       ],
@@ -266,135 +284,122 @@ class _ScheduleFilters extends StatelessWidget {
   }
 }
 
-final List<ScheduleRelease> _mockScheduleReleases = [
-  ScheduleRelease(
-    title: 'Sky Forge',
-    mediaType: 'anime',
-    releaseDate: DateTime(2026, 1, 15, 18, 30),
-    episodeNumber: 8,
-    seasonNumber: 1,
-    hasPreciseTime: true,
-    isInWatchlist: true,
-  ),
-  ScheduleRelease(
-    title: 'Night Protocol',
-    mediaType: 'tv',
-    releaseDate: DateTime(2026, 1, 15, 12),
-    episodeNumber: 5,
-    seasonNumber: 2,
-    isInWatchlist: false,
-  ),
-  ScheduleRelease(
-    title: 'Archive West',
-    mediaType: 'tv',
-    releaseDate: DateTime(2026, 1, 22, 12),
-    episodeNumber: 1,
-    seasonNumber: 3,
-    isInWatchlist: true,
-  ),
-  ScheduleRelease(
-    title: 'Moon Harbor',
-    mediaType: 'tv',
-    releaseDate: DateTime(2026, 1, 27, 12),
-    episodeNumber: 11,
-    seasonNumber: 1,
-    isInWatchlist: true,
-  ),
-  ScheduleRelease(
-    title: 'Glass Orbit',
-    mediaType: 'movie',
-    releaseDate: DateTime(2026, 1, 28, 12),
-    isInWatchlist: false,
-  ),
-  ScheduleRelease(
-    title: 'Neon Relay',
-    mediaType: 'anime',
-    releaseDate: DateTime(2026, 1, 30, 20),
-    episodeNumber: 6,
-    seasonNumber: 1,
-    hasPreciseTime: true,
-    isInWatchlist: false,
-  ),
-];
-
 class _WatchlistTab extends StatelessWidget {
-  const _WatchlistTab({
-    required this.selectedSort,
-    required this.onSortChanged,
-    this.onOpenDetail,
-  });
+  const _WatchlistTab({required this.service, this.onOpenDetail});
 
-  final String selectedSort;
-  final ValueChanged<String> onSortChanged;
+  final LibraryWatchlistService service;
   final ValueChanged<String>? onOpenDetail;
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        Row(
-          children: [
-            const Expanded(
-              child: SectionHeader(
-                title: 'Watchlist',
-                subtitle: 'Saved titles from your library',
-              ),
-            ),
-            const SizedBox(width: AppSpacing.lg),
-            DropdownButton<String>(
-              value: selectedSort,
-              items: const [
-                DropdownMenuItem(
-                  value: 'Recently Added',
-                  child: Text('Recently Added'),
+    return ValueListenableBuilder<Box<LibraryWatchlistItem>>(
+      valueListenable: service.listenable(),
+      builder: (context, box, _) {
+        return FutureBuilder<LibrarySectionResult<List<LibraryWatchlistItem>>>(
+          future: service.getItems(),
+          builder: (context, snapshot) {
+            if (snapshot.connectionState != ConnectionState.done) {
+              return const LoadingView(message: 'Loading watchlist...');
+            }
+            final result = snapshot.data;
+            if (snapshot.hasError || result == null || result.hasError) {
+              return _SectionError(
+                title: 'Watchlist failed to load',
+                message: 'Retry to read your saved titles.',
+                onRetry: () {},
+              );
+            }
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                const SectionHeader(
+                  title: 'My Watchlist',
+                  subtitle:
+                      'Saved locally and ready for cloud sync when account sync is available.',
                 ),
-                DropdownMenuItem(value: 'Title', child: Text('Title')),
-                DropdownMenuItem(
-                  value: 'Release Date',
-                  child: Text('Release Date'),
+                const SizedBox(height: AppSpacing.lg),
+                WatchlistGrid(
+                  items: result.data ?? const [],
+                  service: service,
+                  onOpenDetail: onOpenDetail,
                 ),
-                DropdownMenuItem(value: 'Rating', child: Text('Rating')),
               ],
-              onChanged: (value) {
-                if (value != null) {
-                  onSortChanged(value);
-                }
-              },
-            ),
-          ],
-        ),
-        const SizedBox(height: AppSpacing.lg),
-        WatchlistGrid(onOpenDetail: onOpenDetail),
-        const SizedBox(height: AppSpacing.xxl),
-        const LibraryEmptyState(
-          title: 'Your watchlist can appear here',
-          message:
-              'Mock data is shown above until watchlist storage is connected.',
-        ),
-      ],
+            );
+          },
+        );
+      },
     );
   }
 }
 
 class _DownloadsTab extends StatelessWidget {
-  const _DownloadsTab();
+  const _DownloadsTab({required this.service, this.onOpenDetail});
+
+  final LibraryDownloadsService service;
+  final ValueChanged<String>? onOpenDetail;
 
   @override
   Widget build(BuildContext context) {
-    return const Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
+    return ValueListenableBuilder<Box<LibraryDownloadItem>>(
+      valueListenable: service.listenable(),
+      builder: (context, box, _) {
+        return FutureBuilder<LibrarySectionResult<List<LibraryDownloadItem>>>(
+          future: service.getItems(),
+          builder: (context, snapshot) {
+            if (snapshot.connectionState != ConnectionState.done) {
+              return const LoadingView(message: 'Loading downloads...');
+            }
+            final result = snapshot.data;
+            if (snapshot.hasError || result == null || result.hasError) {
+              return _SectionError(
+                title: 'Downloads failed to load',
+                message: 'Retry to read local download records.',
+                onRetry: () {},
+              );
+            }
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                const SectionHeader(
+                  title: 'Downloads',
+                  subtitle: 'Active and completed local downloads',
+                ),
+                const SizedBox(height: AppSpacing.lg),
+                DownloadsGrid(
+                  downloads: result.data ?? const [],
+                  service: service,
+                  onOpenDetail: onOpenDetail,
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+}
+
+class _SectionError extends StatelessWidget {
+  const _SectionError({
+    required this.title,
+    required this.message,
+    required this.onRetry,
+  });
+
+  final String title;
+  final String message;
+  final VoidCallback onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
       children: [
-        SectionHeader(
-          title: 'Downloads',
-          subtitle: 'Active and completed downloads',
-        ),
-        SizedBox(height: AppSpacing.lg),
-        DownloadsGrid(),
-        SizedBox(height: AppSpacing.xxl),
-        LibraryEmptyState(
-          title: 'No queued downloads',
-          message: 'Completed and in-progress mock downloads are listed above.',
+        LibraryEmptyState(title: title, message: message),
+        const SizedBox(height: AppSpacing.md),
+        OutlinedButton.icon(
+          onPressed: onRetry,
+          icon: const Icon(Icons.refresh),
+          label: const Text('Retry'),
         ),
       ],
     );

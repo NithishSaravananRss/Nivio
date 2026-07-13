@@ -4,6 +4,7 @@ import 'package:lucide_flutter/lucide_flutter.dart';
 import '../../shared/theme/index.dart';
 import '../../shared/widgets/widgets.dart';
 import '../../core/network/image/tmdb_image_builder.dart';
+import '../library/services/watchlist_sync_controller.dart';
 import 'models/detail_models.dart';
 import 'models/detail_route_args.dart';
 import 'controllers/detail_controller.dart';
@@ -28,6 +29,8 @@ class DetailView extends StatefulWidget {
 
 class _DetailViewState extends State<DetailView> {
   final ScrollController _scrollController = ScrollController();
+  final WatchlistSyncController _watchlistController =
+      WatchlistSyncController.instance;
   DetailMedia? _media;
   double _watchProgress = 0;
 
@@ -36,6 +39,7 @@ class _DetailViewState extends State<DetailView> {
     super.initState();
     _syncMedia();
     widget.controller.addListener(_onControllerChanged);
+    _watchlistController.addListener(_onWatchlistChanged);
   }
 
   @override
@@ -53,6 +57,7 @@ class _DetailViewState extends State<DetailView> {
   @override
   void dispose() {
     widget.controller.removeListener(_onControllerChanged);
+    _watchlistController.removeListener(_onWatchlistChanged);
     _scrollController.dispose();
     super.dispose();
   }
@@ -60,7 +65,7 @@ class _DetailViewState extends State<DetailView> {
   void _syncMedia() {
     final m = widget.controller.media;
     if (m != null) {
-      _media = m;
+      _media = _withWatchlistState(m);
       _watchProgress = m.resumeProgress;
     }
   }
@@ -69,10 +74,26 @@ class _DetailViewState extends State<DetailView> {
     final m = widget.controller.media;
     if (m != null) {
       setState(() {
-        _media = m;
+        _media = _withWatchlistState(m);
         _watchProgress = m.resumeProgress;
       });
     }
+  }
+
+  void _onWatchlistChanged() {
+    final media = _media;
+    if (media == null || !mounted) return;
+    final inWatchlist = _watchlistController.isInWatchlist(media.id);
+    if (media.isInWatchlist == inWatchlist) return;
+    setState(() {
+      _media = media.copyWith(isInWatchlist: inWatchlist);
+    });
+  }
+
+  DetailMedia _withWatchlistState(DetailMedia media) {
+    return media.copyWith(
+      isInWatchlist: _watchlistController.isInWatchlist(media.id),
+    );
   }
 
   @override
@@ -204,8 +225,11 @@ class _DetailViewState extends State<DetailView> {
           );
         }
 
-        _media = media;
-        _watchProgress = media.resumeProgress;
+        final displayMedia = _media?.id == media.id
+            ? _media!
+            : _withWatchlistState(media);
+        _media = displayMedia;
+        _watchProgress = displayMedia.resumeProgress;
 
         return Scaffold(
           backgroundColor: AppColors.background,
@@ -220,14 +244,14 @@ class _DetailViewState extends State<DetailView> {
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
                       HeroSection(
-                        title: media.title,
-                        backdropPath: media.backdropPath,
+                        title: displayMedia.title,
+                        backdropPath: displayMedia.backdropPath,
                         poster: _HeroPoster(
-                          title: media.title,
-                          posterPath: media.posterPath,
+                          title: displayMedia.title,
+                          posterPath: displayMedia.posterPath,
                         ),
                         content: _HeroDetailsContent(
-                          media: media,
+                          media: displayMedia,
                           watchProgress: _watchProgress,
                           onAction: _showActionFeedback,
                           onToggleWatchlist: _toggleWatchlist,
@@ -235,8 +259,8 @@ class _DetailViewState extends State<DetailView> {
                       ),
                       PageContainer(
                         child: _DetailStoryFlow(
-                          media: media,
-                          crew: _getCrewList(media),
+                          media: displayMedia,
+                          crew: _getCrewList(displayMedia),
                           onOpenDetail: widget.onOpenDetail,
                         ),
                       ),
@@ -271,15 +295,16 @@ class _DetailViewState extends State<DetailView> {
     ];
   }
 
-  void _toggleWatchlist() {
+  Future<void> _toggleWatchlist() async {
     final media = _media;
     if (media == null) return;
 
-    setState(() {
-      _media = media.copyWith(isInWatchlist: !media.isInWatchlist);
-    });
+    await _watchlistController.toggleDetailMedia(media);
+    final isInWatchlist = _watchlistController.isInWatchlist(media.id);
+    if (!mounted) return;
+    setState(() => _media = media.copyWith(isInWatchlist: isInWatchlist));
     _showActionFeedback(
-      _media!.isInWatchlist ? 'Added to watchlist' : 'Removed from watchlist',
+      isInWatchlist ? 'Added to watchlist' : 'Removed from watchlist',
     );
   }
 

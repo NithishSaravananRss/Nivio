@@ -6,6 +6,7 @@ import '../../core/constants/providers_data.dart';
 import '../../core/network/image/tmdb_image_builder.dart';
 import '../../shared/theme/index.dart';
 import '../../shared/widgets/widgets.dart';
+import '../library/services/watchlist_sync_controller.dart';
 import '../search/models/search_media_item.dart';
 import 'controllers/home_controller.dart';
 
@@ -170,15 +171,27 @@ class _HomeViewState extends State<HomeView> {
                                             index % featuredItems.length;
                                         final item = featuredItems[actualIndex];
 
-                                        return HeroBanner(
-                                          item: item,
-                                          primaryActionLabel: 'Play now',
-                                          secondaryActionLabel:
-                                              'Add to watchlist',
-                                          onPrimaryAction: () => widget
-                                              .onOpenDetail
-                                              ?.call(item.id),
-                                          onSecondaryAction: () {},
+                                        final watchlist =
+                                            WatchlistSyncController.instance;
+                                        return ListenableBuilder(
+                                          listenable: watchlist,
+                                          builder: (context, _) {
+                                            final isInWatchlist = watchlist
+                                                .isInWatchlist(item.id);
+                                            return HeroBanner(
+                                              item: item,
+                                              primaryActionLabel: 'Play now',
+                                              secondaryActionLabel:
+                                                  isInWatchlist
+                                                  ? 'In watchlist'
+                                                  : 'Add to watchlist',
+                                              onPrimaryAction: () => widget
+                                                  .onOpenDetail
+                                                  ?.call(item.id),
+                                              onSecondaryAction: () => watchlist
+                                                  .toggleSearchItem(item),
+                                            );
+                                          },
                                         );
                                       },
                                     ),
@@ -416,9 +429,13 @@ class _MediaSection extends StatelessWidget {
                     8,
                     (index) => const PosterCard(title: '', isLoading: true),
                   )
-                : items
-                      .map(
-                        (item) => PosterCard(
+                : items.map((item) {
+                    final watchlist = WatchlistSyncController.instance;
+                    return ListenableBuilder(
+                      listenable: watchlist,
+                      builder: (context, _) {
+                        final isInWatchlist = watchlist.isInWatchlist(item.id);
+                        return PosterCard(
                           title: item.title,
                           year: item.year > 0 ? item.yearLabel : null,
                           rating: item.rating > 0 ? item.ratingLabel : null,
@@ -433,11 +450,13 @@ class _MediaSection extends StatelessWidget {
                           onTap: () => onOpenDetail?.call(item.id),
                           onSecondaryTap: () => onOpenDetail?.call(item.id),
                           onPlay: () => onOpenDetail?.call(item.id),
-                          onWatchlist: _noop,
+                          isInWatchlist: isInWatchlist,
+                          onWatchlist: () => watchlist.toggleSearchItem(item),
                           onMore: () => onOpenDetail?.call(item.id),
-                        ),
-                      )
-                      .toList(),
+                        );
+                      },
+                    );
+                  }).toList(),
           ),
       ],
     );

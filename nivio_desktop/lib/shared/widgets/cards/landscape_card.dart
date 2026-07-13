@@ -18,6 +18,8 @@ class LandscapeCard extends StatelessWidget {
     this.onTap,
     this.onDoubleTap,
     this.onSecondaryTap,
+    this.onWatchlist,
+    this.isInWatchlist = false,
     this.isLoading = false,
   });
 
@@ -32,6 +34,8 @@ class LandscapeCard extends StatelessWidget {
   final VoidCallback? onTap;
   final VoidCallback? onDoubleTap;
   final VoidCallback? onSecondaryTap;
+  final VoidCallback? onWatchlist;
+  final bool isInWatchlist;
   final bool isLoading;
 
   @override
@@ -50,7 +54,14 @@ class LandscapeCard extends StatelessWidget {
           aspectRatio: AppBreakpoints.landscapeRatio,
           child: Row(
             children: [
-              Expanded(flex: 4, child: _Artwork(imageProvider: imageProvider, isLoading: isLoading, progress: progress)),
+              Expanded(
+                flex: 4,
+                child: _Artwork(
+                  imageProvider: imageProvider,
+                  isLoading: isLoading,
+                  progress: progress,
+                ),
+              ),
               Expanded(
                 flex: 6,
                 child: Padding(
@@ -59,19 +70,57 @@ class LandscapeCard extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      Text(title, maxLines: 2, overflow: TextOverflow.ellipsis, style: AppTypography.title),
+                      Text(
+                        title,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: AppTypography.title,
+                      ),
                       if (subtitle != null) ...[
                         const SizedBox(height: AppSpacing.xs),
-                        Text(subtitle!, maxLines: 3, overflow: TextOverflow.ellipsis, style: AppTypography.body),
-                      ],
-                      if (metadata != null && metadata!.isNotEmpty) ...[
-                        const SizedBox(height: AppSpacing.sm),
-                        Wrap(
-                          spacing: AppSpacing.xs,
-                          runSpacing: AppSpacing.xs,
-                          children: metadata!.map((value) => MetadataBadge(label: value)).toList(),
+                        Text(
+                          subtitle!,
+                          maxLines: 3,
+                          overflow: TextOverflow.ellipsis,
+                          style: AppTypography.body,
                         ),
                       ],
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.end,
+                        children: [
+                          Expanded(
+                            child: metadata != null && metadata!.isNotEmpty
+                                ? Padding(
+                                    padding: const EdgeInsets.only(
+                                      top: AppSpacing.sm,
+                                    ),
+                                    child: Wrap(
+                                      spacing: AppSpacing.xs,
+                                      runSpacing: AppSpacing.xs,
+                                      children: metadata!
+                                          .map(
+                                            (value) =>
+                                                MetadataBadge(label: value),
+                                          )
+                                          .toList(),
+                                    ),
+                                  )
+                                : const SizedBox.shrink(),
+                          ),
+                          if (onWatchlist != null) ...[
+                            const SizedBox(width: AppSpacing.sm),
+                            IconButton(
+                              tooltip: isInWatchlist
+                                  ? 'Remove from watchlist'
+                                  : 'Add to watchlist',
+                              onPressed: onWatchlist,
+                              icon: Icon(
+                                isInWatchlist ? Icons.check : Icons.add,
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
                     ],
                   ),
                 ),
@@ -85,7 +134,11 @@ class LandscapeCard extends StatelessWidget {
 }
 
 class _Artwork extends StatelessWidget {
-  const _Artwork({required this.imageProvider, required this.isLoading, required this.progress});
+  const _Artwork({
+    required this.imageProvider,
+    required this.isLoading,
+    required this.progress,
+  });
 
   final ImageProvider? imageProvider;
   final bool isLoading;
@@ -104,14 +157,17 @@ class _Artwork extends StatelessWidget {
               }
               return const _LandscapePlaceholder();
             },
-            errorBuilder: (context, error, stackTrace) => const _LandscapePlaceholder(errorState: true),
+            errorBuilder: (context, error, stackTrace) =>
+                const _LandscapePlaceholder(errorState: true),
           );
 
     return Stack(
       fit: StackFit.expand,
       children: [
         ClipRRect(
-          borderRadius: const BorderRadius.horizontal(left: Radius.circular(AppRadius.large)),
+          borderRadius: const BorderRadius.horizontal(
+            left: Radius.circular(AppRadius.large),
+          ),
           child: content,
         ),
         if (progress != null)
@@ -121,7 +177,10 @@ class _Artwork extends StatelessWidget {
               padding: const EdgeInsets.all(AppSpacing.md),
               child: ClipRRect(
                 borderRadius: BorderRadius.circular(AppRadius.pill),
-                child: LinearProgressIndicator(value: progress!.clamp(0, 1), minHeight: 6),
+                child: LinearProgressIndicator(
+                  value: progress!.clamp(0, 1),
+                  minHeight: 6,
+                ),
               ),
             ),
           ),
