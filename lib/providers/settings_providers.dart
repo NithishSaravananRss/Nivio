@@ -411,3 +411,79 @@ class DownloadConcurrencyNotifier extends StateNotifier<int> {
     await prefs.setInt('download_concurrency', value);
   }
 }
+
+// Video Debanding Provider
+final videoDebandingProvider =
+    StateNotifierProvider<VideoDebandingNotifier, bool>((ref) {
+      return VideoDebandingNotifier();
+    });
+
+class VideoDebandingNotifier extends StateNotifier<bool> {
+  VideoDebandingNotifier() : super(false) {
+    _loadSetting();
+  }
+
+  Future<void> _loadSetting() async {
+    final prefs = await SharedPreferences.getInstance();
+    state = prefs.getBool('video_debanding') ?? false;
+  }
+
+  Future<void> toggle() async {
+    state = !state;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('video_debanding', state);
+  }
+
+  Future<void> setEnabled(bool enabled) async {
+    state = enabled;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('video_debanding', enabled);
+  }
+}
+
+// Subtitle Background Provider
+final subtitleBackgroundProvider =
+    StateNotifierProvider<SubtitleBackgroundNotifier, String>((ref) {
+      return SubtitleBackgroundNotifier();
+    });
+
+class SubtitleBackgroundNotifier extends StateNotifier<String> {
+  SubtitleBackgroundNotifier() : super('Transparent') {
+    _loadSetting();
+  }
+
+  Future<void> _loadSetting() async {
+    final prefs = await SharedPreferences.getInstance();
+    state = prefs.getString('subtitle_background') ?? 'Transparent';
+  }
+
+  Future<void> setBackground(String bg) async {
+    state = bg;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('subtitle_background', bg);
+  }
+}
+
+// Subtitle Outline Provider
+final subtitleOutlineProvider =
+    StateNotifierProvider<SubtitleOutlineNotifier, String>((ref) {
+      return SubtitleOutlineNotifier();
+    });
+
+class SubtitleOutlineNotifier extends StateNotifier<String> {
+  SubtitleOutlineNotifier() : super('Outline') {
+    _loadSetting();
+  }
+
+  Future<void> _loadSetting() async {
+    final prefs = await SharedPreferences.getInstance();
+    state = prefs.getString('subtitle_outline') ?? 'Outline';
+  }
+
+  Future<void> setOutline(String outline) async {
+    state = outline;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('subtitle_outline', outline);
+  }
+}
+

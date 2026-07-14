@@ -172,19 +172,39 @@ class WatchHistoryService {
     final id = '${_userId}_$tmdbId';
     final existingJson = _historyBox.get(id);
     
+    WatchHistory history;
     if (existingJson != null) {
-      final history = WatchHistory.fromJson(Map<String, dynamic>.from(_parseJson(existingJson)));
-      
-      final updated = history.copyWith(
-        preferredAudioTrack: audioTrack ?? history.preferredAudioTrack,
-        preferredSubtitleTrack: subtitleTrack ?? history.preferredSubtitleTrack,
-        preferredResolution: resolution ?? history.preferredResolution,
-        preferredProviderIndex: providerIndex ?? history.preferredProviderIndex,
+      history = WatchHistory.fromJson(Map<String, dynamic>.from(_parseJson(existingJson)));
+    } else {
+      history = WatchHistory(
+        id: id,
+        tmdbId: tmdbId,
+        mediaType: 'movie', // Default fallback, will be updated by updateProgress
+        title: 'Unknown',
+        posterPath: null,
+        currentSeason: 1,
+        currentEpisode: 1,
+        totalSeasons: 1,
+        totalEpisodes: null,
+        lastPositionSeconds: 1,
+        totalDurationSeconds: 120 * 60,
+        progressPercent: 0.0,
+        lastWatchedAt: DateTime.now(),
+        createdAt: DateTime.now(),
+        isCompleted: false,
+        episodes: {},
       );
-      
-      await _historyBox.put(id, _toJsonString(updated.toJson()));
-      _syncToCloud(updated);
     }
+    
+    final updated = history.copyWith(
+      preferredAudioTrack: audioTrack ?? history.preferredAudioTrack,
+      preferredSubtitleTrack: subtitleTrack ?? history.preferredSubtitleTrack,
+      preferredResolution: resolution ?? history.preferredResolution,
+      preferredProviderIndex: providerIndex ?? history.preferredProviderIndex,
+    );
+    
+    await _historyBox.put(id, _toJsonString(updated.toJson()));
+    _syncToCloud(updated);
   }
 
   /// Delete watch history
