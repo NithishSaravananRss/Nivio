@@ -6,6 +6,7 @@ import '../../features/home/home_view.dart';
 import '../../features/library/library_view.dart';
 import '../../features/live_tv/live_tv_view.dart';
 import '../../features/party/party_view.dart';
+import '../../features/profile/profile_view.dart';
 
 import '../../core/interfaces/search_repository.dart';
 import '../../core/interfaces/home_repository.dart';
@@ -20,7 +21,6 @@ import '../../core/repositories/tmdb_home_repository.dart';
 import '../../core/repositories/tmdb_details_repository.dart';
 import '../../core/network/tmdb_client.dart';
 import '../../core/constants.dart';
-import '../widgets/feedback/empty_state.dart';
 import '../theme/index.dart';
 import 'desktop_sidebar.dart';
 import 'desktop_topbar.dart';
@@ -50,7 +50,6 @@ class _DesktopScaffoldState extends State<DesktopScaffold> {
   static const int _liveTvIndex = 3;
   static const int _partyIndex = 4;
   static const int _profileIndex = 5;
-  static const int _settingsIndex = 6;
 
   final TextEditingController _searchController = TextEditingController();
   final FocusNode _searchPageFocusNode = FocusNode();
@@ -239,14 +238,7 @@ class _DesktopScaffoldState extends State<DesktopScaffold> {
       _libraryIndex => LibraryView(onOpenDetail: _openDetail),
       _liveTvIndex => const LiveTvView(),
       _partyIndex => const PartyView(),
-      _profileIndex => const EmptyState(
-        title: 'Profile',
-        message: 'Profile details will be loaded here.',
-      ),
-      _settingsIndex => const EmptyState(
-        title: 'Settings',
-        message: 'Desktop settings will be loaded here.',
-      ),
+      _profileIndex => ProfileView(onOpenDetail: _openDetail),
       _searchIndex => SearchView(
         controller: _searchStateController,
         queryController: _searchController,

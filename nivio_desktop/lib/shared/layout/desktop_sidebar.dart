@@ -30,7 +30,6 @@ class DesktopSidebar extends StatelessWidget {
 
   static const _bottomItems = [
     _SidebarItem(icon: LucideIcons.user, label: 'Profile', index: 5),
-    _SidebarItem(icon: LucideIcons.settings, label: 'Settings', index: 6),
   ];
 
   @override
