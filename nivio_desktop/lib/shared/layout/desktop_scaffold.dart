@@ -7,6 +7,10 @@ import '../../features/library/library_view.dart';
 import '../../features/live_tv/live_tv_view.dart';
 import '../../features/party/party_view.dart';
 import '../../features/profile/profile_view.dart';
+import '../../features/player/models/playback_request.dart';
+import '../../features/player/resolving_player_screen.dart';
+import '../../features/player/services/stream_resolver.dart';
+import '../../features/player/playback_engine.dart';
 
 import '../../core/interfaces/search_repository.dart';
 import '../../core/interfaces/home_repository.dart';
@@ -24,19 +28,26 @@ import '../../core/constants.dart';
 import '../theme/index.dart';
 import 'desktop_sidebar.dart';
 import 'desktop_topbar.dart';
-import '../../core/repositories/empty_watch_history_repository.dart';
+import '../../core/interfaces/watch_history_repository.dart';
+import '../../features/history/desktop_watch_history_repository.dart';
 
 /// Permanent desktop shell used by future feature screens.
 class DesktopScaffold extends StatefulWidget {
   final SearchRepository? searchRepository;
   final HomeRepository? homeRepository;
   final DetailsRepository? detailsRepository;
+  final StreamResolver? streamResolver;
+  final PlaybackEngineFactory? playbackEngineFactory;
+  final WatchHistoryRepository? watchHistoryRepository;
 
   const DesktopScaffold({
     super.key,
     this.searchRepository,
     this.homeRepository,
     this.detailsRepository,
+    this.streamResolver,
+    this.playbackEngineFactory,
+    this.watchHistoryRepository,
   });
 
   @override
@@ -51,6 +62,9 @@ class _DesktopScaffoldState extends State<DesktopScaffold> {
   static const int _partyIndex = 4;
   static const int _profileIndex = 5;
 
+  late final WatchHistoryRepository _watchHistoryRepository =
+      widget.watchHistoryRepository ?? DesktopWatchHistoryRepository.instance;
+
   final TextEditingController _searchController = TextEditingController();
   final FocusNode _searchPageFocusNode = FocusNode();
   late final SearchController _searchStateController = SearchController(
@@ -63,7 +77,7 @@ class _DesktopScaffoldState extends State<DesktopScaffold> {
     repository:
         widget.homeRepository ??
         TmdbHomeRepository(client: TmdbClient(apiKey: tmdbApiKey)),
-    watchHistoryRepository: EmptyWatchHistoryRepository(),
+    watchHistoryRepository: _watchHistoryRepository,
   );
 
   late final DetailController _detailStateController = DetailController(
@@ -76,6 +90,7 @@ class _DesktopScaffoldState extends State<DesktopScaffold> {
   int _lastSidebarIndex = _homeIndex;
   bool _isSidebarExpanded = true;
   DetailRouteArgs? _detailRouteArgs;
+  PlaybackRequest? _playbackRequest;
 
   @override
   void initState() {
@@ -135,8 +150,28 @@ class _DesktopScaffoldState extends State<DesktopScaffold> {
     });
   }
 
+  void _openPlayback(PlaybackRequest request) {
+    setState(() => _playbackRequest = request);
+  }
+
+  void _closePlayback() {
+    setState(() => _playbackRequest = null);
+  }
+
   @override
   Widget build(BuildContext context) {
+    final playbackRequest = _playbackRequest;
+    if (playbackRequest != null) {
+      return ResolvingPlayerScreen(
+        request: playbackRequest,
+        resolver: widget.streamResolver,
+        engineFactory: widget.playbackEngineFactory,
+        watchHistoryRepository: _watchHistoryRepository,
+        onClose: _closePlayback,
+        onNextEpisode: _openPlayback,
+      );
+    }
+
     return Shortcuts(
       shortcuts: const <ShortcutActivator, Intent>{
         SingleActivator(LogicalKeyboardKey.keyK, control: true):
@@ -227,6 +262,8 @@ class _DesktopScaffoldState extends State<DesktopScaffold> {
         controller: _detailStateController,
         onBack: _closeDetail,
         onOpenDetail: _openDetail,
+        onPlay: _openPlayback,
+        watchHistoryRepository: _watchHistoryRepository,
       );
     }
 
@@ -234,20 +271,27 @@ class _DesktopScaffoldState extends State<DesktopScaffold> {
       _homeIndex => HomeView(
         controller: _homeStateController,
         onOpenDetail: _openDetail,
+        onPlay: _openPlayback,
       ),
-      _libraryIndex => LibraryView(onOpenDetail: _openDetail),
-      _liveTvIndex => const LiveTvView(),
-      _partyIndex => const PartyView(),
+      _libraryIndex => LibraryView(
+        onOpenDetail: _openDetail,
+        onPlay: _openPlayback,
+        watchHistoryRepository: _watchHistoryRepository,
+      ),
+      _liveTvIndex => LiveTvView(onPlay: _openPlayback),
+      _partyIndex => PartyView(onPlay: _openPlayback),
       _profileIndex => ProfileView(onOpenDetail: _openDetail),
       _searchIndex => SearchView(
         controller: _searchStateController,
         queryController: _searchController,
         searchFocusNode: _searchPageFocusNode,
         onOpenDetail: _openDetail,
+        onPlay: _openPlayback,
       ),
       _ => HomeView(
         controller: _homeStateController,
         onOpenDetail: _openDetail,
+        onPlay: _openPlayback,
       ),
     };
   }

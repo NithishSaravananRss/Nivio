@@ -6,19 +6,22 @@ import 'package:flutter/services.dart';
 import '../../shared/models/watch_party_models.dart';
 import '../../shared/theme/index.dart';
 import '../../shared/widgets/widgets.dart';
-import 'services/watch_party_identity.dart';
+import '../player/models/playback_request.dart';
+import '../player/playback_request_factory.dart';
 import 'services/watch_party_service_supabase.dart';
+import 'services/watch_party_session_manager.dart';
 import 'services/watch_party_supabase_config.dart';
 
 class PartyView extends StatefulWidget {
-  const PartyView({super.key});
+  const PartyView({super.key, this.onPlay});
+
+  final ValueChanged<PlaybackRequest>? onPlay;
 
   @override
   State<PartyView> createState() => _PartyViewState();
 }
 
 class _PartyViewState extends State<PartyView> {
-  final WatchPartyIdentityStore _identityStore = WatchPartyIdentityStore();
   final TextEditingController _codeController = TextEditingController();
   final TextEditingController _chatController = TextEditingController();
   final List<WatchPartyChatMessage> _messages = [];
@@ -48,7 +51,6 @@ class _PartyViewState extends State<PartyView> {
     _chatSub?.cancel();
     _reactionSub?.cancel();
     _errorSub?.cancel();
-    _service?.dispose();
     _codeController.dispose();
     _chatController.dispose();
     super.dispose();
@@ -222,20 +224,16 @@ class _PartyViewState extends State<PartyView> {
         return;
       }
 
-      final identity = await _identityStore.load();
-      final service = WatchPartyServiceSupabase(
-        userId: identity.userId,
-        userName: identity.userName,
-        userPhotoUrl: identity.userPhotoUrl,
-      );
+      final service = await WatchPartySessionManager.instance.ensureService();
+      if (service == null) return;
 
       await _sessionSub?.cancel();
       await _chatSub?.cancel();
       await _reactionSub?.cancel();
       await _errorSub?.cancel();
 
-      _service?.dispose();
       _service = service;
+      _session = service.currentSession;
       _sessionSub = service.sessionStream.listen((session) {
         if (!mounted) return;
         setState(() => _session = session);
@@ -368,8 +366,12 @@ class _PartyViewState extends State<PartyView> {
   }
 
   void _openPlayback(WatchPartyPlaybackState playback) {
-    _showMessage(
-      'Desktop player integration is pending. Media ${playback.mediaId} is synced.',
+    widget.onPlay?.call(
+      PlaybackRequestFactory.fromParty(
+        playback,
+        partyCode: _session?.sessionCode,
+        partyRole: _service?.isHost == true ? 'host' : 'participant',
+      ),
     );
   }
 

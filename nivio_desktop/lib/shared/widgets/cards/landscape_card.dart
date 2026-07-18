@@ -18,6 +18,7 @@ class LandscapeCard extends StatelessWidget {
     this.onTap,
     this.onDoubleTap,
     this.onSecondaryTap,
+    this.onMore,
     this.onWatchlist,
     this.isInWatchlist = false,
     this.isLoading = false,
@@ -34,6 +35,7 @@ class LandscapeCard extends StatelessWidget {
   final VoidCallback? onTap;
   final VoidCallback? onDoubleTap;
   final VoidCallback? onSecondaryTap;
+  final VoidCallback? onMore;
   final VoidCallback? onWatchlist;
   final bool isInWatchlist;
   final bool isLoading;
@@ -117,6 +119,14 @@ class LandscapeCard extends StatelessWidget {
                               icon: Icon(
                                 isInWatchlist ? Icons.check : Icons.add,
                               ),
+                            ),
+                          ],
+                          if (onMore != null) ...[
+                            const SizedBox(width: AppSpacing.xs),
+                            IconButton(
+                              tooltip: 'More',
+                              onPressed: onMore,
+                              icon: const Icon(Icons.more_horiz),
                             ),
                           ],
                         ],

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 
@@ -11,11 +13,20 @@ import 'widgets/library_tabs.dart';
 import 'widgets/release_timeline.dart';
 import 'widgets/schedule_calendar.dart';
 import 'widgets/watchlist_grid.dart';
+import '../player/models/playback_request.dart';
+import '../../core/interfaces/watch_history_repository.dart';
 
 class LibraryView extends StatefulWidget {
-  const LibraryView({super.key, this.onOpenDetail});
+  const LibraryView({
+    super.key,
+    required this.watchHistoryRepository,
+    this.onOpenDetail,
+    this.onPlay,
+  });
 
   final ValueChanged<String>? onOpenDetail;
+  final ValueChanged<PlaybackRequest>? onPlay;
+  final WatchHistoryRepository watchHistoryRepository;
 
   @override
   State<LibraryView> createState() => _LibraryViewState();
@@ -32,6 +43,7 @@ class _LibraryViewState extends State<LibraryView> {
   late DateTime _selectedScheduleDate;
   bool _watchlistOnly = true;
   late Future<LibrarySectionResult<List<LibraryScheduleItem>>> _scheduleFuture;
+  Map<int, Map<String, dynamic>> _historyByMediaId = const {};
 
   @override
   void initState() {
@@ -39,12 +51,32 @@ class _LibraryViewState extends State<LibraryView> {
     _focusedDate = DateTime.now();
     _selectedScheduleDate = _focusedDate;
     _scheduleFuture = _loadSchedule();
+    if (widget.watchHistoryRepository case final Listenable listenable) {
+      listenable.addListener(_onHistoryChanged);
+    }
+    unawaited(_loadHistory());
   }
 
   @override
   void dispose() {
+    if (widget.watchHistoryRepository case final Listenable listenable) {
+      listenable.removeListener(_onHistoryChanged);
+    }
     _scrollController.dispose();
     super.dispose();
+  }
+
+  void _onHistoryChanged() => unawaited(_loadHistory());
+
+  Future<void> _loadHistory() async {
+    final entries = await widget.watchHistoryRepository.getWatchHistory();
+    if (!mounted) return;
+    setState(() {
+      _historyByMediaId = <int, Map<String, dynamic>>{
+        for (final entry in entries)
+          if (entry['tmdbId'] is num) (entry['tmdbId'] as num).toInt(): entry,
+      };
+    });
   }
 
   @override
@@ -105,11 +137,14 @@ class _LibraryViewState extends State<LibraryView> {
       ),
       LibraryTab.watchlist => _WatchlistTab(
         service: _watchlistService,
+        historyByMediaId: _historyByMediaId,
         onOpenDetail: widget.onOpenDetail,
+        onPlay: widget.onPlay,
       ),
       LibraryTab.downloads => _DownloadsTab(
         service: _downloadsService,
         onOpenDetail: widget.onOpenDetail,
+        onPlay: widget.onPlay,
       ),
     };
   }
@@ -285,10 +320,17 @@ class _ScheduleFilters extends StatelessWidget {
 }
 
 class _WatchlistTab extends StatelessWidget {
-  const _WatchlistTab({required this.service, this.onOpenDetail});
+  const _WatchlistTab({
+    required this.service,
+    required this.historyByMediaId,
+    this.onOpenDetail,
+    this.onPlay,
+  });
 
   final LibraryWatchlistService service;
+  final Map<int, Map<String, dynamic>> historyByMediaId;
   final ValueChanged<String>? onOpenDetail;
+  final ValueChanged<PlaybackRequest>? onPlay;
 
   @override
   Widget build(BuildContext context) {
@@ -321,7 +363,9 @@ class _WatchlistTab extends StatelessWidget {
                 WatchlistGrid(
                   items: result.data ?? const [],
                   service: service,
+                  historyByMediaId: historyByMediaId,
                   onOpenDetail: onOpenDetail,
+                  onPlay: onPlay,
                 ),
               ],
             );
@@ -333,10 +377,11 @@ class _WatchlistTab extends StatelessWidget {
 }
 
 class _DownloadsTab extends StatelessWidget {
-  const _DownloadsTab({required this.service, this.onOpenDetail});
+  const _DownloadsTab({required this.service, this.onOpenDetail, this.onPlay});
 
   final LibraryDownloadsService service;
   final ValueChanged<String>? onOpenDetail;
+  final ValueChanged<PlaybackRequest>? onPlay;
 
   @override
   Widget build(BuildContext context) {
@@ -369,6 +414,7 @@ class _DownloadsTab extends StatelessWidget {
                   downloads: result.data ?? const [],
                   service: service,
                   onOpenDetail: onOpenDetail,
+                  onPlay: onPlay,
                 ),
               ],
             );

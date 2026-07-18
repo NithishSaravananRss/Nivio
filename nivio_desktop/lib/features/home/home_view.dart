@@ -7,14 +7,22 @@ import '../../core/network/image/tmdb_image_builder.dart';
 import '../../shared/theme/index.dart';
 import '../../shared/widgets/widgets.dart';
 import '../library/services/watchlist_sync_controller.dart';
+import '../player/models/playback_request.dart';
+import '../player/playback_request_factory.dart';
 import '../search/models/search_media_item.dart';
 import 'controllers/home_controller.dart';
 
 class HomeView extends StatefulWidget {
-  const HomeView({super.key, required this.controller, this.onOpenDetail});
+  const HomeView({
+    super.key,
+    required this.controller,
+    this.onOpenDetail,
+    this.onPlay,
+  });
 
   final HomeController controller;
   final ValueChanged<String>? onOpenDetail;
+  final ValueChanged<PlaybackRequest>? onPlay;
 
   @override
   State<HomeView> createState() => _HomeViewState();
@@ -185,9 +193,12 @@ class _HomeViewState extends State<HomeView> {
                                                   isInWatchlist
                                                   ? 'In watchlist'
                                                   : 'Add to watchlist',
-                                              onPrimaryAction: () => widget
-                                                  .onOpenDetail
-                                                  ?.call(item.id),
+                                              onPrimaryAction: () =>
+                                                  widget.onPlay?.call(
+                                                    PlaybackRequestFactory.fromSearchItem(
+                                                      item,
+                                                    ),
+                                                  ),
                                               onSecondaryAction: () => watchlist
                                                   .toggleSearchItem(item),
                                             );
@@ -248,6 +259,7 @@ class _HomeViewState extends State<HomeView> {
                       items: ctrl.watchHistory,
                       isLoading: ctrl.isLoadingHistory,
                       onOpenDetail: widget.onOpenDetail,
+                      onPlay: widget.onPlay,
                     ),
                   ),
 
@@ -264,6 +276,7 @@ class _HomeViewState extends State<HomeView> {
                       hideWhenEmpty: true,
                       onRetry: ctrl.retryRecommendations,
                       onOpenDetail: widget.onOpenDetail,
+                      onPlay: widget.onPlay,
                     ),
                   ),
 
@@ -278,6 +291,7 @@ class _HomeViewState extends State<HomeView> {
                         error: ctrl.sections[sectionId]?.error,
                         onRetry: () => ctrl.retrySection(sectionId),
                         onOpenDetail: widget.onOpenDetail,
+                        onPlay: widget.onPlay,
                       ),
                     ),
                   const SizedBox(height: AppSpacing.massive),
@@ -296,11 +310,13 @@ class _ContinueWatchingSection extends StatelessWidget {
     required this.items,
     required this.isLoading,
     this.onOpenDetail,
+    this.onPlay,
   });
 
   final List<Map<String, dynamic>> items;
   final bool isLoading;
   final ValueChanged<String>? onOpenDetail;
+  final ValueChanged<PlaybackRequest>? onPlay;
 
   @override
   Widget build(BuildContext context) {
@@ -323,6 +339,10 @@ class _ContinueWatchingSection extends StatelessWidget {
             final id = item['id']?.toString();
             final title = (item['title'] ?? item['name'] ?? 'Untitled')
                 .toString();
+            final mediaType = (item['mediaType'] ?? item['type'] ?? '')
+                .toString()
+                .toLowerCase();
+            final isSeries = mediaType == 'tv' || mediaType == 'anime';
             final season = item['currentSeason'] ?? item['season'];
             final episode = item['currentEpisode'] ?? item['episode'];
             final rawProgress =
@@ -330,9 +350,9 @@ class _ContinueWatchingSection extends StatelessWidget {
                 (item['progress'] as num?)?.toDouble() ??
                 0;
             final progress = rawProgress > 1 ? rawProgress / 100 : rawProgress;
-            final episodeLabel = season != null && episode != null
+            final episodeLabel = isSeries && season != null && episode != null
                 ? 'Season $season · Episode $episode'
-                : null;
+                : 'Movie';
 
             final imagePath =
                 (item['posterPath'] ??
@@ -358,7 +378,10 @@ class _ContinueWatchingSection extends StatelessWidget {
                   ? NetworkImage(TmdbImageBuilder.backdrop(imagePath))
                   : null,
               progress: progress,
-              onResume: id == null ? null : () => onOpenDetail?.call(id),
+              onResume: id == null
+                  ? null
+                  : () =>
+                        onPlay?.call(PlaybackRequestFactory.fromHistory(item)),
             );
           }).toList(),
         ),
@@ -376,6 +399,7 @@ class _MediaSection extends StatelessWidget {
     this.hideWhenEmpty = false,
     this.onRetry,
     this.onOpenDetail,
+    this.onPlay,
   });
 
   final String title;
@@ -385,6 +409,7 @@ class _MediaSection extends StatelessWidget {
   final bool hideWhenEmpty;
   final VoidCallback? onRetry;
   final ValueChanged<String>? onOpenDetail;
+  final ValueChanged<PlaybackRequest>? onPlay;
 
   @override
   Widget build(BuildContext context) {
@@ -449,7 +474,9 @@ class _MediaSection extends StatelessWidget {
                               : null,
                           onTap: () => onOpenDetail?.call(item.id),
                           onSecondaryTap: () => onOpenDetail?.call(item.id),
-                          onPlay: () => onOpenDetail?.call(item.id),
+                          onPlay: () => onPlay?.call(
+                            PlaybackRequestFactory.fromSearchItem(item),
+                          ),
                           isInWatchlist: isInWatchlist,
                           onWatchlist: () => watchlist.toggleSearchItem(item),
                           onMore: () => onOpenDetail?.call(item.id),

@@ -24,6 +24,13 @@ dependencies:
   flutter_dotenv: ^6.0.0
   http: ^1.5.0
 
+  # Desktop playback
+  media_kit: ^1.2.6
+  media_kit_video: ^2.0.1
+  media_kit_libs_video: ^1.0.7
+  webview_all: ^1.2.1
+  webview_all_linux: ^1.2.1
+
   # Local persistence
   hive: ^2.2.3
   hive_flutter: ^1.1.0

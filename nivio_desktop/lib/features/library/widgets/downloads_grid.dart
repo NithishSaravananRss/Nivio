@@ -4,6 +4,8 @@ import '../../../core/network/image/tmdb_image_builder.dart';
 import '../../../shared/theme/index.dart';
 import '../models/library_models.dart';
 import '../services/library_data_service.dart';
+import '../../player/models/playback_request.dart';
+import '../../player/playback_request_factory.dart';
 import 'library_empty_state.dart';
 
 class DownloadsGrid extends StatelessWidget {
@@ -12,11 +14,13 @@ class DownloadsGrid extends StatelessWidget {
     required this.downloads,
     required this.service,
     this.onOpenDetail,
+    this.onPlay,
   });
 
   final List<LibraryDownloadItem> downloads;
   final LibraryDownloadsService service;
   final ValueChanged<String>? onOpenDetail;
+  final ValueChanged<PlaybackRequest>? onPlay;
 
   @override
   Widget build(BuildContext context) {
@@ -41,11 +45,13 @@ class DownloadsGrid extends StatelessWidget {
                   item: group.first,
                   service: service,
                   onOpenDetail: onOpenDetail,
+                  onPlay: onPlay,
                 )
               : _DownloadGroup(
                   items: group,
                   service: service,
                   onOpenDetail: onOpenDetail,
+                  onPlay: onPlay,
                 ),
       ],
     );
@@ -57,11 +63,13 @@ class _DownloadGroup extends StatelessWidget {
     required this.items,
     required this.service,
     this.onOpenDetail,
+    this.onPlay,
   });
 
   final List<LibraryDownloadItem> items;
   final LibraryDownloadsService service;
   final ValueChanged<String>? onOpenDetail;
+  final ValueChanged<PlaybackRequest>? onPlay;
 
   @override
   Widget build(BuildContext context) {
@@ -89,6 +97,7 @@ class _DownloadGroup extends StatelessWidget {
                   service: service,
                   grouped: true,
                   onOpenDetail: onOpenDetail,
+                  onPlay: onPlay,
                 ),
             ],
           ),
@@ -104,12 +113,14 @@ class _DownloadTile extends StatelessWidget {
     required this.service,
     this.grouped = false,
     this.onOpenDetail,
+    this.onPlay,
   });
 
   final LibraryDownloadItem item;
   final LibraryDownloadsService service;
   final bool grouped;
   final ValueChanged<String>? onOpenDetail;
+  final ValueChanged<PlaybackRequest>? onPlay;
 
   @override
   Widget build(BuildContext context) {
@@ -154,17 +165,19 @@ class _DownloadTile extends StatelessWidget {
               ),
           ],
         ),
-        onTap: () => onOpenDetail?.call('${item.mediaId}'),
+        onTap: () => onOpenDetail?.call('${item.mediaType}:${item.mediaId}'),
         trailing: Wrap(
           spacing: AppSpacing.xs,
           children: [
             if (item.status == LibraryDownloadStatus.completed)
               IconButton(
                 tooltip: service.fileExists(item)
-                    ? 'Open details'
+                    ? 'Play download'
                     : 'Downloaded file missing',
                 onPressed: service.fileExists(item)
-                    ? () => onOpenDetail?.call('${item.mediaId}')
+                    ? () => onPlay?.call(
+                        PlaybackRequestFactory.fromDownload(item),
+                      )
                     : null,
                 icon: const Icon(Icons.play_circle_fill),
               ),

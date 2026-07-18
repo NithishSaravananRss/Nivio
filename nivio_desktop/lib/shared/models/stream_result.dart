@@ -49,6 +49,11 @@ class StreamResult {
   final Map<String, String> headers;
   final List<StreamSource> sources;
   final List<SkipTime> skipTimes;
+  final int? providerIndex;
+  final String? providerGroup;
+  final String? serverName;
+  final bool isDirect;
+  final bool isIframe;
   Map<String, StreamResult>? preloadedSources;
 
   StreamResult({
@@ -63,6 +68,11 @@ class StreamResult {
     this.headers = const {},
     this.sources = const [],
     this.skipTimes = const [],
+    this.providerIndex,
+    this.providerGroup,
+    this.serverName,
+    this.isDirect = true,
+    this.isIframe = false,
     this.preloadedSources,
   });
 
@@ -77,6 +87,12 @@ class StreamResult {
     bool? isM3U8,
     Map<String, String>? headers,
     List<StreamSource>? sources,
+    List<SkipTime>? skipTimes,
+    int? providerIndex,
+    String? providerGroup,
+    String? serverName,
+    bool? isDirect,
+    bool? isIframe,
     Map<String, StreamResult>? preloadedSources,
   }) {
     return StreamResult(
@@ -90,6 +106,12 @@ class StreamResult {
       isM3U8: isM3U8 ?? this.isM3U8,
       headers: headers ?? this.headers,
       sources: sources ?? this.sources,
+      skipTimes: skipTimes ?? this.skipTimes,
+      providerIndex: providerIndex ?? this.providerIndex,
+      providerGroup: providerGroup ?? this.providerGroup,
+      serverName: serverName ?? this.serverName,
+      isDirect: isDirect ?? this.isDirect,
+      isIframe: isIframe ?? this.isIframe,
       preloadedSources: preloadedSources ?? this.preloadedSources,
     );
   }

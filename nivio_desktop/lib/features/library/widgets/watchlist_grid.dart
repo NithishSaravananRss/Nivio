@@ -4,6 +4,8 @@ import '../../../shared/theme/index.dart';
 import '../../../shared/widgets/widgets.dart';
 import '../models/library_models.dart';
 import '../services/library_data_service.dart';
+import '../../player/models/playback_request.dart';
+import '../../player/playback_request_factory.dart';
 import 'library_empty_state.dart';
 
 class WatchlistGrid extends StatefulWidget {
@@ -11,12 +13,16 @@ class WatchlistGrid extends StatefulWidget {
     super.key,
     required this.items,
     required this.service,
+    required this.historyByMediaId,
     this.onOpenDetail,
+    this.onPlay,
   });
 
   final List<LibraryWatchlistItem> items;
   final LibraryWatchlistService service;
+  final Map<int, Map<String, dynamic>> historyByMediaId;
   final ValueChanged<String>? onOpenDetail;
+  final ValueChanged<PlaybackRequest>? onPlay;
 
   @override
   State<WatchlistGrid> createState() => _WatchlistGridState();
@@ -95,6 +101,7 @@ class _WatchlistGridState extends State<WatchlistGrid> {
                   item: item,
                   service: widget.service,
                   onOpenDetail: widget.onOpenDetail,
+                  onPlay: widget.onPlay,
                 ),
             ],
           )
@@ -109,10 +116,15 @@ class _WatchlistGridState extends State<WatchlistGrid> {
                   posterPath: item.posterPath,
                   year: _year(item.releaseDate),
                   rating: item.voteAverage?.toStringAsFixed(1),
-                  subtitle: item.mediaType.toUpperCase(),
-                  onTap: () => widget.onOpenDetail?.call('${item.id}'),
-                  onPlay: () => widget.onOpenDetail?.call('${item.id}'),
-                  onMore: () => widget.onOpenDetail?.call('${item.id}'),
+                  subtitle: _subtitle(item),
+                  progress: _progress(item.id),
+                  onTap: () =>
+                      widget.onOpenDetail?.call('${item.mediaType}:${item.id}'),
+                  onPlay: () => widget.onPlay?.call(
+                    PlaybackRequestFactory.fromWatchlist(item),
+                  ),
+                  onMore: () =>
+                      widget.onOpenDetail?.call('${item.mediaType}:${item.id}'),
                   isInWatchlist: true,
                   onWatchlist: () => widget.service.remove(item.id),
                 ),
@@ -126,6 +138,19 @@ class _WatchlistGridState extends State<WatchlistGrid> {
     if (releaseDate == null || releaseDate.length < 4) return null;
     return releaseDate.substring(0, 4);
   }
+
+  double? _progress(int mediaId) {
+    final history = widget.historyByMediaId[mediaId];
+    if (history == null || history['isCompleted'] == true) return null;
+    final value = (history['progressPercent'] as num?)?.toDouble();
+    return value == null || value <= 0 ? null : value.clamp(0.0, 1.0);
+  }
+
+  String _subtitle(LibraryWatchlistItem item) {
+    final progress = _progress(item.id);
+    if (progress == null) return item.mediaType.toUpperCase();
+    return '${item.mediaType.toUpperCase()} · ${(progress * 100).round()}% watched';
+  }
 }
 
 class _WatchlistListItem extends StatelessWidget {
@@ -133,11 +158,13 @@ class _WatchlistListItem extends StatelessWidget {
     required this.item,
     required this.service,
     this.onOpenDetail,
+    this.onPlay,
   });
 
   final LibraryWatchlistItem item;
   final LibraryWatchlistService service;
   final ValueChanged<String>? onOpenDetail;
+  final ValueChanged<PlaybackRequest>? onPlay;
 
   @override
   Widget build(BuildContext context) {
@@ -159,11 +186,22 @@ class _WatchlistListItem extends StatelessWidget {
             if (item.voteAverage != null) item.voteAverage!.toStringAsFixed(1),
           ].join(' · '),
         ),
-        onTap: () => onOpenDetail?.call('${item.id}'),
-        trailing: IconButton(
-          tooltip: 'Remove from watchlist',
-          icon: const Icon(Icons.close),
-          onPressed: () => service.remove(item.id),
+        onTap: () => onOpenDetail?.call('${item.mediaType}:${item.id}'),
+        trailing: Wrap(
+          spacing: AppSpacing.xs,
+          children: [
+            IconButton(
+              tooltip: 'Play',
+              onPressed: () =>
+                  onPlay?.call(PlaybackRequestFactory.fromWatchlist(item)),
+              icon: const Icon(Icons.play_circle_fill),
+            ),
+            IconButton(
+              tooltip: 'Remove from watchlist',
+              icon: const Icon(Icons.close),
+              onPressed: () => service.remove(item.id),
+            ),
+          ],
         ),
       ),
     );

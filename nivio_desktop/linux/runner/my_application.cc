@@ -14,6 +14,100 @@ struct _MyApplication {
 
 G_DEFINE_TYPE(MyApplication, my_application, GTK_TYPE_APPLICATION)
 
+static const gchar* nivio_event_type_name(GdkEventType type) {
+  switch (type) {
+    case GDK_BUTTON_PRESS:
+      return "button-press";
+    case GDK_BUTTON_RELEASE:
+      return "button-release";
+    case GDK_FOCUS_CHANGE:
+      return "focus-change";
+    case GDK_ENTER_NOTIFY:
+      return "enter";
+    case GDK_LEAVE_NOTIFY:
+      return "leave";
+    default:
+      return "other";
+  }
+}
+
+static const gchar* nivio_widget_type_from_event(GdkEvent* event) {
+  if (event == nullptr || event->any.window == nullptr) {
+    return "none";
+  }
+  gpointer user_data = nullptr;
+  gdk_window_get_user_data(event->any.window, &user_data);
+  if (user_data != nullptr && G_IS_OBJECT(user_data)) {
+    return G_OBJECT_TYPE_NAME(user_data);
+  }
+  return "unknown";
+}
+
+static GdkFilterReturn nivio_global_event_filter(GdkXEvent*,
+                                                 GdkEvent* event,
+                                                 gpointer data) {
+  if (event == nullptr) {
+    return GDK_FILTER_CONTINUE;
+  }
+  if (event->type != GDK_BUTTON_PRESS &&
+      event->type != GDK_BUTTON_RELEASE &&
+      event->type != GDK_FOCUS_CHANGE) {
+    return GDK_FILTER_CONTINUE;
+  }
+
+  GtkWindow* window = GTK_WINDOW(data);
+  GtkWidget* focus = gtk_window_get_focus(window);
+  const gchar* focus_type =
+      focus == nullptr ? "none" : G_OBJECT_TYPE_NAME(focus);
+  gdouble x_root = 0;
+  gdouble y_root = 0;
+  if (event->type == GDK_BUTTON_PRESS || event->type == GDK_BUTTON_RELEASE) {
+    x_root = event->button.x_root;
+    y_root = event->button.y_root;
+  }
+
+  g_print("[GTK] Pointer/focus event type=%s target=%s focus=%s "
+          "x=%.1f y=%.1f\n",
+          nivio_event_type_name(event->type),
+          nivio_widget_type_from_event(event), focus_type, x_root, y_root);
+  return GDK_FILTER_CONTINUE;
+}
+
+static gboolean nivio_view_focus_event(GtkWidget* widget,
+                                       GdkEventFocus* event,
+                                       gpointer) {
+  g_print("[GTK] PlatformView focus widget=%s in=%d\n",
+          G_OBJECT_TYPE_NAME(widget), event->in);
+  return FALSE;
+}
+
+static gboolean nivio_widget_event(GtkWidget* widget, GdkEvent* event,
+                                   gpointer data) {
+  if (event == nullptr) {
+    return FALSE;
+  }
+  if (event->type != GDK_BUTTON_PRESS &&
+      event->type != GDK_BUTTON_RELEASE &&
+      event->type != GDK_FOCUS_CHANGE) {
+    return FALSE;
+  }
+  GtkWindow* window = GTK_WINDOW(data);
+  GtkWidget* focus = gtk_window_get_focus(window);
+  const gchar* focus_type =
+      focus == nullptr ? "none" : G_OBJECT_TYPE_NAME(focus);
+  gdouble x_root = 0;
+  gdouble y_root = 0;
+  if (event->type == GDK_BUTTON_PRESS || event->type == GDK_BUTTON_RELEASE) {
+    x_root = event->button.x_root;
+    y_root = event->button.y_root;
+  }
+  g_print("[GTK] Widget event receiver=%s type=%s target=%s focus=%s "
+          "x=%.1f y=%.1f\n",
+          G_OBJECT_TYPE_NAME(widget), nivio_event_type_name(event->type),
+          nivio_widget_type_from_event(event), focus_type, x_root, y_root);
+  return FALSE;
+}
+
 // Called when first Flutter frame received.
 static void first_frame_cb(MyApplication* self, FlView* view) {
   gtk_widget_show(gtk_widget_get_toplevel(GTK_WIDGET(view)));
@@ -64,8 +158,29 @@ static void my_application_activate(GApplication* application) {
   // for transparent.
   gdk_rgba_parse(&background_color, "#000000");
   fl_view_set_background_color(view, &background_color);
+  gtk_widget_set_hexpand(GTK_WIDGET(view), TRUE);
+  gtk_widget_set_vexpand(GTK_WIDGET(view), TRUE);
   gtk_widget_show(GTK_WIDGET(view));
-  gtk_container_add(GTK_CONTAINER(window), GTK_WIDGET(view));
+  gtk_widget_add_events(GTK_WIDGET(view), GDK_FOCUS_CHANGE_MASK |
+                                      GDK_BUTTON_PRESS_MASK |
+                                      GDK_BUTTON_RELEASE_MASK);
+  g_signal_connect(view, "focus-in-event", G_CALLBACK(nivio_view_focus_event),
+                   nullptr);
+  g_signal_connect(view, "focus-out-event", G_CALLBACK(nivio_view_focus_event),
+                   nullptr);
+  g_signal_connect(view, "event", G_CALLBACK(nivio_widget_event), window);
+
+  GtkWidget* overlay = gtk_overlay_new();
+  gtk_widget_set_hexpand(overlay, TRUE);
+  gtk_widget_set_vexpand(overlay, TRUE);
+  gtk_widget_show(overlay);
+  gtk_container_add(GTK_CONTAINER(overlay), GTK_WIDGET(view));
+  gtk_container_add(GTK_CONTAINER(window), overlay);
+  gtk_widget_add_events(GTK_WIDGET(window), GDK_FOCUS_CHANGE_MASK |
+                                        GDK_BUTTON_PRESS_MASK |
+                                        GDK_BUTTON_RELEASE_MASK);
+  g_signal_connect(window, "event", G_CALLBACK(nivio_widget_event), window);
+  gdk_window_add_filter(nullptr, nivio_global_event_filter, window);
 
   // Show the window when Flutter renders.
   // Requires the view to be realized so we can start rendering.

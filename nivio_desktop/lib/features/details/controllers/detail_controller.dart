@@ -4,15 +4,7 @@ import '../../../core/errors/network_errors.dart';
 import '../models/detail_models.dart';
 import '../models/detail_route_args.dart';
 
-enum DetailStatus {
-  loading,
-  loaded,
-  empty,
-  offline,
-  apiError,
-  retrying,
-  error,
-}
+enum DetailStatus { loading, loaded, empty, offline, apiError, retrying, error }
 
 class DetailController extends ChangeNotifier {
   final DetailsRepository repository;
@@ -52,8 +44,11 @@ class DetailController extends ChangeNotifier {
       _status = DetailStatus.loaded;
 
       if (details.isSeries && details.seasons.isNotEmpty) {
-        // Load first season episodes by default
-        await loadSeasonEpisodes(args.mediaId, details.seasons.first.number);
+        final firstPlayableSeason = details.seasons.firstWhere(
+          (season) => season.number > 0,
+          orElse: () => details.seasons.first,
+        );
+        await loadSeasonEpisodes(args.mediaId, firstPlayableSeason.number);
       }
     } on TimeoutError catch (e) {
       _status = DetailStatus.offline;

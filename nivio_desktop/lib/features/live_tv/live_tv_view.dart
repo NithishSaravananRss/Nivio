@@ -5,12 +5,16 @@ import 'package:lucide_flutter/lucide_flutter.dart';
 import '../../core/config/app_environment.dart';
 import '../../shared/models/iptv_channel.dart';
 import '../../shared/models/iptv_playlist.dart';
+import '../player/models/playback_request.dart';
+import '../player/playback_request_factory.dart';
 import '../../shared/theme/index.dart';
 import '../../shared/widgets/widgets.dart';
 import 'services/iptv_service.dart';
 
 class LiveTvView extends StatefulWidget {
-  const LiveTvView({super.key});
+  const LiveTvView({super.key, this.onPlay});
+
+  final ValueChanged<PlaybackRequest>? onPlay;
 
   @override
   State<LiveTvView> createState() => _LiveTvViewState();
@@ -266,15 +270,7 @@ class _LiveTvViewState extends State<LiveTvView> {
   }
 
   void _playChannel(IptvChannel channel) {
-    ScaffoldMessenger.of(context)
-      ..hideCurrentSnackBar()
-      ..showSnackBar(
-        SnackBar(
-          content: Text(
-            'Player entry is not available on desktop yet: ${channel.name}',
-          ),
-        ),
-      );
+    widget.onPlay?.call(PlaybackRequestFactory.fromIptv(channel));
   }
 
   Future<void> _showPlaylistManager() async {

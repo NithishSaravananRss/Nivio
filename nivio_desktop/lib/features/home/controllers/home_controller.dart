@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import '../../../core/interfaces/home_repository.dart';
 import '../../../core/interfaces/watch_history_repository.dart';
@@ -35,13 +37,21 @@ class HomeController extends ChangeNotifier {
   HomeController({
     required this.repository,
     required this.watchHistoryRepository,
-  });
+  }) {
+    if (watchHistoryRepository case final Listenable listenable) {
+      _historyListenable = listenable;
+      listenable.addListener(_onHistoryChanged);
+    }
+  }
+
+  Listenable? _historyListenable;
 
   bool _isLoadingHistory = true;
   bool _isLoadingFeatured = true;
   bool _isLoadingRecommendations = true;
 
   bool _isFetchingHistory = false;
+  bool _historyRefreshPending = false;
   bool _isFetchingFeatured = false;
   bool _isFetchingRecommendations = false;
   final Set<String> _fetchingSections = {};
@@ -109,7 +119,17 @@ class HomeController extends ChangeNotifier {
   @override
   void dispose() {
     _isDisposed = true;
+    _historyListenable?.removeListener(_onHistoryChanged);
     super.dispose();
+  }
+
+  void _onHistoryChanged() {
+    if (_isDisposed) return;
+    if (_isFetchingHistory) {
+      _historyRefreshPending = true;
+      return;
+    }
+    unawaited(_loadHistory());
   }
 
   Future<void> loadAll() async {
@@ -173,6 +193,10 @@ class HomeController extends ChangeNotifier {
         _isLoadingHistory = false;
         _isFetchingHistory = false;
         notifyListeners();
+        if (_historyRefreshPending) {
+          _historyRefreshPending = false;
+          unawaited(_loadHistory());
+        }
       }
     }
   }
@@ -269,12 +293,7 @@ class HomeController extends ChangeNotifier {
   }
 
   bool _isIncompleteHistoryItem(Map<String, dynamic> item) {
-    if (item['isCompleted'] == true) return false;
-    final rawProgress = item['progressPercent'] ?? item['progress'];
-    final progress = rawProgress is num
-        ? rawProgress.toDouble()
-        : double.tryParse(rawProgress?.toString() ?? '') ?? 0;
-    return progress < 0.95;
+    return item['isCompleted'] != true;
   }
 
   String _sectionEndpoint(String sectionId) {

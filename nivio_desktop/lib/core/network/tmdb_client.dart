@@ -1,4 +1,8 @@
+import 'dart:io';
+
 import 'package:dio/dio.dart';
+import 'package:dio/io.dart';
+
 import '../errors/network_errors.dart';
 import '../constants/constants.dart';
 
@@ -6,17 +10,27 @@ class TmdbClient {
   final Dio _dio;
 
   TmdbClient({required String apiKey, String? baseUrl, Dio? dio})
-    : _dio =
-          dio ??
-          Dio(
-            BaseOptions(
-              baseUrl: baseUrl ?? tmdbBaseUrl,
-              connectTimeout: const Duration(seconds: 15),
-              receiveTimeout: const Duration(seconds: 15),
-              queryParameters: {'api_key': apiKey},
-              headers: {'User-Agent': 'NivioDesktop/1.0'},
-            ),
-          );
+    : _dio = dio ?? _createDio(apiKey: apiKey, baseUrl: baseUrl);
+
+  static Dio _createDio({required String apiKey, String? baseUrl}) {
+    final dio = Dio(
+      BaseOptions(
+        baseUrl: baseUrl ?? tmdbBaseUrl,
+        connectTimeout: const Duration(seconds: 15),
+        receiveTimeout: const Duration(seconds: 15),
+        queryParameters: {'api_key': apiKey},
+        headers: {'User-Agent': 'NivioDesktop/1.0'},
+      ),
+    );
+    dio.httpClientAdapter = IOHttpClientAdapter(
+      createHttpClient: () {
+        final client = HttpClient();
+        client.findProxy = (_) => 'DIRECT';
+        return client;
+      },
+    );
+    return dio;
+  }
 
   Future<Map<String, dynamic>> searchMovie(String query, {int page = 1}) async {
     try {

@@ -3,15 +3,23 @@ import 'package:flutter/material.dart';
 import '../../shared/theme/index.dart';
 import '../../shared/widgets/widgets.dart';
 import '../search/models/search_media_item.dart';
+import '../player/models/playback_request.dart';
+import '../player/playback_request_factory.dart';
 import 'controllers/movies_controller.dart';
 import 'models/movie_category.dart';
 import 'models/movie_genre.dart';
 
 class MoviesView extends StatefulWidget {
-  const MoviesView({super.key, required this.controller, this.onOpenDetail});
+  const MoviesView({
+    super.key,
+    required this.controller,
+    this.onOpenDetail,
+    this.onPlay,
+  });
 
   final MoviesController controller;
   final ValueChanged<String>? onOpenDetail;
+  final ValueChanged<PlaybackRequest>? onPlay;
 
   @override
   State<MoviesView> createState() => _MoviesViewState();
@@ -152,6 +160,7 @@ class _MoviesViewState extends State<MoviesView> {
           return _MovieGridCard(
             item: controller.movies[index],
             onOpenDetail: widget.onOpenDetail,
+            onPlay: widget.onPlay,
           );
         },
       ),
@@ -238,10 +247,11 @@ class _GenreSelector extends StatelessWidget {
 }
 
 class _MovieGridCard extends StatelessWidget {
-  const _MovieGridCard({required this.item, this.onOpenDetail});
+  const _MovieGridCard({required this.item, this.onOpenDetail, this.onPlay});
 
   final SearchMediaItem item;
   final ValueChanged<String>? onOpenDetail;
+  final ValueChanged<PlaybackRequest>? onPlay;
 
   @override
   Widget build(BuildContext context) {
@@ -252,7 +262,7 @@ class _MovieGridCard extends StatelessWidget {
       rating: item.rating > 0 ? item.ratingLabel : null,
       subtitle: item.mediaTypeLabel,
       onTap: () => onOpenDetail?.call(item.id),
-      onPlay: () => onOpenDetail?.call(item.id),
+      onPlay: () => onPlay?.call(PlaybackRequestFactory.fromSearchItem(item)),
       onMore: () => onOpenDetail?.call(item.id),
     );
   }

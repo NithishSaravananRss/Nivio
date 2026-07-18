@@ -1,10 +1,19 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:lucide_flutter/lucide_flutter.dart';
 
 import '../../shared/theme/index.dart';
 import '../../shared/widgets/widgets.dart';
 import '../../core/network/image/tmdb_image_builder.dart';
+import '../../core/interfaces/watch_history_repository.dart';
+import '../../shared/models/stream_result.dart';
 import '../library/services/watchlist_sync_controller.dart';
+import '../library/models/library_models.dart';
+import '../library/services/library_persistence.dart';
+import '../player/models/playback_request.dart';
+import '../player/playback_request_factory.dart';
 import 'models/detail_models.dart';
 import 'models/detail_route_args.dart';
 import 'controllers/detail_controller.dart';
@@ -16,12 +25,16 @@ class DetailView extends StatefulWidget {
     required this.controller,
     required this.onBack,
     required this.onOpenDetail,
+    required this.onPlay,
+    required this.watchHistoryRepository,
   });
 
   final DetailRouteArgs args;
   final DetailController controller;
   final VoidCallback onBack;
   final ValueChanged<String> onOpenDetail;
+  final ValueChanged<PlaybackRequest> onPlay;
+  final WatchHistoryRepository watchHistoryRepository;
 
   @override
   State<DetailView> createState() => _DetailViewState();
@@ -33,6 +46,8 @@ class _DetailViewState extends State<DetailView> {
       WatchlistSyncController.instance;
   DetailMedia? _media;
   double _watchProgress = 0;
+  int _selectedSeason = 1;
+  int _resumeEpisode = 1;
 
   @override
   void initState() {
@@ -40,6 +55,10 @@ class _DetailViewState extends State<DetailView> {
     _syncMedia();
     widget.controller.addListener(_onControllerChanged);
     _watchlistController.addListener(_onWatchlistChanged);
+    if (widget.watchHistoryRepository case final Listenable listenable) {
+      listenable.addListener(_onHistoryChanged);
+    }
+    unawaited(_syncWatchProgress());
   }
 
   @override
@@ -47,6 +66,16 @@ class _DetailViewState extends State<DetailView> {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.args != widget.args) {
       _syncMedia();
+      unawaited(_syncWatchProgress());
+    }
+    if (oldWidget.watchHistoryRepository != widget.watchHistoryRepository) {
+      if (oldWidget.watchHistoryRepository case final Listenable listenable) {
+        listenable.removeListener(_onHistoryChanged);
+      }
+      if (widget.watchHistoryRepository case final Listenable listenable) {
+        listenable.addListener(_onHistoryChanged);
+      }
+      unawaited(_syncWatchProgress());
     }
     if (oldWidget.controller != widget.controller) {
       oldWidget.controller.removeListener(_onControllerChanged);
@@ -58,6 +87,9 @@ class _DetailViewState extends State<DetailView> {
   void dispose() {
     widget.controller.removeListener(_onControllerChanged);
     _watchlistController.removeListener(_onWatchlistChanged);
+    if (widget.watchHistoryRepository case final Listenable listenable) {
+      listenable.removeListener(_onHistoryChanged);
+    }
     _scrollController.dispose();
     super.dispose();
   }
@@ -67,6 +99,36 @@ class _DetailViewState extends State<DetailView> {
     if (m != null) {
       _media = _withWatchlistState(m);
       _watchProgress = m.resumeProgress;
+      if (m.seasons.isNotEmpty) {
+        _selectedSeason = _firstPlayableSeason(m);
+      }
+    }
+  }
+
+  void _onHistoryChanged() => unawaited(_syncWatchProgress());
+
+  Future<void> _syncWatchProgress() async {
+    final history = await widget.watchHistoryRepository.getWatchProgress(
+      mediaId: widget.args.mediaId,
+      mediaType: widget.args.mediaType,
+    );
+    if (!mounted || history == null) return;
+    final position = (history['lastPositionSeconds'] as num?)?.toDouble() ?? 0;
+    final duration = (history['totalDurationSeconds'] as num?)?.toDouble() ?? 0;
+    final completed = history['isCompleted'] == true;
+    final season = (history['currentSeason'] as num?)?.toInt() ?? 1;
+    final episode = (history['currentEpisode'] as num?)?.toInt() ?? 1;
+    final shouldLoadSeason =
+        _media?.isSeries == true && _selectedSeason != season;
+    setState(() {
+      _watchProgress = completed || duration <= 0
+          ? 0
+          : (position / duration).clamp(0.0, 1.0);
+      _resumeEpisode = episode;
+      if (_media?.isSeries == true) _selectedSeason = season;
+    });
+    if (shouldLoadSeason) {
+      widget.controller.loadSeasonEpisodes(widget.args.mediaId, season);
     }
   }
 
@@ -75,8 +137,12 @@ class _DetailViewState extends State<DetailView> {
     if (m != null) {
       setState(() {
         _media = _withWatchlistState(m);
-        _watchProgress = m.resumeProgress;
+        if (m.seasons.isNotEmpty &&
+            !m.seasons.any((season) => season.number == _selectedSeason)) {
+          _selectedSeason = _firstPlayableSeason(m);
+        }
       });
+      unawaited(_syncWatchProgress());
     }
   }
 
@@ -94,6 +160,15 @@ class _DetailViewState extends State<DetailView> {
     return media.copyWith(
       isInWatchlist: _watchlistController.isInWatchlist(media.id),
     );
+  }
+
+  int _firstPlayableSeason(DetailMedia media) {
+    return media.seasons
+        .firstWhere(
+          (season) => season.number > 0,
+          orElse: () => media.seasons.first,
+        )
+        .number;
   }
 
   @override
@@ -229,8 +304,6 @@ class _DetailViewState extends State<DetailView> {
             ? _media!
             : _withWatchlistState(media);
         _media = displayMedia;
-        _watchProgress = displayMedia.resumeProgress;
-
         return Scaffold(
           backgroundColor: AppColors.background,
           body: Stack(
@@ -254,14 +327,48 @@ class _DetailViewState extends State<DetailView> {
                           media: displayMedia,
                           watchProgress: _watchProgress,
                           onAction: _showActionFeedback,
+                          onPlay: () => _playMedia(
+                            season: displayMedia.isSeries
+                                ? _selectedSeason
+                                : null,
+                            episode: displayMedia.isSeries
+                                ? _resumeEpisode
+                                : null,
+                          ),
                           onToggleWatchlist: _toggleWatchlist,
+                          onTrailer: _openTrailer,
+                          onShare: _shareMedia,
+                          onDownload: () => _queueDownload(displayMedia),
+                          onMoreLikeThis: _scrollToMoreLikeThis,
                         ),
                       ),
                       PageContainer(
-                        child: _DetailStoryFlow(
-                          media: displayMedia,
-                          crew: _getCrewList(displayMedia),
-                          onOpenDetail: widget.onOpenDetail,
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            if (displayMedia.isSeries)
+                              _EpisodePlaybackSection(
+                                media: displayMedia,
+                                controller: widget.controller,
+                                selectedSeason: _selectedSeason,
+                                onSeasonSelected: _selectSeason,
+                                onPlayEpisode: (episode) => _playMedia(
+                                  season: _selectedSeason,
+                                  episode: episode.number,
+                                ),
+                                onDownloadEpisode: (episode) => _queueDownload(
+                                  displayMedia,
+                                  season: _selectedSeason,
+                                  episode: episode.number,
+                                ),
+                              ),
+                            _DetailStoryFlow(
+                              media: displayMedia,
+                              crew: _getCrewList(displayMedia),
+                              onOpenDetail: widget.onOpenDetail,
+                              onPlay: widget.onPlay,
+                            ),
+                          ],
                         ),
                       ),
                     ],
@@ -306,6 +413,122 @@ class _DetailViewState extends State<DetailView> {
     _showActionFeedback(
       isInWatchlist ? 'Added to watchlist' : 'Removed from watchlist',
     );
+  }
+
+  Future<void> _shareMedia() async {
+    final media = _media;
+    if (media == null) return;
+    final type = media.mediaType.label.toLowerCase();
+    final deepLink = 'nivio://open/media/${media.id}?type=$type';
+    final text =
+        'Check out "${media.title}" on Nivio.\n\n${media.overview}\n\n$deepLink';
+    await Clipboard.setData(ClipboardData(text: text));
+    _showActionFeedback('Share link copied');
+  }
+
+  Future<void> _openTrailer() async {
+    final media = _media;
+    if (media == null || media.trailers.isEmpty) {
+      _showActionFeedback('Trailer unavailable');
+      return;
+    }
+    final url = 'https://www.youtube.com/watch?v=${media.trailers.first}';
+    final result = StreamResult(
+      url: url,
+      quality: 'Auto',
+      provider: 'YouTube Trailer',
+      isDirect: false,
+      isIframe: true,
+    );
+    widget.onPlay(
+      PlaybackRequest(
+        mediaId: 'trailer:${media.id}',
+        title: '${media.title} Trailer',
+        mediaType: media.mediaType == DetailMediaType.anime
+            ? PlaybackMediaType.anime
+            : PlaybackMediaType.movie,
+        posterPath: media.backdropPath ?? media.posterPath,
+        source: url,
+        streamResult: result,
+      ),
+    );
+  }
+
+  Future<void> _queueDownload(
+    DetailMedia media, {
+    int? season,
+    int? episode,
+  }) async {
+    await LibraryPersistence.init();
+    final id = _numericMediaId(media);
+    if (id == null) {
+      _showActionFeedback('Download unavailable for this title');
+      return;
+    }
+    final downloadId = [
+      media.mediaType.label.toLowerCase(),
+      id,
+      if (season != null) 's$season',
+      if (episode != null) 'e$episode',
+    ].join('_');
+    final title = episode == null
+        ? media.title
+        : '${media.title}|||S$season E$episode';
+    final existing = LibraryPersistence.downloadsBox.get(downloadId);
+    if (existing != null) {
+      _showActionFeedback('Already in downloads');
+      return;
+    }
+    await LibraryPersistence.downloadsBox.put(
+      downloadId,
+      LibraryDownloadItem(
+        id: downloadId,
+        mediaId: id,
+        title: title,
+        mediaType: media.mediaType.label.toLowerCase(),
+        savePath: '',
+        createdAt: DateTime.now(),
+        posterPath: media.posterPath,
+        season: season,
+        episode: episode,
+      ),
+    );
+    _showActionFeedback('Added to downloads');
+  }
+
+  void _scrollToMoreLikeThis() {
+    if (!_scrollController.hasClients) return;
+    _scrollController.animateTo(
+      _scrollController.position.maxScrollExtent,
+      duration: const Duration(milliseconds: 520),
+      curve: AppAnimation.emphasized,
+    );
+  }
+
+  int? _numericMediaId(DetailMedia media) {
+    final raw = media.id.contains(':') ? media.id.split(':').last : media.id;
+    return int.tryParse(raw);
+  }
+
+  void _playMedia({int? season, int? episode}) {
+    final media = _media;
+    if (media == null) return;
+    widget.onPlay(
+      PlaybackRequestFactory.fromDetail(
+        media,
+        season: season,
+        episode: episode,
+      ),
+    );
+  }
+
+  void _selectSeason(int season) {
+    setState(() {
+      _selectedSeason = season;
+      _resumeEpisode = 1;
+      _watchProgress = 0;
+    });
+    widget.controller.loadSeasonEpisodes(widget.args.mediaId, season);
   }
 
   void _showActionFeedback(String message) {
@@ -367,13 +590,23 @@ class _HeroDetailsContent extends StatelessWidget {
     required this.media,
     required this.watchProgress,
     required this.onAction,
+    required this.onPlay,
     required this.onToggleWatchlist,
+    required this.onTrailer,
+    required this.onShare,
+    required this.onDownload,
+    required this.onMoreLikeThis,
   });
 
   final DetailMedia media;
   final double watchProgress;
   final ValueChanged<String> onAction;
+  final VoidCallback onPlay;
   final VoidCallback onToggleWatchlist;
+  final VoidCallback onTrailer;
+  final VoidCallback onShare;
+  final VoidCallback onDownload;
+  final VoidCallback onMoreLikeThis;
 
   @override
   Widget build(BuildContext context) {
@@ -424,31 +657,39 @@ class _HeroDetailsContent extends StatelessWidget {
           runSpacing: AppSpacing.sm,
           children: [
             StreamingActionButton(
-              onTap: () => onAction('Starting playback...'),
+              onTap: onPlay,
               icon: Icons.play_arrow,
-              label: 'Play',
+              label: watchProgress > 0 ? 'Resume' : 'Play',
               type: StreamingActionButtonType.primary,
             ),
             StreamingActionButton(
               onTap: onToggleWatchlist,
-              icon: media.isInWatchlist ? Icons.check : Icons.add,
-              label: media.isInWatchlist ? 'In Watchlist' : 'Watchlist',
+              icon: media.isInWatchlist
+                  ? Icons.favorite
+                  : Icons.favorite_border,
+              label: media.isInWatchlist ? 'Favorite' : 'Favorite',
               type: StreamingActionButtonType.secondary,
             ),
             StreamingActionButton(
-              onTap: () => onAction('Opening trailer...'),
+              onTap: onTrailer,
               icon: Icons.movie_outlined,
               label: 'Trailer',
               type: StreamingActionButtonType.secondary,
             ),
             StreamingActionButton(
-              onTap: () => onAction('Downloading...'),
+              onTap: onMoreLikeThis,
+              icon: Icons.auto_awesome,
+              label: 'More Like This',
+              type: StreamingActionButtonType.secondary,
+            ),
+            StreamingActionButton(
+              onTap: onDownload,
               icon: Icons.download,
               tooltip: 'Download',
               type: StreamingActionButtonType.iconOnly,
             ),
             StreamingActionButton(
-              onTap: () => onAction('Link copied to clipboard!'),
+              onTap: onShare,
               icon: Icons.share,
               tooltip: 'Share',
               type: StreamingActionButtonType.iconOnly,
@@ -642,16 +883,365 @@ class _ExpandableSynopsisState extends State<_ExpandableSynopsis> {
   }
 }
 
+class _EpisodePlaybackSection extends StatefulWidget {
+  const _EpisodePlaybackSection({
+    required this.media,
+    required this.controller,
+    required this.selectedSeason,
+    required this.onSeasonSelected,
+    required this.onPlayEpisode,
+    required this.onDownloadEpisode,
+  });
+
+  final DetailMedia media;
+  final DetailController controller;
+  final int selectedSeason;
+  final ValueChanged<int> onSeasonSelected;
+  final ValueChanged<DetailEpisode> onPlayEpisode;
+  final ValueChanged<DetailEpisode> onDownloadEpisode;
+
+  @override
+  State<_EpisodePlaybackSection> createState() =>
+      _EpisodePlaybackSectionState();
+}
+
+class _EpisodePlaybackSectionState extends State<_EpisodePlaybackSection> {
+  final TextEditingController _searchController = TextEditingController();
+  String _query = '';
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final filtered = widget.controller.episodes
+        .where((episode) {
+          if (_query.isEmpty) return true;
+          final query = _query.toLowerCase();
+          return episode.title.toLowerCase().contains(query) ||
+              episode.overview.toLowerCase().contains(query) ||
+              episode.number.toString().contains(query);
+        })
+        .toList(growable: false);
+
+    return Padding(
+      padding: const EdgeInsets.only(top: AppSpacing.massive),
+      child: _EditorialSection(
+        title: 'Episodes',
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
+              children: [
+                if (widget.media.seasons.length > 1)
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                    decoration: BoxDecoration(
+                      color: AppColors.glassFill,
+                      borderRadius: BorderRadius.circular(999),
+                      border: Border.all(color: AppColors.borderSubtle),
+                    ),
+                    child: DropdownButtonHideUnderline(
+                      child: DropdownButton<int>(
+                        value: widget.selectedSeason,
+                        dropdownColor: AppColors.surface,
+                        borderRadius: BorderRadius.circular(AppRadius.medium),
+                        items: [
+                          for (final season in widget.media.seasons)
+                            DropdownMenuItem(
+                              value: season.number,
+                              child: Text(season.name),
+                            ),
+                        ],
+                        onChanged: (value) {
+                          if (value != null) {
+                            _searchController.clear();
+                            setState(() => _query = '');
+                            widget.onSeasonSelected(value);
+                          }
+                        },
+                      ),
+                    ),
+                  ),
+                const Spacer(),
+                SizedBox(
+                  width: 320,
+                  child: TextField(
+                    controller: _searchController,
+                    onChanged: (value) => setState(() => _query = value.trim()),
+                    style: const TextStyle(color: Colors.white, fontSize: 14),
+                    decoration: InputDecoration(
+                      hintText: 'Search episodes',
+                      hintStyle: const TextStyle(color: AppColors.textMuted),
+                      prefixIcon: const Icon(
+                        Icons.search,
+                        color: AppColors.textMuted,
+                        size: 20,
+                      ),
+                      suffixIcon: _query.isEmpty
+                          ? null
+                          : IconButton(
+                              onPressed: () {
+                                _searchController.clear();
+                                setState(() => _query = '');
+                              },
+                              icon: const Icon(Icons.close, size: 18),
+                            ),
+                      filled: true,
+                      fillColor: const Color(0x1FFFFFFF),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(999),
+                        borderSide: BorderSide.none,
+                      ),
+                      enabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(999),
+                        borderSide: const BorderSide(color: Color(0x26FFFFFF)),
+                      ),
+                      focusedBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(999),
+                        borderSide: const BorderSide(color: AppColors.primary),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: AppSpacing.lg),
+            if (widget.controller.isLoadingEpisodes)
+              const Padding(
+                padding: EdgeInsets.symmetric(vertical: AppSpacing.xl),
+                child: Center(
+                  child: CircularProgressIndicator(color: AppColors.primary),
+                ),
+              )
+            else if (widget.controller.episodesError != null)
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: AppSpacing.md),
+                child: Text(
+                  'Episodes unavailable: ${widget.controller.episodesError}',
+                  style: AppTypography.caption.copyWith(
+                    color: AppColors.danger,
+                  ),
+                ),
+              )
+            else if (filtered.isEmpty)
+              Padding(
+                padding: const EdgeInsets.all(32),
+                child: Center(
+                  child: Column(
+                    children: [
+                      const Icon(
+                        Icons.search_off,
+                        color: AppColors.textMuted,
+                        size: 48,
+                      ),
+                      const SizedBox(height: 12),
+                      Text(
+                        'No episodes match "$_query"',
+                        style: AppTypography.body.copyWith(
+                          color: AppColors.textMuted,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              )
+            else
+              for (final episode in filtered)
+                _EpisodeCard(
+                  media: widget.media,
+                  episode: episode,
+                  onPlay: () => widget.onPlayEpisode(episode),
+                  onDownload: () => widget.onDownloadEpisode(episode),
+                ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _EpisodeCard extends StatelessWidget {
+  const _EpisodeCard({
+    required this.media,
+    required this.episode,
+    required this.onPlay,
+    required this.onDownload,
+  });
+
+  final DetailMedia media;
+  final DetailEpisode episode;
+  final VoidCallback onPlay;
+  final VoidCallback onDownload;
+
+  @override
+  Widget build(BuildContext context) {
+    final still = episode.stillPath ?? media.backdropPath ?? media.posterPath;
+    final stillUrl = TmdbImageBuilder.still(still, size: 'w300');
+    final isCurrent = episode.progress > 0 && episode.progress < 0.95;
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      decoration: BoxDecoration(
+        color: isCurrent
+            ? AppColors.primary.withValues(alpha: 0.13)
+            : const Color(0x14FFFFFF),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: isCurrent ? AppColors.primary : AppColors.borderSubtle,
+          width: isCurrent ? 1.5 : 1,
+        ),
+      ),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(12),
+        onTap: onPlay,
+        child: Padding(
+          padding: const EdgeInsets.all(10),
+          child: Row(
+            children: [
+              ClipRRect(
+                borderRadius: BorderRadius.circular(8),
+                child: SizedBox(
+                  width: 148,
+                  height: 84,
+                  child: Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      if (stillUrl.isNotEmpty)
+                        Image.network(
+                          stillUrl,
+                          fit: BoxFit.cover,
+                          errorBuilder: (_, _, _) =>
+                              const ColoredBox(color: AppColors.surfaceVariant),
+                        )
+                      else
+                        const ColoredBox(color: AppColors.surfaceVariant),
+                      Center(
+                        child: Container(
+                          width: 38,
+                          height: 38,
+                          decoration: BoxDecoration(
+                            color: Colors.black.withValues(alpha: 0.62),
+                            shape: BoxShape.circle,
+                          ),
+                          child: Icon(
+                            isCurrent ? Icons.equalizer : Icons.play_arrow,
+                            color: isCurrent ? AppColors.primary : Colors.white,
+                            size: 22,
+                          ),
+                        ),
+                      ),
+                      if (episode.progress > 0)
+                        Positioned(
+                          left: 0,
+                          right: 0,
+                          bottom: 0,
+                          child: LinearProgressIndicator(
+                            value: episode.progress.clamp(0, 1),
+                            color: AppColors.primary,
+                            backgroundColor: Colors.white24,
+                            minHeight: 3,
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        if (isCurrent) ...[
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 6,
+                              vertical: 2,
+                            ),
+                            decoration: BoxDecoration(
+                              color: AppColors.primary,
+                              borderRadius: BorderRadius.circular(3),
+                            ),
+                            child: const Text(
+                              'NOW',
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontSize: 9,
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 6),
+                        ],
+                        Expanded(
+                          child: Text(
+                            'E${episode.number} - ${episode.title}',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: AppTypography.body.copyWith(
+                              color: isCurrent
+                                  ? AppColors.primary
+                                  : AppColors.textPrimary,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 4),
+                    if (episode.runtime.isNotEmpty)
+                      Text(
+                        episode.runtime,
+                        style: AppTypography.caption.copyWith(
+                          color: AppColors.textMuted,
+                        ),
+                      ),
+                    if (episode.overview.isNotEmpty) ...[
+                      const SizedBox(height: 4),
+                      Text(
+                        episode.overview,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: AppTypography.caption.copyWith(
+                          color: AppColors.textMuted,
+                          height: 1.35,
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              IconButton(
+                tooltip: 'Download episode ${episode.number}',
+                onPressed: onDownload,
+                icon: const Icon(Icons.download_rounded),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class _DetailStoryFlow extends StatelessWidget {
   const _DetailStoryFlow({
     required this.media,
     required this.crew,
     required this.onOpenDetail,
+    required this.onPlay,
   });
 
   final DetailMedia media;
   final List<DetailPerson> crew;
   final ValueChanged<String> onOpenDetail;
+  final ValueChanged<PlaybackRequest> onPlay;
 
   @override
   Widget build(BuildContext context) {
@@ -708,7 +1298,9 @@ class _DetailStoryFlow extends StatelessWidget {
                   rating: item.rating,
                   subtitle: item.subtitle,
                   onTap: () => onOpenDetail(item.id),
-                  onPlay: () => onOpenDetail(item.id),
+                  onPlay: () => onPlay(
+                    PlaybackRequestFactory.fromCompositeId(item.id, item.title),
+                  ),
                   onMore: () => onOpenDetail(item.id),
                 );
               },

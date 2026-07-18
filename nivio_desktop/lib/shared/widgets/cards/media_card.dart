@@ -19,6 +19,7 @@ class MediaCard extends StatelessWidget {
     this.onWatchlist,
     this.isInWatchlist = false,
     this.onMore,
+    this.progress,
   });
 
   final String title;
@@ -32,6 +33,7 @@ class MediaCard extends StatelessWidget {
   final VoidCallback? onWatchlist;
   final bool isInWatchlist;
   final VoidCallback? onMore;
+  final double? progress;
 
   @override
   Widget build(BuildContext context) {
@@ -115,6 +117,24 @@ class MediaCard extends StatelessWidget {
                     ),
                   ),
                 ),
+
+                if (progress != null && progress! > 0)
+                  Positioned(
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                    child: ClipRRect(
+                      borderRadius: const BorderRadius.vertical(
+                        bottom: Radius.circular(AppRadius.large),
+                      ),
+                      child: LinearProgressIndicator(
+                        minHeight: 4,
+                        value: progress!.clamp(0.0, 1.0),
+                        backgroundColor: Colors.white24,
+                        color: AppColors.primary,
+                      ),
+                    ),
+                  ),
 
                 // Text Content & Badges (Always visible at the bottom)
                 Positioned(

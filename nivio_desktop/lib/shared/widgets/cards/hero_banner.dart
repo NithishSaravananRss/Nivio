@@ -37,7 +37,8 @@ class HeroBanner extends StatelessWidget {
     final posterImage = item.posterPath != null && item.posterPath!.isNotEmpty
         ? NetworkImage(TmdbImageBuilder.poster(item.posterPath))
         : null;
-    final backdropImage = item.backdropPath != null && item.backdropPath!.isNotEmpty
+    final backdropImage =
+        item.backdropPath != null && item.backdropPath!.isNotEmpty
         ? NetworkImage(TmdbImageBuilder.backdrop(item.backdropPath))
         : null;
 
@@ -84,27 +85,35 @@ class HeroBanner extends StatelessWidget {
                     child: AnimatedFadeContainer(
                       visible: true,
                       child: stacked
-                          ? Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                _PosterTile(
-                                  label: title,
-                                  imageProvider: posterImage,
-                                ),
-                                const SizedBox(height: AppSpacing.xxl),
-                                _HeroCopy(
-                                  title: title,
-                                  overview: overview,
-                                  rating: rating,
-                                  year: year,
-                                  runtime: null,
-                                  genres: genres,
-                                  primaryActionLabel: primaryActionLabel,
-                                  secondaryActionLabel: secondaryActionLabel,
-                                  onPrimaryAction: onPrimaryAction,
-                                  onSecondaryAction: onSecondaryAction,
-                                ),
-                              ],
+                          ? SingleChildScrollView(
+                              physics: const ClampingScrollPhysics(),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  ConstrainedBox(
+                                    constraints: const BoxConstraints(
+                                      maxWidth: 220,
+                                    ),
+                                    child: _PosterTile(
+                                      label: title,
+                                      imageProvider: posterImage,
+                                    ),
+                                  ),
+                                  const SizedBox(height: AppSpacing.xxl),
+                                  _HeroCopy(
+                                    title: title,
+                                    overview: overview,
+                                    rating: rating,
+                                    year: year,
+                                    runtime: null,
+                                    genres: genres,
+                                    primaryActionLabel: primaryActionLabel,
+                                    secondaryActionLabel: secondaryActionLabel,
+                                    onPrimaryAction: onPrimaryAction,
+                                    onSecondaryAction: onSecondaryAction,
+                                  ),
+                                ],
+                              ),
                             )
                           : Row(
                               children: [
@@ -128,9 +137,15 @@ class HeroBanner extends StatelessWidget {
                                   flex: 3,
                                   child: Align(
                                     alignment: Alignment.centerRight,
-                                    child: _PosterTile(
-                                      label: title,
-                                      imageProvider: posterImage,
+                                    child: ConstrainedBox(
+                                      constraints: const BoxConstraints(
+                                        maxHeight: 360,
+                                        maxWidth: 240,
+                                      ),
+                                      child: _PosterTile(
+                                        label: title,
+                                        imageProvider: posterImage,
+                                      ),
                                     ),
                                   ),
                                 ),
@@ -178,7 +193,10 @@ class _Backdrop extends StatelessWidget {
       child: Center(
         child: Opacity(
           opacity: 0.16,
-          child: Text(label, style: AppTypography.display.copyWith(fontSize: 72)),
+          child: Text(
+            label,
+            style: AppTypography.display.copyWith(fontSize: 72),
+          ),
         ),
       ),
     );
@@ -210,7 +228,8 @@ class _PosterTile extends StatelessWidget {
                     ? Image(
                         image: imageProvider!,
                         fit: BoxFit.cover,
-                        errorBuilder: (context, error, stackTrace) => _buildFallback(),
+                        errorBuilder: (context, error, stackTrace) =>
+                            _buildFallback(),
                       )
                     : _buildFallback(),
               ),
@@ -246,7 +265,10 @@ class _PosterTile extends StatelessWidget {
         child: Text(
           label,
           textAlign: TextAlign.center,
-          style: AppTypography.sectionTitle.copyWith(fontSize: 24, color: AppColors.textMuted),
+          style: AppTypography.sectionTitle.copyWith(
+            fontSize: 24,
+            color: AppColors.textMuted,
+          ),
         ),
       ),
     );
@@ -280,39 +302,69 @@ class _HeroCopy extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      mainAxisAlignment: MainAxisAlignment.end,
-      children: [
-        Text(title, style: AppTypography.display.copyWith(fontSize: 34)),
-        const SizedBox(height: AppSpacing.sm),
-        Wrap(
-          spacing: AppSpacing.sm,
-          runSpacing: AppSpacing.sm,
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final compact =
+            constraints.maxHeight.isFinite && constraints.maxHeight < 300;
+        final titleSize = compact ? 28.0 : 34.0;
+        final overviewLines = compact ? 2 : 4;
+
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisAlignment: MainAxisAlignment.end,
+          mainAxisSize: MainAxisSize.min,
           children: [
-            if (rating != null) MetadataBadge(label: rating!),
-            if (year != null) MetadataBadge(label: year!),
-            if (runtime != null) MetadataBadge(label: runtime!),
+            Text(
+              title,
+              maxLines: compact ? 2 : 3,
+              overflow: TextOverflow.ellipsis,
+              style: AppTypography.display.copyWith(fontSize: titleSize),
+            ),
+            const SizedBox(height: AppSpacing.sm),
+            Wrap(
+              spacing: AppSpacing.sm,
+              runSpacing: AppSpacing.sm,
+              children: [
+                if (rating != null) MetadataBadge(label: rating!),
+                if (year != null) MetadataBadge(label: year!),
+                if (runtime != null) MetadataBadge(label: runtime!),
+              ],
+            ),
+            if (genres.isNotEmpty) ...[
+              const SizedBox(height: AppSpacing.sm),
+              Wrap(
+                spacing: AppSpacing.sm,
+                runSpacing: AppSpacing.sm,
+                children: genres.take(compact ? 4 : genres.length).map((genre) {
+                  return GenreChip(label: genre);
+                }).toList(),
+              ),
+            ],
+            const SizedBox(height: AppSpacing.lg),
+            Text(
+              overview,
+              maxLines: overviewLines,
+              overflow: TextOverflow.ellipsis,
+              style: AppTypography.body.copyWith(fontSize: 15),
+            ),
+            const SizedBox(height: AppSpacing.xl),
+            Wrap(
+              spacing: AppSpacing.sm,
+              runSpacing: AppSpacing.sm,
+              children: [
+                PrimaryButton(
+                  label: primaryActionLabel ?? 'Play',
+                  onPressed: onPrimaryAction,
+                ),
+                SecondaryButton(
+                  label: secondaryActionLabel ?? 'More Info',
+                  onPressed: onSecondaryAction,
+                ),
+              ],
+            ),
           ],
-        ),
-        const SizedBox(height: AppSpacing.sm),
-        Wrap(
-          spacing: AppSpacing.sm,
-          runSpacing: AppSpacing.sm,
-          children: genres.map((genre) => GenreChip(label: genre)).toList(),
-        ),
-        const SizedBox(height: AppSpacing.lg),
-        Text(overview, maxLines: 4, overflow: TextOverflow.ellipsis, style: AppTypography.body.copyWith(fontSize: 15)),
-        const SizedBox(height: AppSpacing.xl),
-        Wrap(
-          spacing: AppSpacing.sm,
-          runSpacing: AppSpacing.sm,
-          children: [
-            PrimaryButton(label: primaryActionLabel ?? 'Play', onPressed: onPrimaryAction),
-            SecondaryButton(label: secondaryActionLabel ?? 'More Info', onPressed: onSecondaryAction),
-          ],
-        ),
-      ],
+        );
+      },
     );
   }
 }

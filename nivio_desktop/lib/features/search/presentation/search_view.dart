@@ -5,6 +5,8 @@ import 'package:flutter/material.dart' hide SearchController;
 import '../../../shared/theme/index.dart';
 import '../../../shared/widgets/widgets.dart';
 import '../../library/services/watchlist_sync_controller.dart';
+import '../../player/models/playback_request.dart';
+import '../../player/playback_request_factory.dart';
 import '../controllers/search_controller.dart';
 import '../models/search_media_item.dart';
 import '../widgets/search_filter_panel.dart';
@@ -17,12 +19,14 @@ class SearchView extends StatefulWidget {
     required this.queryController,
     required this.searchFocusNode,
     this.onOpenDetail,
+    this.onPlay,
   });
 
   final SearchController controller;
   final TextEditingController queryController;
   final FocusNode searchFocusNode;
   final ValueChanged<String>? onOpenDetail;
+  final ValueChanged<PlaybackRequest>? onPlay;
 
   @override
   State<SearchView> createState() => _SearchViewState();
@@ -151,6 +155,7 @@ class _SearchViewState extends State<SearchView> {
                                       scrollController:
                                           _resultsScrollController,
                                       onOpenDetail: widget.onOpenDetail,
+                                      onPlay: widget.onPlay,
                                     ),
                                   ),
                                 ],
@@ -235,11 +240,13 @@ class _SearchResultsPane extends StatelessWidget {
     required this.controller,
     required this.scrollController,
     this.onOpenDetail,
+    this.onPlay,
   });
 
   final SearchController controller;
   final ScrollController scrollController;
   final ValueChanged<String>? onOpenDetail;
+  final ValueChanged<PlaybackRequest>? onPlay;
 
   @override
   Widget build(BuildContext context) {
@@ -327,6 +334,7 @@ class _SearchResultsPane extends StatelessWidget {
             return _SearchResultListItem(
               item: controller.results[index],
               onOpenDetail: onOpenDetail,
+              onPlay: onPlay,
             );
           },
         ),
@@ -347,6 +355,7 @@ class _SearchResultsPane extends StatelessWidget {
           return _SearchResultPosterCard(
             item: controller.results[index],
             onOpenDetail: onOpenDetail,
+            onPlay: onPlay,
           );
         },
       ),
@@ -355,10 +364,15 @@ class _SearchResultsPane extends StatelessWidget {
 }
 
 class _SearchResultPosterCard extends StatelessWidget {
-  const _SearchResultPosterCard({required this.item, this.onOpenDetail});
+  const _SearchResultPosterCard({
+    required this.item,
+    this.onOpenDetail,
+    this.onPlay,
+  });
 
   final SearchMediaItem item;
   final ValueChanged<String>? onOpenDetail;
+  final ValueChanged<PlaybackRequest>? onPlay;
 
   @override
   Widget build(BuildContext context) {
@@ -375,7 +389,8 @@ class _SearchResultPosterCard extends StatelessWidget {
               '${item.mediaTypeLabel} · ${item.languageLabel} · ${item.provider}',
           posterPath: item.posterPath,
           onTap: () => onOpenDetail?.call(item.id),
-          onPlay: () => onOpenDetail?.call(item.id),
+          onPlay: () =>
+              onPlay?.call(PlaybackRequestFactory.fromSearchItem(item)),
           isInWatchlist: isInWatchlist,
           onWatchlist: () => watchlist.toggleSearchItem(item),
           onMore: () => onOpenDetail?.call(item.id),
@@ -386,10 +401,15 @@ class _SearchResultPosterCard extends StatelessWidget {
 }
 
 class _SearchResultListItem extends StatelessWidget {
-  const _SearchResultListItem({required this.item, this.onOpenDetail});
+  const _SearchResultListItem({
+    required this.item,
+    this.onOpenDetail,
+    this.onPlay,
+  });
 
   final SearchMediaItem item;
   final ValueChanged<String>? onOpenDetail;
+  final ValueChanged<PlaybackRequest>? onPlay;
 
   @override
   Widget build(BuildContext context) {
@@ -412,9 +432,11 @@ class _SearchResultListItem extends StatelessWidget {
               '${item.title}, ${item.yearLabel}, ${item.ratingLabel} rating, ${item.languageLabel}, ${item.provider}',
           onTap: () => onOpenDetail?.call(item.id),
           onSecondaryTap: () => onOpenDetail?.call(item.id),
-          onDoubleTap: () => onOpenDetail?.call(item.id),
+          onDoubleTap: () =>
+              onPlay?.call(PlaybackRequestFactory.fromSearchItem(item)),
           isInWatchlist: isInWatchlist,
           onWatchlist: () => watchlist.toggleSearchItem(item),
+          onMore: () => onOpenDetail?.call(item.id),
         );
       },
     );
