@@ -459,6 +459,72 @@ class DesktopStreamingService implements StreamResolver {
     return result;
   }
 
+  Future<StreamResult> resolveDownloadable(
+    PlaybackRequest request, {
+    StreamResolutionStatus? onStatus,
+  }) async {
+    if (request.numericMediaId == null) {
+      throw const StreamResolutionException(
+        'The selected media has an invalid identifier.',
+        canRetry: false,
+      );
+    }
+
+    _lastFailure = null;
+    final providers = _registry.providersFor(request);
+    final allSources = (await _registry.sourcesFor(request))
+        .where((source) => source.directMedia && !source.iframeOnly)
+        .toList(growable: false);
+    if (allSources.isEmpty) {
+      throw const StreamResolutionException(
+        'No downloadable providers are available for this media.',
+        canRetry: false,
+      );
+    }
+    final requestedIndex = request.providerIndex;
+    final sources = requestedIndex == null
+        ? allSources
+        : allSources
+              .where((source) => source.index == requestedIndex)
+              .toList(growable: false);
+    if (sources.isEmpty) {
+      throw const StreamResolutionException(
+        'Selected server is not downloadable.',
+        canRetry: false,
+      );
+    }
+
+    for (final source in sources) {
+      final provider = providers
+          .where((provider) => provider.metadata.id == source.providerId)
+          .firstOrNull;
+      if (provider == null ||
+          !provider.capabilities.download ||
+          !provider.capabilities.directMedia) {
+        continue;
+      }
+
+      onStatus?.call('Preparing ${source.label} download...');
+      final resolution = await provider
+          .resolve(request, source: source)
+          .timeout(const Duration(seconds: 25), onTimeout: () => null);
+      final result = resolution?.result;
+      if (result == null || result.isIframe) {
+        _lastFailure =
+            '${source.provider} / ${source.server} returned no direct stream.';
+        continue;
+      }
+
+      final playable = await _selectPlayableSource(result, source);
+      if (playable != null) return playable;
+    }
+
+    throw StreamResolutionException(
+      _lastFailure ??
+          'No downloadable stream is currently available from the configured providers.',
+    );
+  }
+
   Future<StreamResult> _resolveRegistered(
     PlaybackRequest request,
     StreamResolutionStatus? onStatus,

@@ -75,6 +75,56 @@ class FakeAnimeProvider implements AnimeStreamProvider {
   }
 }
 
+class FakeRegisteredProvider implements RegisteredStreamProvider {
+  FakeRegisteredProvider({
+    required this.metadata,
+    required this.capabilities,
+    required this.source,
+    required this.result,
+  });
+
+  @override
+  final StreamProviderMetadata metadata;
+
+  @override
+  final StreamProviderCapabilities capabilities;
+
+  final PlaybackSourceOption source;
+  final StreamResult? result;
+  int resolveCount = 0;
+
+  @override
+  Future<List<PlaybackSourceOption>> enumerateServers(
+    PlaybackRequest request,
+  ) async {
+    return [source];
+  }
+
+  @override
+  Map<String, String> requestHeaders(PlaybackRequest request) => const {};
+
+  @override
+  Future<StreamResolution?> resolve(
+    PlaybackRequest request, {
+    required PlaybackSourceOption source,
+  }) async {
+    resolveCount++;
+    if (result == null) return null;
+    return StreamResolution(
+      result: result!,
+      diagnostics: StreamProviderDiagnostics(
+        providerId: metadata.id,
+        providerName: metadata.displayName,
+        server: source.server,
+        capabilities: capabilities,
+      ),
+    );
+  }
+
+  @override
+  bool supports(PlaybackRequest request) => true;
+}
+
 class FakeStreamResolver implements StreamResolver {
   PlaybackRequest? request;
   final List<PlaybackRequest> requests = [];
@@ -423,6 +473,156 @@ void main() {
         );
       },
     );
+
+    test('download resolver skips iframe-only providers', () async {
+      final direct = FakeRegisteredProvider(
+        metadata: const StreamProviderMetadata(
+          id: 'direct',
+          displayName: 'Direct',
+          priority: 0,
+          kind: StreamProviderKind.direct,
+          supportedMediaTypes: {PlaybackMediaType.movie},
+        ),
+        capabilities: const StreamProviderCapabilities(
+          directMedia: true,
+          iframe: false,
+          hls: true,
+          download: true,
+        ),
+        source: const PlaybackSourceOption(
+          index: 0,
+          provider: 'Direct',
+          server: 'Primary',
+          providerId: 'direct',
+          directMedia: true,
+          iframeOnly: false,
+        ),
+        result: StreamResult(
+          url: 'https://example.com/direct.m3u8',
+          quality: 'auto',
+          provider: 'Direct',
+          isM3U8: true,
+        ),
+      );
+      final iframe = FakeRegisteredProvider(
+        metadata: const StreamProviderMetadata(
+          id: 'iframe',
+          displayName: 'Iframe',
+          priority: 10,
+          kind: StreamProviderKind.iframe,
+          supportedMediaTypes: {PlaybackMediaType.movie},
+        ),
+        capabilities: const StreamProviderCapabilities(
+          directMedia: false,
+          iframe: true,
+          download: false,
+        ),
+        source: const PlaybackSourceOption(
+          index: 1,
+          provider: 'Iframe',
+          server: 'Iframe',
+          providerId: 'iframe',
+          directMedia: false,
+          iframeOnly: true,
+        ),
+        result: StreamResult(
+          url: 'https://example.com/embed',
+          quality: 'auto',
+          provider: 'Iframe',
+          isDirect: false,
+          isIframe: true,
+        ),
+      );
+      final service = DesktopStreamingService(
+        providerRegistry: ProviderRegistry([direct, iframe]),
+        healthChecker: FakeHealthChecker((url) => url.contains('direct')),
+      );
+      const request = PlaybackRequest(
+        mediaId: 'movie:550',
+        title: 'Movie',
+        mediaType: PlaybackMediaType.movie,
+      );
+
+      final result = await service.resolveDownloadable(request);
+
+      expect(result.provider, 'Direct');
+      expect(result.isIframe, isFalse);
+      expect(direct.resolveCount, 1);
+      expect(iframe.resolveCount, 0);
+    });
+
+    test('download resolver respects selected downloadable server', () async {
+      final first = FakeRegisteredProvider(
+        metadata: const StreamProviderMetadata(
+          id: 'first',
+          displayName: 'First',
+          priority: 0,
+          kind: StreamProviderKind.direct,
+          supportedMediaTypes: {PlaybackMediaType.movie},
+        ),
+        capabilities: const StreamProviderCapabilities(
+          directMedia: true,
+          iframe: false,
+          hls: true,
+          download: true,
+        ),
+        source: const PlaybackSourceOption(
+          index: 0,
+          provider: 'First',
+          server: 'Primary',
+          providerId: 'first',
+        ),
+        result: StreamResult(
+          url: 'https://example.com/first.m3u8',
+          quality: 'auto',
+          provider: 'First',
+          isM3U8: true,
+        ),
+      );
+      final second = FakeRegisteredProvider(
+        metadata: const StreamProviderMetadata(
+          id: 'second',
+          displayName: 'Second',
+          priority: 10,
+          kind: StreamProviderKind.direct,
+          supportedMediaTypes: {PlaybackMediaType.movie},
+        ),
+        capabilities: const StreamProviderCapabilities(
+          directMedia: true,
+          iframe: false,
+          hls: true,
+          download: true,
+        ),
+        source: const PlaybackSourceOption(
+          index: 1,
+          provider: 'Second',
+          server: 'Backup',
+          providerId: 'second',
+        ),
+        result: StreamResult(
+          url: 'https://example.com/second.m3u8',
+          quality: 'auto',
+          provider: 'Second',
+          isM3U8: true,
+        ),
+      );
+      final service = DesktopStreamingService(
+        providerRegistry: ProviderRegistry([first, second]),
+        healthChecker: FakeHealthChecker((_) => true),
+      );
+      const request = PlaybackRequest(
+        mediaId: 'movie:550',
+        title: 'Movie',
+        mediaType: PlaybackMediaType.movie,
+        providerIndex: 1,
+      );
+
+      final result = await service.resolveDownloadable(request);
+
+      expect(result.provider, 'Second');
+      expect(first.resolveCount, 0);
+      expect(second.resolveCount, 1);
+    });
 
     test('opens and classifies a direct HLS/IPTV source', () async {
       final health = FakeHealthChecker((_) => true);

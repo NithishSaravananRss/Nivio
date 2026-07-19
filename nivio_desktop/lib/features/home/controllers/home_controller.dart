@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../../../core/interfaces/home_repository.dart';
 import '../../../core/interfaces/watch_history_repository.dart';
 import '../../search/models/search_media_item.dart';
@@ -73,8 +74,11 @@ class HomeController extends ChangeNotifier {
   final Map<String, HomeSectionState> _sections = {
     for (final id in sectionOrder) id: const HomeSectionState(),
   };
+  List<String> _sectionOrder = List.of(sectionOrder);
   List<SearchMediaItem> _featuredItems = [];
   List<SearchMediaItem> _recommendations = [];
+
+  static const homeSectionOrderKey = 'homeSectionOrder';
 
   static const sectionOrder = [
     'popular_movies',
@@ -107,6 +111,7 @@ class HomeController extends ChangeNotifier {
   };
 
   Map<String, HomeSectionState> get sections => Map.unmodifiable(_sections);
+  List<String> get visibleSectionOrder => List.unmodifiable(_sectionOrder);
   List<SearchMediaItem> get featuredItems => _featuredItems;
   List<SearchMediaItem> get recommendations => _recommendations;
   List<Map<String, dynamic>> get watchHistory => _watchHistory;
@@ -133,11 +138,55 @@ class HomeController extends ChangeNotifier {
   }
 
   Future<void> loadAll() async {
+    unawaited(reloadHomeLayoutOrder());
     _loadHistory();
     _loadFeatured();
-    for (final sectionId in sectionOrder) {
+    for (final sectionId in _sectionOrder) {
       _loadSection(sectionId);
     }
+  }
+
+  Future<void> reloadHomeLayoutOrder({bool notify = true}) async {
+    List<String>? savedOrder;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      savedOrder = prefs.getStringList(homeSectionOrderKey);
+    } catch (_) {
+      savedOrder = null;
+    }
+    final nextOrder = normalizeSectionOrder(savedOrder);
+    for (final sectionId in nextOrder) {
+      _sections.putIfAbsent(sectionId, () => const HomeSectionState());
+    }
+    _sectionOrder = nextOrder;
+    if (!_isDisposed && notify) notifyListeners();
+  }
+
+  Future<void> updateHomeLayoutOrder(List<String> nextOrder) async {
+    final normalized = normalizeSectionOrder(nextOrder);
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setStringList(homeSectionOrderKey, normalized);
+    _sectionOrder = normalized;
+    for (final sectionId in normalized) {
+      _sections.putIfAbsent(sectionId, () => const HomeSectionState());
+      final section = _sections[sectionId];
+      if (section == null || section.items.isEmpty && !section.isLoading) {
+        unawaited(_loadSection(sectionId));
+      }
+    }
+    if (!_isDisposed) notifyListeners();
+  }
+
+  static List<String> normalizeSectionOrder(List<String>? savedOrder) {
+    final validIds = sectionOrder.toSet();
+    final ordered = <String>[];
+    for (final id in savedOrder ?? const <String>[]) {
+      if (validIds.contains(id) && !ordered.contains(id)) ordered.add(id);
+    }
+    for (final id in sectionOrder) {
+      if (!ordered.contains(id)) ordered.add(id);
+    }
+    return ordered;
   }
 
   Future<void> _loadFeatured() async {

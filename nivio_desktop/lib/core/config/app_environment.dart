@@ -54,6 +54,12 @@ class AppEnvironment {
   static String get imageProxyUrl =>
       _trimTrailingSlash(_require('IMAGE_PROXY_URL'));
   static String get logLevel => _require('LOG_LEVEL');
+  static String get desktopUpdateRepoOwner =>
+      _optional('DESKTOP_UPDATE_REPO_OWNER');
+  static String get desktopUpdateRepoName =>
+      _optional('DESKTOP_UPDATE_REPO_NAME');
+  static String get desktopUpdateAssetPattern =>
+      _optional('DESKTOP_UPDATE_ASSET_PATTERN');
 
   static String _require(String key) {
     final value = _value(key).trim();

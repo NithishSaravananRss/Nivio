@@ -24,6 +24,7 @@ void main() {
     expect(find.text('Home'), findsOneWidget);
     expect(find.text('Search'), findsOneWidget);
     expect(find.text('Library'), findsOneWidget);
+    expect(find.text('Providers'), findsNothing);
     expect(find.text('Live TV'), findsOneWidget);
     expect(find.text('Party'), findsOneWidget);
     expect(find.text('Profile'), findsOneWidget);

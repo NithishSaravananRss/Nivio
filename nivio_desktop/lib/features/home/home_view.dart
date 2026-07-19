@@ -9,6 +9,7 @@ import '../../shared/widgets/widgets.dart';
 import '../library/services/watchlist_sync_controller.dart';
 import '../player/models/playback_request.dart';
 import '../player/playback_request_factory.dart';
+import '../providers/models/provider_models.dart';
 import '../search/models/search_media_item.dart';
 import 'controllers/home_controller.dart';
 
@@ -18,11 +19,15 @@ class HomeView extends StatefulWidget {
     required this.controller,
     this.onOpenDetail,
     this.onPlay,
+    this.onOpenAllProviders,
+    this.onOpenProvider,
   });
 
   final HomeController controller;
   final ValueChanged<String>? onOpenDetail;
   final ValueChanged<PlaybackRequest>? onPlay;
+  final VoidCallback? onOpenAllProviders;
+  final ValueChanged<StreamingProviderItem>? onOpenProvider;
 
   @override
   State<HomeView> createState() => _HomeViewState();
@@ -264,7 +269,12 @@ class _HomeViewState extends State<HomeView> {
                   ),
 
                   // 3. Providers
-                  const SectionPadding(child: _ProvidersSection()),
+                  SectionPadding(
+                    child: _ProvidersSection(
+                      onOpenAllProviders: widget.onOpenAllProviders,
+                      onOpenProvider: widget.onOpenProvider,
+                    ),
+                  ),
 
                   // 4. Recommended for You (hidden if history/recommendations are empty)
                   SectionPadding(
@@ -280,7 +290,7 @@ class _HomeViewState extends State<HomeView> {
                     ),
                   ),
 
-                  for (final sectionId in HomeController.sectionOrder)
+                  for (final sectionId in ctrl.visibleSectionOrder)
                     SectionPadding(
                       child: _MediaSection(
                         title:
@@ -532,7 +542,10 @@ class _SectionStatus extends StatelessWidget {
 }
 
 class _ProvidersSection extends StatelessWidget {
-  const _ProvidersSection();
+  const _ProvidersSection({this.onOpenAllProviders, this.onOpenProvider});
+
+  final VoidCallback? onOpenAllProviders;
+  final ValueChanged<StreamingProviderItem>? onOpenProvider;
 
   @override
   Widget build(BuildContext context) {
@@ -541,7 +554,7 @@ class _ProvidersSection extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        const SectionHeader(title: 'Studios', onSeeAllPressed: _noop),
+        SectionHeader(title: 'Studios', onSeeAllPressed: onOpenAllProviders),
         const SizedBox(height: AppSpacing.lg),
         ResponsiveGrid(
           minItemWidth: 150,
@@ -554,7 +567,7 @@ class _ProvidersSection extends StatelessWidget {
               logoImage: logoPath != null
                   ? NetworkImage(TmdbImageBuilder.logo(logoPath))
                   : null,
-              onTap: () {},
+              onTap: () => onOpenProvider?.call(_providerFromMap(provider)),
             );
           }).toList(),
         ),
@@ -565,3 +578,11 @@ class _ProvidersSection extends StatelessWidget {
 }
 
 void _noop() {}
+
+StreamingProviderItem _providerFromMap(Map<String, dynamic> provider) {
+  return StreamingProviderItem(
+    id: (provider['id'] as num).toInt(),
+    name: provider['name'] as String,
+    logoPath: provider['logo_path'] as String?,
+  );
+}

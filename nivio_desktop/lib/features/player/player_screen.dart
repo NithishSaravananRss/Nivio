@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:media_kit_video/media_kit_video.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../shared/theme/index.dart';
 import '../../core/interfaces/watch_history_repository.dart';
@@ -26,6 +27,7 @@ import '../party/services/watch_party_service_supabase.dart';
 import '../party/services/watch_party_session_manager.dart';
 import 'services/m3u8_parser.dart';
 import 'services/playback_runtime_diagnostics.dart';
+import 'services/skip_times_service.dart';
 import 'services/stream_resolver.dart';
 
 typedef PlaybackSurfaceBuilder =
@@ -61,6 +63,13 @@ class PlayerScreen extends StatefulWidget {
 
 class _PlayerScreenState extends State<PlayerScreen> {
   static int _nextInstanceId = 0;
+  static const _autoplayKey = 'autoplay_next_episode';
+  static const _videoDebandingKey = 'video_debanding';
+  static const _subtitleFontSizeKey = 'subtitle_font_size';
+  static const _subtitleBackgroundKey = 'subtitle_background';
+  static const _subtitleOutlineKey = 'subtitle_outline';
+  static const _subtitleDelayPrefix = 'subtitle_delay_';
+  static const _defaultSubtitleFontSize = 18.0;
 
   final int _instanceId = ++_nextInstanceId;
   late final bool _ownsEngine = widget.engine == null;
@@ -81,7 +90,11 @@ class _PlayerScreenState extends State<PlayerScreen> {
     request: widget.request,
     watchHistoryRepository: widget.watchHistoryRepository,
   );
+  late final DesktopSkipTimesService _skipTimesService =
+      DesktopSkipTimesService();
   final List<_QualityOption> _qualityOptions = [];
+  List<SkipTime> _fetchedSkipTimes = const [];
+  String? _skipTimesRequestKey;
   bool _qualityDiscoveryComplete = false;
   bool _autoplayNextEpisode = true;
   bool _nextEpisodeStarted = false;
@@ -140,7 +153,9 @@ class _PlayerScreenState extends State<PlayerScreen> {
       '${PlaybackRuntimeDiagnostics.lifecycleSummary()}',
     );
     _qualityOptions.addAll(_qualityOptionsFromResult(widget.request));
+    unawaited(_loadSavedPlayerPreferences());
     unawaited(_initializeController());
+    unawaited(_loadExternalSkipTimes(widget.request));
     unawaited(_discoverHlsQualities());
     unawaited(_initializeWatchParty());
     _engine.state.addListener(_onPlaybackChanged);
@@ -191,6 +206,113 @@ class _PlayerScreenState extends State<PlayerScreen> {
     }
   }
 
+  Future<void> _loadSavedPlayerPreferences() async {
+    final prefs = await SharedPreferences.getInstance();
+    final subtitleFontSize =
+        prefs.getDouble(_subtitleFontSizeKey) ?? _defaultSubtitleFontSize;
+    final subtitleBackground =
+        prefs.getString(_subtitleBackgroundKey) ?? 'Transparent';
+    final subtitleOutline = prefs.getString(_subtitleOutlineKey) ?? 'Outline';
+    final subtitleDelayMs = prefs.getInt(_subtitleDelayPreferenceKey) ?? 0;
+
+    final nextScale = _subtitleScaleFromFontSize(subtitleFontSize);
+    final nextBackground = subtitleBackground != 'Transparent';
+    final nextOutline = subtitleOutline != 'None';
+    final nextDebanding = prefs.getBool(_videoDebandingKey) ?? false;
+    final nextAutoplay = prefs.getBool(_autoplayKey) ?? true;
+    final nextDelay = Duration(milliseconds: subtitleDelayMs);
+
+    if (!mounted) return;
+    setState(() {
+      _subtitleScale = nextScale;
+      _subtitleBackgroundEnabled = nextBackground;
+      _subtitleOutlineEnabled = nextOutline;
+      _subtitleDelay = nextDelay;
+      _debandingEnabled = nextDebanding;
+      _autoplayNextEpisode = nextAutoplay;
+    });
+
+    unawaited(_controller.setSubtitleDelay(nextDelay));
+    unawaited(
+      _controller.setSubtitleStyle(
+        SubtitleStyle(
+          scale: nextScale,
+          background: nextBackground,
+          outline: nextOutline,
+        ),
+      ),
+    );
+    unawaited(_controller.setDebanding(nextDebanding));
+  }
+
+  Future<void> _saveSubtitleDelay() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt(
+      _subtitleDelayPreferenceKey,
+      _subtitleDelay.inMilliseconds,
+    );
+  }
+
+  Future<void> _saveSubtitleStyle({
+    double? scale,
+    bool? background,
+    bool? outline,
+  }) async {
+    final prefs = await SharedPreferences.getInstance();
+    if (scale != null) {
+      await prefs.setDouble(
+        _subtitleFontSizeKey,
+        _subtitleFontSizeFromScale(scale),
+      );
+    }
+    if (background != null) {
+      await prefs.setString(
+        _subtitleBackgroundKey,
+        background ? 'Semi-Transparent' : 'Transparent',
+      );
+    }
+    if (outline != null) {
+      await prefs.setString(_subtitleOutlineKey, outline ? 'Outline' : 'None');
+    }
+  }
+
+  Future<void> _saveDebanding(bool enabled) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_videoDebandingKey, enabled);
+  }
+
+  Future<void> _saveAutoplay(bool enabled) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_autoplayKey, enabled);
+  }
+
+  String get _subtitleDelayPreferenceKey {
+    final id =
+        widget.request.numericMediaId?.toString() ?? widget.request.mediaId;
+    final season = widget.request.season ?? 0;
+    final episode = widget.request.episode ?? 0;
+    return '$_subtitleDelayPrefix'
+        '${widget.request.mediaTypeName}_${_preferencePart(id)}_s${season}_e$episode';
+  }
+
+  String _preferencePart(String value) {
+    return value.replaceAll(RegExp(r'[^A-Za-z0-9_.-]'), '_');
+  }
+
+  double _subtitleScaleFromFontSize(double fontSize) {
+    if (fontSize <= 14) return 0.75;
+    if (fontSize <= 18) return 1.0;
+    if (fontSize <= 24) return 1.25;
+    return 1.5;
+  }
+
+  double _subtitleFontSizeFromScale(double scale) {
+    if (scale <= 0.875) return 14.0;
+    if (scale <= 1.125) return 18.0;
+    if (scale <= 1.375) return 24.0;
+    return 30.0;
+  }
+
   @override
   void didUpdateWidget(covariant PlayerScreen oldWidget) {
     super.didUpdateWidget(oldWidget);
@@ -228,8 +350,11 @@ class _PlayerScreenState extends State<PlayerScreen> {
     _qualityOptions
       ..clear()
       ..addAll(_qualityOptionsFromResult(widget.request));
+    _fetchedSkipTimes = const [];
 
+    unawaited(_loadSavedPlayerPreferences());
     unawaited(_loadUpdatedRequest(widget.request));
+    unawaited(_loadExternalSkipTimes(widget.request));
     unawaited(_discoverHlsQualities());
   }
 
@@ -263,6 +388,49 @@ class _PlayerScreenState extends State<PlayerScreen> {
     if (!mounted || !_samePlaybackRequest(widget.request, request)) return;
     _applyPreferredQuality();
     unawaited(_broadcastWatchPartyPlayback(force: true));
+  }
+
+  List<SkipTime> get _effectiveSkipTimes {
+    final providerSkipTimes =
+        widget.request.streamResult?.skipTimes ?? const [];
+    return providerSkipTimes.isNotEmpty ? providerSkipTimes : _fetchedSkipTimes;
+  }
+
+  Future<void> _loadExternalSkipTimes(PlaybackRequest request) async {
+    final providerSkipTimes = request.streamResult?.skipTimes ?? const [];
+    if (providerSkipTimes.isNotEmpty) {
+      _skipTimesRequestKey = null;
+      if (mounted && _fetchedSkipTimes.isNotEmpty) {
+        setState(() => _fetchedSkipTimes = const []);
+      }
+      return;
+    }
+
+    final episode = request.episode;
+    final canFetch =
+        !request.isLive &&
+        episode != null &&
+        episode > 0 &&
+        (request.mediaType == PlaybackMediaType.anime ||
+            request.mediaType == PlaybackMediaType.tv);
+    if (!canFetch) {
+      _skipTimesRequestKey = null;
+      if (mounted && _fetchedSkipTimes.isNotEmpty) {
+        setState(() => _fetchedSkipTimes = const []);
+      }
+      return;
+    }
+
+    final key = [
+      request.mediaTypeName,
+      request.mediaId,
+      request.season ?? 0,
+      episode,
+    ].join(':');
+    _skipTimesRequestKey = key;
+    final skipTimes = await _skipTimesService.getSkipTimes(request);
+    if (!mounted || _skipTimesRequestKey != key) return;
+    setState(() => _fetchedSkipTimes = skipTimes);
   }
 
   Future<void> _initializeWatchParty() async {
@@ -1096,6 +1264,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
   void _changeSubtitleDelay(Duration delta) {
     setState(() => _subtitleDelay += delta);
     unawaited(_controller.setSubtitleDelay(_subtitleDelay));
+    unawaited(_saveSubtitleDelay());
   }
 
   void _applySubtitleStyle({double? scale, bool? background, bool? outline}) {
@@ -1116,11 +1285,19 @@ class _PlayerScreenState extends State<PlayerScreen> {
         ),
       ),
     );
+    unawaited(
+      _saveSubtitleStyle(
+        scale: scale,
+        background: background,
+        outline: outline,
+      ),
+    );
   }
 
   void _setDebanding(bool enabled) {
     setState(() => _debandingEnabled = enabled);
     unawaited(_controller.setDebanding(enabled));
+    unawaited(_saveDebanding(enabled));
   }
 
   Future<void> _showDiagnosticsPanel() async {
@@ -1420,7 +1597,10 @@ class _PlayerScreenState extends State<PlayerScreen> {
       onRepeatPressed: () => unawaited(_controller.cycleRepeatMode()),
       autoplayNextEpisode: _autoplayNextEpisode,
       onAutoplayChanged: _hasNextEpisode
-          ? (value) => setState(() => _autoplayNextEpisode = value)
+          ? (value) {
+              setState(() => _autoplayNextEpisode = value);
+              unawaited(_saveAutoplay(value));
+            }
           : null,
       inline: inline,
     );
@@ -1552,8 +1732,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
                       const _PlayerBufferingOverlay(),
                     _SkipOverlay(
                       playback: playback,
-                      skipTimes:
-                          widget.request.streamResult?.skipTimes ?? const [],
+                      skipTimes: _effectiveSkipTimes,
                       onSkip: (target) {
                         if (!_ensurePartyCanControl()) return;
                         unawaited(_engine.seek(target));

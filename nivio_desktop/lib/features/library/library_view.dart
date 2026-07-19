@@ -6,10 +6,13 @@ import 'package:hive_flutter/hive_flutter.dart';
 import '../../shared/theme/index.dart';
 import '../../shared/widgets/widgets.dart';
 import 'models/library_models.dart';
+import 'services/episode_tracking_service.dart';
 import 'services/library_data_service.dart';
+import 'services/library_persistence.dart';
 import 'widgets/downloads_grid.dart';
 import 'widgets/library_empty_state.dart';
 import 'widgets/library_tabs.dart';
+import 'widgets/new_episodes_panel.dart';
 import 'widgets/release_timeline.dart';
 import 'widgets/schedule_calendar.dart';
 import 'widgets/watchlist_grid.dart';
@@ -37,6 +40,8 @@ class _LibraryViewState extends State<LibraryView> {
   final LibraryScheduleService _scheduleService = LibraryScheduleService();
   final LibraryWatchlistService _watchlistService = LibraryWatchlistService();
   final LibraryDownloadsService _downloadsService = LibraryDownloadsService();
+  final LibraryEpisodeTrackingService _episodeTrackingService =
+      LibraryEpisodeTrackingService.instance;
 
   LibraryTab _selectedTab = LibraryTab.schedule;
   late DateTime _focusedDate;
@@ -51,6 +56,7 @@ class _LibraryViewState extends State<LibraryView> {
     _focusedDate = DateTime.now();
     _selectedScheduleDate = _focusedDate;
     _scheduleFuture = _loadSchedule();
+    unawaited(_episodeTrackingService.runAppLaunchCheck());
     if (widget.watchHistoryRepository case final Listenable listenable) {
       listenable.addListener(_onHistoryChanged);
     }
@@ -93,11 +99,8 @@ class _LibraryViewState extends State<LibraryView> {
               const SizedBox(height: AppSpacing.xxl),
               SectionHeader(
                 title: 'Library',
-                subtitle: 'Schedule, watchlist, and downloads',
-                trailing: LibraryTabs(
-                  selectedTab: _selectedTab,
-                  onTabSelected: (tab) => setState(() => _selectedTab = tab),
-                ),
+                subtitle: 'Schedule, new episodes, watchlist, and downloads',
+                trailing: _buildLibraryTabs(),
               ),
               const SizedBox(height: AppSpacing.xxl),
               _buildSelectedTab(),
@@ -135,6 +138,10 @@ class _LibraryViewState extends State<LibraryView> {
         onRetry: () => setState(() => _scheduleFuture = _loadSchedule()),
         onOpenDetail: widget.onOpenDetail,
       ),
+      LibraryTab.newEpisodes => NewEpisodesPanel(
+        service: _episodeTrackingService,
+        onOpenDetail: widget.onOpenDetail,
+      ),
       LibraryTab.watchlist => _WatchlistTab(
         service: _watchlistService,
         historyByMediaId: _historyByMediaId,
@@ -147,6 +154,31 @@ class _LibraryViewState extends State<LibraryView> {
         onPlay: widget.onPlay,
       ),
     };
+  }
+
+  Widget _buildLibraryTabs() {
+    if (!LibraryPersistence.isReady) {
+      return LibraryTabs(
+        selectedTab: _selectedTab,
+        onTabSelected: (tab) => setState(() => _selectedTab = tab),
+      );
+    }
+
+    return ValueListenableBuilder<Box<LibraryNewEpisodeItem>>(
+      valueListenable: _episodeTrackingService.listenable(),
+      builder: (context, box, _) {
+        final unreadCount = box.values
+            .where((episode) => !episode.isRead)
+            .length;
+        return LibraryTabs(
+          selectedTab: _selectedTab,
+          unreadEpisodeCount: unreadCount,
+          onTabSelected: (tab) {
+            setState(() => _selectedTab = tab);
+          },
+        );
+      },
+    );
   }
 
   Future<LibrarySectionResult<List<LibraryScheduleItem>>> _loadSchedule() {
@@ -388,37 +420,23 @@ class _DownloadsTab extends StatelessWidget {
     return ValueListenableBuilder<Box<LibraryDownloadItem>>(
       valueListenable: service.listenable(),
       builder: (context, box, _) {
-        return FutureBuilder<LibrarySectionResult<List<LibraryDownloadItem>>>(
-          future: service.getItems(),
-          builder: (context, snapshot) {
-            if (snapshot.connectionState != ConnectionState.done) {
-              return const LoadingView(message: 'Loading downloads...');
-            }
-            final result = snapshot.data;
-            if (snapshot.hasError || result == null || result.hasError) {
-              return _SectionError(
-                title: 'Downloads failed to load',
-                message: 'Retry to read local download records.',
-                onRetry: () {},
-              );
-            }
-            return Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                const SectionHeader(
-                  title: 'Downloads',
-                  subtitle: 'Active and completed local downloads',
-                ),
-                const SizedBox(height: AppSpacing.lg),
-                DownloadsGrid(
-                  downloads: result.data ?? const [],
-                  service: service,
-                  onOpenDetail: onOpenDetail,
-                  onPlay: onPlay,
-                ),
-              ],
-            );
-          },
+        final downloads = box.values.toList()
+          ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            const SectionHeader(
+              title: 'Downloads',
+              subtitle: 'Active and completed local downloads',
+            ),
+            const SizedBox(height: AppSpacing.lg),
+            DownloadsGrid(
+              downloads: downloads,
+              service: service,
+              onOpenDetail: onOpenDetail,
+              onPlay: onPlay,
+            ),
+          ],
         );
       },
     );

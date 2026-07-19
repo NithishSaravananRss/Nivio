@@ -10,19 +10,31 @@ import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../core/config/app_environment.dart';
+import '../../core/services/desktop_cache_service.dart';
+import '../../core/services/desktop_update_service.dart';
 import '../../shared/theme/index.dart';
+import '../../shared/widgets/dialogs/changelog_dialog.dart';
+import '../../shared/widgets/dialogs/update_dialog.dart';
 import '../../shared/widgets/feedback/error_view.dart';
 import '../../shared/widgets/feedback/loading_view.dart';
+import '../home/controllers/home_controller.dart';
+import '../library/services/episode_tracking_service.dart';
 import '../library/services/library_persistence.dart';
 import '../live_tv/services/iptv_service.dart';
 import '../party/services/watch_party_identity.dart';
 import '../party/services/watch_party_supabase_config.dart';
 
 class SettingsView extends StatefulWidget {
-  const SettingsView({super.key, this.onBack, this.embedded = false});
+  const SettingsView({
+    super.key,
+    this.onBack,
+    this.embedded = false,
+    this.onHomeLayoutChanged,
+  });
 
   final VoidCallback? onBack;
   final bool embedded;
+  final VoidCallback? onHomeLayoutChanged;
 
   @override
   State<SettingsView> createState() => _SettingsViewState();
@@ -47,6 +59,128 @@ class _SettingsViewState extends State<SettingsView> {
 
   void _onChanged() {
     if (mounted) setState(() {});
+  }
+
+  Future<void> _showHomeLayoutDialog() async {
+    final nextOrder = await showDialog<List<String>>(
+      context: context,
+      builder: (context) => _HomeLayoutDialog(
+        sectionOrder: _controller.state.settings.homeSectionOrder,
+      ),
+    );
+    if (nextOrder == null) return;
+    await _controller.updateStringList(
+      SettingsKeys.homeSectionOrder,
+      nextOrder,
+    );
+    widget.onHomeLayoutChanged?.call();
+  }
+
+  Future<void> _runEpisodeCheckNow() async {
+    final messenger = ScaffoldMessenger.of(context);
+    final count = await _controller.checkForNewEpisodesNow();
+    if (!mounted) return;
+    messenger.showSnackBar(
+      SnackBar(content: Text('Episode check complete: $count new found')),
+    );
+  }
+
+  Future<void> _resetSubtitleDelays() async {
+    final message = await _controller.clearSubtitleDelaySettings();
+    if (!mounted) return;
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  Future<void> _runSettingsAction(Future<String> Function() action) async {
+    final message = await action();
+    if (!mounted) return;
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  Future<void> _setOfflineMode(bool enabled) async {
+    await _controller.setOfflineMode(enabled);
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          enabled
+              ? 'Offline mode enabled. Desktop will prefer local data.'
+              : 'Offline mode disabled.',
+        ),
+      ),
+    );
+  }
+
+  Future<void> _showChangelog() async {
+    await _controller.markChangelogSeen();
+    if (!mounted) return;
+    final release = await DesktopUpdateService.checkFullRelease();
+    if (!mounted) return;
+    final releaseNotes = release.releaseNotes?.trim();
+    final titleVersion = release.latestVersion.trim().isNotEmpty
+        ? release.latestVersion
+        : _controller.state.appVersion;
+    await showDialog<void>(
+      context: context,
+      builder: (context) => ChangelogDialog(
+        title: 'What\'s New in $titleVersion',
+        changes: releaseNotes?.isNotEmpty == true
+            ? releaseNotes!
+            : _desktopChangelog(),
+      ),
+    );
+  }
+
+  Future<void> _checkForUpdates() async {
+    final result = await _controller.checkForUpdates();
+    if (!mounted) return;
+
+    final fullRelease = result.fullRelease;
+    if (fullRelease.hasUpdate) {
+      await showDialog<void>(
+        context: context,
+        builder: (context) => UpdateDialog(
+          currentVersion: fullRelease.installedVersion,
+          latestVersion: fullRelease.latestVersion,
+          releaseNotes: fullRelease.releaseNotes?.trim().isNotEmpty == true
+              ? fullRelease.releaseNotes!
+              : 'A new Linux desktop release is available.',
+          onLater: () => Navigator.of(context).maybePop(),
+          onInstall: () {
+            Navigator.of(context).maybePop();
+            unawaited(DesktopUpdateService.openInstallTarget(fullRelease));
+          },
+        ),
+      );
+      return;
+    }
+
+    final patch = result.patch;
+    if (patch.action == DesktopPatchUpdateAction.downloaded ||
+        patch.action == DesktopPatchUpdateAction.restartRequired) {
+      await showDialog<void>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('Restart Required'),
+          content: Text(patch.message),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).maybePop(),
+              child: const Text('Later'),
+            ),
+          ],
+        ),
+      );
+      return;
+    }
+
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(result.message)));
   }
 
   @override
@@ -145,6 +279,120 @@ class _SettingsViewState extends State<SettingsView> {
                   value,
                 ),
               ),
+              _SwitchTile(
+                title: 'Autoplay Next Episode',
+                value: state.settings.autoplay,
+                onChanged: (value) =>
+                    _controller.updateBool(SettingsKeys.autoplay, value),
+              ),
+              _SwitchTile(
+                title: 'Resume Playback',
+                value: state.settings.resumePlayback,
+                onChanged: (value) =>
+                    _controller.updateBool(SettingsKeys.resumePlayback, value),
+              ),
+              _SwitchTile(
+                title: 'Video Debanding',
+                value: state.settings.videoDebanding,
+                onChanged: (value) =>
+                    _controller.updateBool(SettingsKeys.videoDebanding, value),
+              ),
+            ],
+          ),
+        ),
+        _Section(
+          title: 'Subtitle Appearance',
+          icon: LucideIcons.subtitles,
+          error: state.sectionErrors['subtitles'],
+          child: Column(
+            children: [
+              _ChoiceTile(
+                title: 'Subtitle Font Size',
+                value: state.settings.subtitleFontSizeLabel,
+                options: SettingsDefaults.subtitleFontSizeLabels,
+                onChanged: (value) => _controller.updateDouble(
+                  SettingsKeys.subtitleFontSize,
+                  SettingsDefaults.subtitleFontSizes[value] ??
+                      SettingsDefaults.defaultSubtitleFontSize,
+                ),
+              ),
+              _ChoiceTile(
+                title: 'Subtitle Background',
+                value: state.settings.subtitleBackground,
+                options: SettingsDefaults.subtitleBackgrounds,
+                onChanged: (value) => _controller.updateString(
+                  SettingsKeys.subtitleBackground,
+                  value,
+                ),
+              ),
+              _ChoiceTile(
+                title: 'Subtitle Text Style',
+                value: state.settings.subtitleOutline,
+                options: SettingsDefaults.subtitleOutlines,
+                onChanged: (value) => _controller.updateString(
+                  SettingsKeys.subtitleOutline,
+                  value,
+                ),
+              ),
+              _ActionTile(
+                title: 'Reset Subtitle Delays',
+                subtitle: 'Clear saved per-media subtitle sync offsets',
+                icon: LucideIcons.rotateCcw,
+                onTap: _resetSubtitleDelays,
+              ),
+            ],
+          ),
+        ),
+        _Section(
+          title: 'Content Feed',
+          icon: LucideIcons.rows3,
+          error: state.sectionErrors['home'],
+          child: Column(
+            children: [
+              _ActionTile(
+                title: 'Customize Home Layout',
+                subtitle: state.settings.homeLayoutSummary,
+                icon: LucideIcons.listOrdered,
+                onTap: _showHomeLayoutDialog,
+              ),
+            ],
+          ),
+        ),
+        _Section(
+          title: 'Episode Alerts',
+          icon: LucideIcons.bell,
+          error: state.sectionErrors['episodes'],
+          child: Column(
+            children: [
+              _SwitchTile(
+                title: 'New Episode Alerts',
+                value: state.settings.episodeCheckEnabled,
+                onChanged: (value) => _controller.updateBool(
+                  SettingsKeys.episodeCheckEnabled,
+                  value,
+                ),
+              ),
+              _ChoiceTile(
+                title: 'Check Frequency',
+                value: state.settings.episodeCheckFrequencyHours.toString(),
+                options: SettingsDefaults.episodeCheckFrequencies
+                    .map((hours) => hours.toString())
+                    .toList(),
+                onChanged: (value) => _controller.updateInt(
+                  SettingsKeys.episodeCheckFrequencyHours,
+                  int.parse(value),
+                ),
+              ),
+              _InfoTile(
+                title: 'Last Checked',
+                value: state.episodeLastCheckLabel,
+              ),
+              _ActionTile(
+                title: 'Check Now',
+                subtitle: 'Scan watchlist shows for newly aired episodes',
+                icon: LucideIcons.refreshCw,
+                onTap: _runEpisodeCheckNow,
+              ),
             ],
           ),
         ),
@@ -181,6 +429,84 @@ class _SettingsViewState extends State<SettingsView> {
                   int.parse(value),
                 ),
               ),
+              _SwitchTile(
+                title: 'Wi-Fi Only Downloads',
+                value: state.settings.wifiOnlyDownloads,
+                onChanged: (value) => _controller.updateBool(
+                  SettingsKeys.wifiOnlyDownloads,
+                  value,
+                ),
+              ),
+            ],
+          ),
+        ),
+        _Section(
+          title: 'Offline & Cache',
+          icon: LucideIcons.hardDrive,
+          error: state.sectionErrors['storage'],
+          child: Column(
+            children: [
+              _SwitchTile(
+                title: 'Offline Mode',
+                value: state.cacheStats.offlineModeEnabled,
+                onChanged: (value) => unawaited(_setOfflineMode(value)),
+              ),
+              _InfoTile(
+                title: 'Network Status',
+                value: state.cacheStats.networkOnline ? 'Online' : 'Offline',
+              ),
+              _InfoTile(
+                title: 'API Cache',
+                value:
+                    '${state.cacheStats.validApiEntries} valid, ${state.cacheStats.expiredApiEntries} expired',
+              ),
+              _InfoTile(
+                title: 'Downloads',
+                value:
+                    '${state.cacheStats.completedDownloadCount} completed, ${state.cacheStats.missingDownloadFiles} missing files',
+              ),
+              _InfoTile(
+                title: 'Managed Storage',
+                value: _formatBytes(state.cacheStats.localStorageBytes),
+              ),
+              _ActionTile(
+                title: 'Refresh Status',
+                subtitle: 'Recheck network, cache, and download storage',
+                icon: LucideIcons.refreshCw,
+                onTap: () => unawaited(_controller.load()),
+              ),
+              _ActionTile(
+                title: 'Clean Expired API Cache',
+                subtitle: 'Remove stale cached metadata entries',
+                icon: LucideIcons.brushCleaning,
+                onTap: () => unawaited(
+                  _runSettingsAction(_controller.cleanExpiredApiCache),
+                ),
+              ),
+              _ActionTile(
+                title: 'Clean Partial Downloads',
+                subtitle: 'Remove leftover .part and temporary HLS folders',
+                icon: LucideIcons.fileX,
+                onTap: () => unawaited(
+                  _runSettingsAction(_controller.cleanPartialDownloads),
+                ),
+              ),
+              _ActionTile(
+                title: 'Remove Missing Download Records',
+                subtitle: 'Forget completed downloads whose files are gone',
+                icon: LucideIcons.unlink,
+                onTap: () => unawaited(
+                  _runSettingsAction(_controller.removeMissingDownloadRecords),
+                ),
+              ),
+              _DestructiveTile(
+                title: 'Clear API Cache',
+                onConfirm: _controller.clearApiCache,
+              ),
+              _DestructiveTile(
+                title: 'Clear Image Cache',
+                onConfirm: _controller.clearImageCache,
+              ),
             ],
           ),
         ),
@@ -198,6 +524,18 @@ class _SettingsViewState extends State<SettingsView> {
                     _controller.updateString(SettingsKeys.accentColor, value),
               ),
               _InfoTile(title: 'App Version', value: state.appVersion),
+              _ActionTile(
+                title: 'What\'s New',
+                subtitle: state.changelogSeenLabel,
+                icon: LucideIcons.megaphone,
+                onTap: _showChangelog,
+              ),
+              _ActionTile(
+                title: 'Check for Updates',
+                subtitle: 'Verify the desktop build update channel',
+                icon: LucideIcons.refreshCw,
+                onTap: _checkForUpdates,
+              ),
             ],
           ),
         ),
@@ -212,8 +550,8 @@ class _SettingsViewState extends State<SettingsView> {
                 onConfirm: _controller.clearWatchHistory,
               ),
               _DestructiveTile(
-                title: 'Clear Cache',
-                onConfirm: _controller.clearImageCache,
+                title: 'Clear Download Metadata',
+                onConfirm: _controller.clearDownloadsMetadata,
               ),
             ],
           ),
@@ -248,9 +586,11 @@ class SettingsController extends ChangeNotifier {
     var settings = DesktopSettings.defaults();
     var playlistCount = 0;
     var downloadBytes = 0;
+    var cacheStats = _emptyCacheStats();
     var partyUserName = 'Guest';
     var appVersion = '1.0.0';
     var buildNumber = '1';
+    var episodeLastCheckLabel = 'Never';
     var serviceStatus = const ServiceStatus(
       tmdb: 'Checking',
       anilist: 'Checking',
@@ -268,8 +608,9 @@ class SettingsController extends ChangeNotifier {
     try {
       await LibraryPersistence.init();
       downloadBytes = await _downloadStorageBytes();
+      cacheStats = await DesktopCacheService.instance.getStats();
     } catch (error) {
-      errors['downloads'] = 'Could not read download metadata: $error';
+      errors['downloads'] = 'Could not read download/cache metadata: $error';
     }
 
     try {
@@ -294,14 +635,24 @@ class SettingsController extends ChangeNotifier {
       errors['environment'] = 'Could not read app version: $error';
     }
 
+    try {
+      final lastCheck = await LibraryEpisodeTrackingService.instance
+          .getLastCheckTime();
+      episodeLastCheckLabel = _formatDateTime(lastCheck);
+    } catch (error) {
+      errors['episodes'] = 'Could not read episode alert status: $error';
+    }
+
     state = SettingsState.loaded(
       settings: settings,
       sectionErrors: errors,
       iptvPlaylistCount: playlistCount,
       downloadBytes: downloadBytes,
+      cacheStats: cacheStats,
       partyUserName: partyUserName,
       appVersion: appVersion,
       buildNumber: buildNumber,
+      episodeLastCheckLabel: episodeLastCheckLabel,
       serviceStatus: serviceStatus,
     );
     notifyListeners();
@@ -323,6 +674,12 @@ class SettingsController extends ChangeNotifier {
 
   Future<void> updateDouble(String key, double value) async {
     await _save(key, value);
+  }
+
+  Future<void> updateStringList(String key, List<String> value) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setStringList(key, value);
+    await load();
   }
 
   Future<void> _save(String key, Object value) async {
@@ -376,9 +733,46 @@ class SettingsController extends ChangeNotifier {
   }
 
   Future<String> clearImageCache() async {
-    PaintingBinding.instance.imageCache.clear();
-    PaintingBinding.instance.imageCache.clearLiveImages();
+    await DesktopCacheService.instance.clearImageCache();
+    await load();
     return 'Image cache cleared';
+  }
+
+  Future<String> clearApiCache() async {
+    await DesktopCacheService.instance.clearApiCache();
+    await load();
+    return 'API cache cleared';
+  }
+
+  Future<String> cleanExpiredApiCache() async {
+    final count = await DesktopCacheService.instance.cleanExpiredApiCache();
+    await load();
+    return count == 1
+        ? 'Removed 1 expired cache entry'
+        : 'Removed $count expired cache entries';
+  }
+
+  Future<String> cleanPartialDownloads() async {
+    final count = await DesktopCacheService.instance
+        .cleanOrphanDownloadPartials();
+    await load();
+    return count == 1
+        ? 'Removed 1 partial download file'
+        : 'Removed $count partial download files';
+  }
+
+  Future<String> removeMissingDownloadRecords() async {
+    final count = await DesktopCacheService.instance
+        .removeMissingDownloadRecords();
+    await load();
+    return count == 1
+        ? 'Removed 1 missing download record'
+        : 'Removed $count missing download records';
+  }
+
+  Future<void> setOfflineMode(bool enabled) async {
+    await DesktopCacheService.instance.setOfflineMode(enabled);
+    await load();
   }
 
   Future<String> clearSearchHistory() async {
@@ -414,6 +808,39 @@ class SettingsController extends ChangeNotifier {
     return 'Playback cache cleared';
   }
 
+  Future<String> clearSubtitleDelaySettings() async {
+    final prefs = await SharedPreferences.getInstance();
+    for (final key in prefs.getKeys()) {
+      if (key.startsWith(SettingsKeys.subtitleDelayPrefix)) {
+        await prefs.remove(key);
+      }
+    }
+    return 'Subtitle delay settings cleared';
+  }
+
+  Future<int> checkForNewEpisodesNow() async {
+    final count = await LibraryEpisodeTrackingService.instance.checkNow();
+    await load();
+    return count;
+  }
+
+  Future<void> markChangelogSeen() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(
+      SettingsKeys.lastSeenChangelogVersion,
+      state.appVersion,
+    );
+    await load();
+  }
+
+  Future<DesktopUpdateCheckResult> checkForUpdates() {
+    return DesktopUpdateService.checkForUpdates(
+      forceRefresh: true,
+      includeShorebird: true,
+      downloadShorebirdPatch: true,
+    );
+  }
+
   Future<String> clearDownloadsMetadata() async {
     await LibraryPersistence.init();
     await LibraryPersistence.downloadsBox.clear();
@@ -429,9 +856,11 @@ class SettingsState {
     required this.sectionErrors,
     required this.iptvPlaylistCount,
     required this.downloadBytes,
+    required this.cacheStats,
     required this.partyUserName,
     required this.appVersion,
     required this.buildNumber,
+    required this.episodeLastCheckLabel,
     required this.serviceStatus,
     this.fatalError,
   });
@@ -442,9 +871,11 @@ class SettingsState {
     sectionErrors: const {},
     iptvPlaylistCount: 0,
     downloadBytes: 0,
+    cacheStats: _emptyCacheStats(),
     partyUserName: 'Guest',
     appVersion: '1.0.0',
     buildNumber: '1',
+    episodeLastCheckLabel: 'Never',
     serviceStatus: const ServiceStatus(
       tmdb: 'Checking',
       anilist: 'Checking',
@@ -459,9 +890,11 @@ class SettingsState {
     required Map<String, String> sectionErrors,
     required int iptvPlaylistCount,
     required int downloadBytes,
+    required DesktopCacheStats cacheStats,
     required String partyUserName,
     required String appVersion,
     required String buildNumber,
+    required String episodeLastCheckLabel,
     required ServiceStatus serviceStatus,
   }) => SettingsState._(
     isLoading: false,
@@ -469,9 +902,11 @@ class SettingsState {
     sectionErrors: sectionErrors,
     iptvPlaylistCount: iptvPlaylistCount,
     downloadBytes: downloadBytes,
+    cacheStats: cacheStats,
     partyUserName: partyUserName,
     appVersion: appVersion,
     buildNumber: buildNumber,
+    episodeLastCheckLabel: episodeLastCheckLabel,
     serviceStatus: serviceStatus,
   );
 
@@ -480,15 +915,19 @@ class SettingsState {
   final Map<String, String> sectionErrors;
   final int iptvPlaylistCount;
   final int downloadBytes;
+  final DesktopCacheStats cacheStats;
   final String partyUserName;
   final String appVersion;
   final String buildNumber;
+  final String episodeLastCheckLabel;
   final ServiceStatus serviceStatus;
   final String? fatalError;
 
   String get downloadStorageLabel => _formatBytes(downloadBytes);
   String get flutterVersion => Platform.version.split(' ').first;
   String get platformLabel => '${Platform.operatingSystem} ${Platform.version}';
+  String get changelogSeenLabel =>
+      settings.lastSeenChangelogVersion == appVersion ? 'Read' : 'Unread';
 
   SettingsState copyWith({ServiceStatus? serviceStatus}) => SettingsState._(
     isLoading: isLoading,
@@ -496,9 +935,11 @@ class SettingsState {
     sectionErrors: sectionErrors,
     iptvPlaylistCount: iptvPlaylistCount,
     downloadBytes: downloadBytes,
+    cacheStats: cacheStats,
     partyUserName: partyUserName,
     appVersion: appVersion,
     buildNumber: buildNumber,
+    episodeLastCheckLabel: episodeLastCheckLabel,
     serviceStatus: serviceStatus ?? this.serviceStatus,
     fatalError: fatalError,
   );
@@ -515,6 +956,10 @@ class DesktopSettings {
     required this.preferredDownloadSubtitleLanguage,
     required this.autoplay,
     required this.resumePlayback,
+    required this.videoDebanding,
+    required this.subtitleFontSize,
+    required this.subtitleBackground,
+    required this.subtitleOutline,
     required this.downloadLocation,
     required this.downloadQuality,
     required this.downloadConcurrency,
@@ -523,6 +968,10 @@ class DesktopSettings {
     required this.imageProxyUrl,
     required this.iptvPlaylistUrl,
     required this.iptvCacheHours,
+    required this.episodeCheckEnabled,
+    required this.episodeCheckFrequencyHours,
+    required this.homeSectionOrder,
+    required this.lastSeenChangelogVersion,
   });
 
   factory DesktopSettings.defaults() => DesktopSettings(
@@ -535,6 +984,10 @@ class DesktopSettings {
     preferredDownloadSubtitleLanguage: 'Auto',
     autoplay: true,
     resumePlayback: true,
+    videoDebanding: false,
+    subtitleFontSize: SettingsDefaults.defaultSubtitleFontSize,
+    subtitleBackground: 'Transparent',
+    subtitleOutline: 'Outline',
     downloadLocation: '',
     downloadQuality: 'auto',
     downloadConcurrency: 6,
@@ -543,6 +996,10 @@ class DesktopSettings {
     imageProxyUrl: AppEnvironment.imageProxyUrl,
     iptvPlaylistUrl: AppEnvironment.iptvPlaylistUrl,
     iptvCacheHours: 24,
+    episodeCheckEnabled: true,
+    episodeCheckFrequencyHours: 24,
+    homeSectionOrder: HomeController.sectionOrder,
+    lastSeenChangelogVersion: '',
   );
 
   static Future<DesktopSettings> load() async {
@@ -571,6 +1028,17 @@ class DesktopSettings {
       autoplay: prefs.getBool(SettingsKeys.autoplay) ?? defaults.autoplay,
       resumePlayback:
           prefs.getBool(SettingsKeys.resumePlayback) ?? defaults.resumePlayback,
+      videoDebanding:
+          prefs.getBool(SettingsKeys.videoDebanding) ?? defaults.videoDebanding,
+      subtitleFontSize:
+          prefs.getDouble(SettingsKeys.subtitleFontSize) ??
+          defaults.subtitleFontSize,
+      subtitleBackground:
+          prefs.getString(SettingsKeys.subtitleBackground) ??
+          defaults.subtitleBackground,
+      subtitleOutline:
+          prefs.getString(SettingsKeys.subtitleOutline) ??
+          defaults.subtitleOutline,
       downloadLocation:
           prefs.getString(SettingsKeys.downloadLocation) ?? fallbackDownloadDir,
       downloadQuality:
@@ -591,6 +1059,18 @@ class DesktopSettings {
           defaults.iptvPlaylistUrl,
       iptvCacheHours:
           prefs.getInt(SettingsKeys.iptvCacheHours) ?? defaults.iptvCacheHours,
+      episodeCheckEnabled:
+          prefs.getBool(SettingsKeys.episodeCheckEnabled) ??
+          defaults.episodeCheckEnabled,
+      episodeCheckFrequencyHours:
+          prefs.getInt(SettingsKeys.episodeCheckFrequencyHours) ??
+          defaults.episodeCheckFrequencyHours,
+      homeSectionOrder: HomeController.normalizeSectionOrder(
+        prefs.getStringList(SettingsKeys.homeSectionOrder),
+      ),
+      lastSeenChangelogVersion:
+          prefs.getString(SettingsKeys.lastSeenChangelogVersion) ??
+          defaults.lastSeenChangelogVersion,
     );
   }
 
@@ -603,6 +1083,10 @@ class DesktopSettings {
   final String preferredDownloadSubtitleLanguage;
   final bool autoplay;
   final bool resumePlayback;
+  final bool videoDebanding;
+  final double subtitleFontSize;
+  final String subtitleBackground;
+  final String subtitleOutline;
   final String downloadLocation;
   final String downloadQuality;
   final int downloadConcurrency;
@@ -611,6 +1095,25 @@ class DesktopSettings {
   final String imageProxyUrl;
   final String iptvPlaylistUrl;
   final int iptvCacheHours;
+  final bool episodeCheckEnabled;
+  final int episodeCheckFrequencyHours;
+  final List<String> homeSectionOrder;
+  final String lastSeenChangelogVersion;
+
+  String get subtitleFontSizeLabel {
+    for (final entry in SettingsDefaults.subtitleFontSizes.entries) {
+      if (entry.value == subtitleFontSize) return entry.key;
+    }
+    return 'Medium';
+  }
+
+  String get homeLayoutSummary {
+    final firstSections = homeSectionOrder
+        .take(3)
+        .map((id) => HomeController.sectionTitles[id] ?? id)
+        .join(', ');
+    return '$firstSections${homeSectionOrder.length > 3 ? ', ...' : ''}';
+  }
 }
 
 abstract final class SettingsKeys {
@@ -625,6 +1128,11 @@ abstract final class SettingsKeys {
       'preferred_download_subtitle_language';
   static const autoplay = 'autoplay_next_episode';
   static const resumePlayback = 'resume_playback';
+  static const videoDebanding = 'video_debanding';
+  static const subtitleFontSize = 'subtitle_font_size';
+  static const subtitleBackground = 'subtitle_background';
+  static const subtitleOutline = 'subtitle_outline';
+  static const subtitleDelayPrefix = 'subtitle_delay_';
   static const downloadLocation = 'download_location';
   static const downloadQuality = 'download_quality';
   static const downloadConcurrency = 'download_concurrency';
@@ -633,6 +1141,11 @@ abstract final class SettingsKeys {
   static const imageProxyUrl = 'image_proxy_url';
   static const iptvPlaylistUrl = 'iptv_playlist_url';
   static const iptvCacheHours = 'iptv_cache_hours';
+  static const episodeCheckEnabled = 'desktop_episode_check_enabled';
+  static const episodeCheckFrequencyHours =
+      'desktop_episode_check_frequency_hours';
+  static const homeSectionOrder = HomeController.homeSectionOrderKey;
+  static const lastSeenChangelogVersion = 'last_seen_changelog_version';
 }
 
 abstract final class SettingsDefaults {
@@ -649,6 +1162,22 @@ abstract final class SettingsDefaults {
   ];
   static const videoQualities = ['auto', '2160p', '1080p', '720p', '480p'];
   static const playbackSpeeds = [0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0];
+  static const defaultSubtitleFontSize = 18.0;
+  static const subtitleFontSizes = <String, double>{
+    'Small': 14.0,
+    'Medium': 18.0,
+    'Large': 24.0,
+    'Extra Large': 30.0,
+  };
+  static const subtitleBackgrounds = [
+    'Transparent',
+    'Semi-Transparent',
+    'Solid',
+  ];
+  static const subtitleOutlines = ['None', 'Subtle Shadow', 'Outline'];
+  static const episodeCheckFrequencies = [6, 12, 24, 48, 72];
+  static List<String> get subtitleFontSizeLabels =>
+      subtitleFontSizes.keys.toList();
   static const audioLanguages = [
     'Original',
     'English',
@@ -690,6 +1219,65 @@ class ServiceStatus {
   final String iptv;
   final String supabase;
   final String realtime;
+}
+
+class _HomeLayoutDialog extends StatefulWidget {
+  const _HomeLayoutDialog({required this.sectionOrder});
+
+  final List<String> sectionOrder;
+
+  @override
+  State<_HomeLayoutDialog> createState() => _HomeLayoutDialogState();
+}
+
+class _HomeLayoutDialogState extends State<_HomeLayoutDialog> {
+  late List<String> _order = HomeController.normalizeSectionOrder(
+    widget.sectionOrder,
+  );
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Customize Home Layout'),
+      content: SizedBox(
+        width: 520,
+        height: 520,
+        child: ReorderableListView.builder(
+          itemCount: _order.length,
+          onReorderItem: (oldIndex, newIndex) {
+            setState(() {
+              final item = _order.removeAt(oldIndex);
+              _order.insert(newIndex, item);
+            });
+          },
+          itemBuilder: (context, index) {
+            final sectionId = _order[index];
+            return ListTile(
+              key: ValueKey(sectionId),
+              leading: const Icon(LucideIcons.gripVertical),
+              title: Text(HomeController.sectionTitles[sectionId] ?? sectionId),
+            );
+          },
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () {
+            setState(() => _order = List.of(HomeController.sectionOrder));
+          },
+          child: const Text('Reset'),
+        ),
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.pop(context, _order),
+          child: const Text('Save'),
+        ),
+      ],
+    );
+  }
 }
 
 class _Section extends StatelessWidget {
@@ -891,12 +1479,13 @@ class _ActionTile extends StatelessWidget {
   const _ActionTile({
     required this.title,
     required this.subtitle,
-    // ignore: unused_element_parameter
+    this.icon = LucideIcons.refreshCw,
     this.onTap,
   });
 
   final String title;
   final String subtitle;
+  final IconData icon;
   final VoidCallback? onTap;
 
   @override
@@ -904,7 +1493,7 @@ class _ActionTile extends StatelessWidget {
     return ListTile(
       title: Text(title),
       subtitle: Text(subtitle),
-      trailing: const Icon(LucideIcons.refreshCw),
+      trailing: Icon(icon),
       onTap: onTap,
     );
   }
@@ -1085,6 +1674,41 @@ Future<(String, String)> _readVersionInfo() async {
     multiLine: true,
   ).firstMatch(content);
   return (match?.group(1) ?? '1.0.0', match?.group(2) ?? '1');
+}
+
+DesktopCacheStats _emptyCacheStats() {
+  return DesktopCacheStats(
+    apiEntries: 0,
+    validApiEntries: 0,
+    expiredApiEntries: 0,
+    apiCacheBytes: 0,
+    hiveBytes: 0,
+    downloadBytes: 0,
+    downloadCount: 0,
+    completedDownloadCount: 0,
+    missingDownloadFiles: 0,
+    orphanDownloadFiles: 0,
+    offlineModeEnabled: false,
+    networkOnline: true,
+    lastUpdated: DateTime.fromMillisecondsSinceEpoch(0),
+  );
+}
+
+String _formatDateTime(DateTime? value) {
+  if (value == null) return 'Never';
+  final local = value.toLocal();
+  String two(int number) => number.toString().padLeft(2, '0');
+  return '${local.year}-${two(local.month)}-${two(local.day)} '
+      '${two(local.hour)}:${two(local.minute)}';
+}
+
+String _desktopChangelog() {
+  return [
+    'Desktop settings now expose Android parity controls for subtitle size, subtitle background, subtitle outline, debanding, episode alerts, and home layout ordering.',
+    'Subtitle sync offsets are saved per media item from the player and can be cleared from Settings.',
+    'The Home page Studio section remains on Home while provider browsing opens from the existing studio cards.',
+    'New episode alerts can be enabled, scheduled, and checked manually from Settings or Library.',
+  ].join('\n\n');
 }
 
 String _formatBytes(int bytes) {

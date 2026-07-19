@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:lucide_flutter/lucide_flutter.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../shared/theme/index.dart';
 import '../../shared/widgets/widgets.dart';
@@ -11,12 +12,17 @@ import '../../core/interfaces/watch_history_repository.dart';
 import '../../shared/models/stream_result.dart';
 import '../library/services/watchlist_sync_controller.dart';
 import '../library/models/library_models.dart';
+import '../library/services/desktop_download_service.dart';
 import '../library/services/library_persistence.dart';
 import '../player/models/playback_request.dart';
 import '../player/playback_request_factory.dart';
+import '../player/services/desktop_streaming_service.dart';
+import '../player/services/m3u8_parser.dart';
+import '../player/services/stream_resolver.dart';
 import 'models/detail_models.dart';
 import 'models/detail_route_args.dart';
 import 'controllers/detail_controller.dart';
+import 'widgets/download_prompt.dart';
 
 class DetailView extends StatefulWidget {
   const DetailView({
@@ -360,7 +366,14 @@ class _DetailViewState extends State<DetailView> {
                                   displayMedia,
                                   season: _selectedSeason,
                                   episode: episode.number,
+                                  stillPath: episode.stillPath,
                                 ),
+                                onDownloadSeason: (episodes) =>
+                                    _queueSeasonDownload(
+                                      displayMedia,
+                                      season: _selectedSeason,
+                                      episodes: episodes,
+                                    ),
                               ),
                             _DetailStoryFlow(
                               media: displayMedia,
@@ -458,6 +471,7 @@ class _DetailViewState extends State<DetailView> {
     DetailMedia media, {
     int? season,
     int? episode,
+    String? stillPath,
   }) async {
     await LibraryPersistence.init();
     final id = _numericMediaId(media);
@@ -465,35 +479,204 @@ class _DetailViewState extends State<DetailView> {
       _showActionFeedback('Download unavailable for this title');
       return;
     }
-    final downloadId = [
-      media.mediaType.label.toLowerCase(),
-      id,
-      if (season != null) 's$season',
-      if (episode != null) 'e$episode',
-    ].join('_');
-    final title = episode == null
-        ? media.title
-        : '${media.title}|||S$season E$episode';
+    final downloadId = _downloadId(media, id, season: season, episode: episode);
+    final title = _downloadTitle(media, season: season, episode: episode);
     final existing = LibraryPersistence.downloadsBox.get(downloadId);
     if (existing != null) {
       _showActionFeedback('Already in downloads');
       return;
     }
-    await LibraryPersistence.downloadsBox.put(
-      downloadId,
-      LibraryDownloadItem(
-        id: downloadId,
-        mediaId: id,
-        title: title,
-        mediaType: media.mediaType.label.toLowerCase(),
-        savePath: '',
-        createdAt: DateTime.now(),
-        posterPath: media.posterPath,
-        season: season,
-        episode: episode,
-      ),
+
+    _showActionFeedback('Preparing download...');
+    final service = DesktopStreamingService();
+    final request = await _downloadRequest(
+      media,
+      season: season,
+      episode: episode,
     );
-    _showActionFeedback('Added to downloads');
+    try {
+      final servers = (await service.availableSources(request))
+          .where((source) => source.directMedia && !source.iframeOnly)
+          .toList(growable: false);
+      final result = await service.resolveDownloadable(request);
+      if (!mounted) return;
+      final selection = await DesktopDownloadPrompt.show(
+        context: context,
+        request: request,
+        initialResult: result,
+        streamingService: service,
+        servers: servers,
+      );
+      if (selection == null) return;
+      await DesktopDownloadService.instance.queueDownload(
+        LibraryDownloadItem(
+          id: downloadId,
+          mediaId: id,
+          title: title,
+          mediaType: media.mediaType.label.toLowerCase(),
+          savePath: '',
+          createdAt: DateTime.now(),
+          posterPath: _downloadPoster(media, stillPath),
+          season: season,
+          episode: episode,
+          streamUrl: selection.streamUrl,
+          headers: selection.result.headers,
+          selectedAudioLanguage: selection.audioLanguage,
+          selectedSubtitleLanguage: selection.subtitleLanguage,
+          subtitleUrl: selection.subtitleUrl,
+        ),
+      );
+      if (!mounted) return;
+      _showActionFeedback('Download started');
+    } on StreamResolutionException catch (error) {
+      if (!mounted) return;
+      _showActionFeedback(error.message);
+    } catch (_) {
+      if (!mounted) return;
+      _showActionFeedback('Download failed to start');
+    }
+  }
+
+  Future<void> _queueSeasonDownload(
+    DetailMedia media, {
+    required int season,
+    required List<DetailEpisode> episodes,
+  }) async {
+    if (episodes.isEmpty) {
+      _showActionFeedback('No episodes available to download');
+      return;
+    }
+    await LibraryPersistence.init();
+    final id = _numericMediaId(media);
+    if (id == null) {
+      _showActionFeedback('Download unavailable for this title');
+      return;
+    }
+    final pending = episodes
+        .where(
+          (episode) => !LibraryPersistence.downloadsBox.containsKey(
+            _downloadId(media, id, season: season, episode: episode.number),
+          ),
+        )
+        .toList(growable: false);
+    if (pending.isEmpty) {
+      _showActionFeedback('Season already in downloads');
+      return;
+    }
+
+    _showActionFeedback('Preparing season download...');
+    final service = DesktopStreamingService();
+    final first = pending.first;
+    final firstRequest = await _downloadRequest(
+      media,
+      season: season,
+      episode: first.number,
+    );
+
+    try {
+      final servers = (await service.availableSources(firstRequest))
+          .where((source) => source.directMedia && !source.iframeOnly)
+          .toList(growable: false);
+      final firstResult = await service.resolveDownloadable(firstRequest);
+      if (!mounted) return;
+      final selection = await DesktopDownloadPrompt.show(
+        context: context,
+        title: 'Download Season $season',
+        request: firstRequest,
+        initialResult: firstResult,
+        streamingService: service,
+        servers: servers,
+      );
+      if (selection == null) return;
+
+      var queued = 0;
+      for (final episodeItem in pending) {
+        final episodeRequest = await _downloadRequest(
+          media,
+          season: season,
+          episode: episodeItem.number,
+          serverIndex: selection.server?.index,
+          quality: selection.quality,
+          audio: selection.audioLanguage,
+          subtitle: selection.subtitleLanguage,
+        );
+        final result = episodeItem == first
+            ? selection.result
+            : await service.resolveDownloadable(episodeRequest);
+        final streamUrl = episodeItem == first
+            ? selection.streamUrl
+            : await _streamUrlForQuality(result, selection.quality);
+        await DesktopDownloadService.instance.queueDownload(
+          LibraryDownloadItem(
+            id: _downloadId(
+              media,
+              id,
+              season: season,
+              episode: episodeItem.number,
+            ),
+            mediaId: id,
+            title: _downloadTitle(
+              media,
+              season: season,
+              episode: episodeItem.number,
+            ),
+            mediaType: media.mediaType.label.toLowerCase(),
+            savePath: '',
+            createdAt: DateTime.now(),
+            posterPath: _downloadPoster(media, episodeItem.stillPath),
+            season: season,
+            episode: episodeItem.number,
+            streamUrl: streamUrl,
+            headers: result.headers,
+            selectedAudioLanguage: selection.audioLanguage,
+            selectedSubtitleLanguage: selection.subtitleLanguage,
+            subtitleUrl: _subtitleUrlFor(result, selection.subtitleLanguage),
+          ),
+        );
+        queued++;
+      }
+      if (!mounted) return;
+      _showActionFeedback('Queued $queued episode downloads');
+    } on StreamResolutionException catch (error) {
+      if (!mounted) return;
+      _showActionFeedback(error.message);
+    } catch (_) {
+      if (!mounted) return;
+      _showActionFeedback('Season download failed to start');
+    }
+  }
+
+  Future<PlaybackRequest> _downloadRequest(
+    DetailMedia media, {
+    int? season,
+    int? episode,
+    int? serverIndex,
+    String? quality,
+    String? audio,
+    String? subtitle,
+  }) async {
+    final prefs = await SharedPreferences.getInstance();
+    return PlaybackRequestFactory.fromDetail(
+      media,
+      season: season,
+      episode: episode,
+    ).copyWith(
+      providerIndex: serverIndex,
+      preferredQuality:
+          quality ?? prefs.getString('download_quality') ?? 'auto',
+      preferredAudioTrack:
+          audio ??
+          _downloadPreference(
+            prefs.getString('preferred_download_audio_language'),
+            ignored: const {'', 'original', 'auto'},
+          ),
+      preferredSubtitleTrack:
+          subtitle ??
+          _downloadPreference(
+            prefs.getString('preferred_download_subtitle_language'),
+            ignored: const {'', 'auto'},
+          ),
+    );
   }
 
   void _scrollToMoreLikeThis() {
@@ -508,6 +691,73 @@ class _DetailViewState extends State<DetailView> {
   int? _numericMediaId(DetailMedia media) {
     final raw = media.id.contains(':') ? media.id.split(':').last : media.id;
     return int.tryParse(raw);
+  }
+
+  String _downloadId(DetailMedia media, int id, {int? season, int? episode}) {
+    return [
+      media.mediaType.label.toLowerCase(),
+      id,
+      if (season != null) 's$season',
+      if (episode != null) 'e$episode',
+    ].join('_');
+  }
+
+  String _downloadTitle(DetailMedia media, {int? season, int? episode}) {
+    return episode == null
+        ? media.title
+        : '${media.title}|||S$season E$episode';
+  }
+
+  String? _downloadPoster(DetailMedia media, String? stillPath) {
+    if (stillPath == null || stillPath.isEmpty) return media.posterPath;
+    return '${media.posterPath ?? ''}|||$stillPath';
+  }
+
+  String? _downloadPreference(String? value, {required Set<String> ignored}) {
+    final normalized = value?.trim();
+    if (normalized == null || ignored.contains(normalized.toLowerCase())) {
+      return null;
+    }
+    if (normalized.toLowerCase() == 'off') return null;
+    return normalized;
+  }
+
+  String? _subtitleUrlFor(StreamResult result, String? selectedSubtitle) {
+    if (selectedSubtitle == null || selectedSubtitle.toLowerCase() == 'off') {
+      return null;
+    }
+    if (result.subtitles.isEmpty) return null;
+    final preferred = selectedSubtitle.toLowerCase();
+    for (final subtitle in result.subtitles) {
+      if (subtitle.lang.toLowerCase().contains(preferred)) {
+        return subtitle.url;
+      }
+    }
+    return result.subtitles.first.url;
+  }
+
+  Future<String> _streamUrlForQuality(
+    StreamResult result,
+    String quality,
+  ) async {
+    for (final source in result.sources) {
+      if (source.quality.toLowerCase() == quality.toLowerCase()) {
+        return source.url;
+      }
+    }
+    final url = result.sources.firstOrNull?.url ?? result.url;
+    if (result.isM3U8 || url.toLowerCase().contains('.m3u8')) {
+      final resolutions = await M3u8Parser.parseVideoResolutions(
+        url,
+        result.headers,
+      );
+      for (final resolution in resolutions) {
+        if (resolution.quality.toLowerCase() == quality.toLowerCase()) {
+          return resolution.url;
+        }
+      }
+    }
+    return url;
   }
 
   void _playMedia({int? season, int? episode}) {
@@ -891,6 +1141,7 @@ class _EpisodePlaybackSection extends StatefulWidget {
     required this.onSeasonSelected,
     required this.onPlayEpisode,
     required this.onDownloadEpisode,
+    required this.onDownloadSeason,
   });
 
   final DetailMedia media;
@@ -899,6 +1150,7 @@ class _EpisodePlaybackSection extends StatefulWidget {
   final ValueChanged<int> onSeasonSelected;
   final ValueChanged<DetailEpisode> onPlayEpisode;
   final ValueChanged<DetailEpisode> onDownloadEpisode;
+  final ValueChanged<List<DetailEpisode>> onDownloadSeason;
 
   @override
   State<_EpisodePlaybackSection> createState() =>
@@ -966,6 +1218,25 @@ class _EpisodePlaybackSectionState extends State<_EpisodePlaybackSection> {
                       ),
                     ),
                   ),
+                if (widget.controller.episodes.isNotEmpty) ...[
+                  const SizedBox(width: AppSpacing.sm),
+                  OutlinedButton.icon(
+                    onPressed: widget.controller.isLoadingEpisodes
+                        ? null
+                        : () => widget.onDownloadSeason(
+                            widget.controller.episodes,
+                          ),
+                    icon: const Icon(Icons.download_for_offline_outlined),
+                    label: Text('Season ${widget.selectedSeason}'),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: AppColors.textPrimary,
+                      side: const BorderSide(color: AppColors.borderSubtle),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(999),
+                      ),
+                    ),
+                  ),
+                ],
                 const Spacer(),
                 SizedBox(
                   width: 320,

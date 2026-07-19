@@ -7,6 +7,7 @@ import 'package:hive_flutter/hive_flutter.dart';
 import '../../../core/config/app_environment.dart';
 import '../../../core/constants/constants.dart';
 import '../models/library_models.dart';
+import 'desktop_download_service.dart';
 import 'library_persistence.dart';
 
 class LibrarySectionResult<T> {
@@ -84,26 +85,23 @@ class LibraryDownloadsService {
 
   Future<void> delete(String id) {
     if (!LibraryPersistence.isReady) return Future<void>.value();
-    return _box.delete(id);
+    return DesktopDownloadService.instance.deleteDownload(id);
   }
 
   Future<void> pause(String id) async {
     if (!LibraryPersistence.isReady) return;
-    final item = _box.get(id);
-    if (item == null) return;
-    item.status = LibraryDownloadStatus.paused;
-    await item.save();
+    await DesktopDownloadService.instance.pauseDownload(id);
   }
 
   Future<void> resume(String id) async {
     if (!LibraryPersistence.isReady) return;
-    final item = _box.get(id);
-    if (item == null) return;
-    item.status = LibraryDownloadStatus.pending;
-    await item.save();
+    await DesktopDownloadService.instance.resumeDownload(id);
   }
 
-  Future<void> retry(String id) => resume(id);
+  Future<void> retry(String id) {
+    if (!LibraryPersistence.isReady) return Future<void>.value();
+    return DesktopDownloadService.instance.retryDownload(id);
+  }
 
   bool fileExists(LibraryDownloadItem item) {
     if (item.savePath.isEmpty) return false;

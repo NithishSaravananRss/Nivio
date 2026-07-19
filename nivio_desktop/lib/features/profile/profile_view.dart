@@ -17,9 +17,14 @@ import '../library/services/library_persistence.dart';
 import '../settings/settings_view.dart';
 
 class ProfileView extends StatefulWidget {
-  const ProfileView({super.key, required this.onOpenDetail});
+  const ProfileView({
+    super.key,
+    required this.onOpenDetail,
+    this.onHomeLayoutChanged,
+  });
 
   final ValueChanged<String> onOpenDetail;
+  final VoidCallback? onHomeLayoutChanged;
 
   @override
   State<ProfileView> createState() => _ProfileViewState();
@@ -62,16 +67,22 @@ class _ProfileViewState extends State<ProfileView> {
       _ProfileStatus.ready => _ProfileContent(
         state: state,
         onOpenDetail: widget.onOpenDetail,
+        onHomeLayoutChanged: widget.onHomeLayoutChanged,
       ),
     };
   }
 }
 
 class _ProfileContent extends StatelessWidget {
-  const _ProfileContent({required this.state, required this.onOpenDetail});
+  const _ProfileContent({
+    required this.state,
+    required this.onOpenDetail,
+    this.onHomeLayoutChanged,
+  });
 
   final _ProfileState state;
   final ValueChanged<String> onOpenDetail;
+  final VoidCallback? onHomeLayoutChanged;
 
   @override
   Widget build(BuildContext context) {
@@ -106,7 +117,12 @@ class _ProfileContent extends StatelessWidget {
               child: _SummaryGrid(state: state, onOpenDetail: onOpenDetail),
             ),
           ),
-          const SliverToBoxAdapter(child: SettingsView(embedded: true)),
+          SliverToBoxAdapter(
+            child: SettingsView(
+              embedded: true,
+              onHomeLayoutChanged: onHomeLayoutChanged,
+            ),
+          ),
         ],
       ),
     );

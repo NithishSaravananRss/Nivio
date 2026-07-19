@@ -221,7 +221,10 @@ class _DownloadTile extends StatelessWidget {
       LibraryDownloadStatus.downloading =>
         'Downloading ${(item.progress * 100).toStringAsFixed(1)}%',
       LibraryDownloadStatus.completed => 'Completed',
-      LibraryDownloadStatus.failed => 'Failed',
+      LibraryDownloadStatus.failed =>
+        item.failureReason?.trim().isNotEmpty == true
+            ? 'Failed - ${item.failureReason}'
+            : 'Failed',
       LibraryDownloadStatus.paused => 'Paused',
       LibraryDownloadStatus.extracting =>
         item.progress >= 1.0 ? 'Merging files...' : 'Extracting video link...',

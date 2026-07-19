@@ -1,6 +1,11 @@
+import 'dart:async';
+
 import 'package:flutter/widgets.dart';
 
 import '../core/config/app_environment.dart';
+import '../core/services/desktop_cache_service.dart';
+import '../features/library/services/desktop_download_service.dart';
+import '../features/library/services/episode_tracking_service.dart';
 import '../features/library/services/library_persistence.dart';
 import '../features/history/desktop_watch_history_repository.dart';
 import '../features/party/services/watch_party_supabase_config.dart';
@@ -28,6 +33,17 @@ Future<void> bootstrap() async {
   await LibraryPersistence.init();
   PlaybackRuntimeDiagnostics.lifecycleLog(
     'Library persistence initialized',
+    clock: startupClock,
+  );
+  await DesktopCacheService.instance.init();
+  PlaybackRuntimeDiagnostics.lifecycleLog(
+    'Cache manager initialized',
+    clock: startupClock,
+  );
+  unawaited(LibraryEpisodeTrackingService.instance.runAppLaunchCheck());
+  await DesktopDownloadService.instance.restorePendingDownloads();
+  PlaybackRuntimeDiagnostics.lifecycleLog(
+    'Download manager initialized',
     clock: startupClock,
   );
   await DesktopWatchHistoryRepository.instance.initialize();

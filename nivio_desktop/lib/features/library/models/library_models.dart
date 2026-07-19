@@ -67,6 +67,104 @@ class LibraryWatchlistItemAdapter extends TypeAdapter<LibraryWatchlistItem> {
   }
 }
 
+class LibraryNewEpisodeItem extends HiveObject {
+  LibraryNewEpisodeItem({
+    required this.showId,
+    required this.showName,
+    required this.seasonNumber,
+    required this.episodeNumber,
+    required this.episodeName,
+    required this.airDate,
+    required this.detectedAt,
+    this.posterPath,
+    this.isRead = false,
+  });
+
+  final int showId;
+  final String showName;
+  final int seasonNumber;
+  final int episodeNumber;
+  final String episodeName;
+  final String? posterPath;
+  final DateTime airDate;
+  final DateTime detectedAt;
+  final bool isRead;
+
+  String get episodeKey => '${showId}_${seasonNumber}_$episodeNumber';
+
+  LibraryNewEpisodeItem copyWith({
+    int? showId,
+    String? showName,
+    int? seasonNumber,
+    int? episodeNumber,
+    String? episodeName,
+    String? posterPath,
+    DateTime? airDate,
+    DateTime? detectedAt,
+    bool? isRead,
+  }) {
+    return LibraryNewEpisodeItem(
+      showId: showId ?? this.showId,
+      showName: showName ?? this.showName,
+      seasonNumber: seasonNumber ?? this.seasonNumber,
+      episodeNumber: episodeNumber ?? this.episodeNumber,
+      episodeName: episodeName ?? this.episodeName,
+      posterPath: posterPath ?? this.posterPath,
+      airDate: airDate ?? this.airDate,
+      detectedAt: detectedAt ?? this.detectedAt,
+      isRead: isRead ?? this.isRead,
+    );
+  }
+}
+
+class LibraryNewEpisodeItemAdapter extends TypeAdapter<LibraryNewEpisodeItem> {
+  @override
+  final int typeId = 7;
+
+  @override
+  LibraryNewEpisodeItem read(BinaryReader reader) {
+    final fieldCount = reader.readByte();
+    final fields = <int, dynamic>{
+      for (var i = 0; i < fieldCount; i++) reader.readByte(): reader.read(),
+    };
+    return LibraryNewEpisodeItem(
+      showId: fields[0] as int,
+      showName: fields[1] as String,
+      seasonNumber: fields[2] as int,
+      episodeNumber: fields[3] as int,
+      episodeName: fields[4] as String,
+      posterPath: fields[5] as String?,
+      airDate: fields[6] as DateTime,
+      detectedAt: fields[7] as DateTime,
+      isRead: fields[8] as bool? ?? false,
+    );
+  }
+
+  @override
+  void write(BinaryWriter writer, LibraryNewEpisodeItem obj) {
+    writer
+      ..writeByte(9)
+      ..writeByte(0)
+      ..write(obj.showId)
+      ..writeByte(1)
+      ..write(obj.showName)
+      ..writeByte(2)
+      ..write(obj.seasonNumber)
+      ..writeByte(3)
+      ..write(obj.episodeNumber)
+      ..writeByte(4)
+      ..write(obj.episodeName)
+      ..writeByte(5)
+      ..write(obj.posterPath)
+      ..writeByte(6)
+      ..write(obj.airDate)
+      ..writeByte(7)
+      ..write(obj.detectedAt)
+      ..writeByte(8)
+      ..write(obj.isRead);
+  }
+}
+
 enum LibraryDownloadStatus {
   pending,
   downloading,
@@ -111,6 +209,7 @@ class LibraryDownloadItem extends HiveObject {
     this.selectedAudioLanguage,
     this.selectedSubtitleLanguage,
     this.subtitleUrl,
+    this.failureReason,
   });
 
   String id;
@@ -131,6 +230,7 @@ class LibraryDownloadItem extends HiveObject {
   String? selectedAudioLanguage;
   String? selectedSubtitleLanguage;
   String? subtitleUrl;
+  String? failureReason;
 }
 
 class LibraryDownloadItemAdapter extends TypeAdapter<LibraryDownloadItem> {
@@ -162,13 +262,14 @@ class LibraryDownloadItemAdapter extends TypeAdapter<LibraryDownloadItem> {
       selectedAudioLanguage: fields[15] as String?,
       selectedSubtitleLanguage: fields[16] as String?,
       subtitleUrl: fields[17] as String?,
+      failureReason: fields[18] as String?,
     );
   }
 
   @override
   void write(BinaryWriter writer, LibraryDownloadItem obj) {
     writer
-      ..writeByte(18)
+      ..writeByte(19)
       ..writeByte(0)
       ..write(obj.id)
       ..writeByte(1)
@@ -204,7 +305,9 @@ class LibraryDownloadItemAdapter extends TypeAdapter<LibraryDownloadItem> {
       ..writeByte(16)
       ..write(obj.selectedSubtitleLanguage)
       ..writeByte(17)
-      ..write(obj.subtitleUrl);
+      ..write(obj.subtitleUrl)
+      ..writeByte(18)
+      ..write(obj.failureReason);
   }
 }
 

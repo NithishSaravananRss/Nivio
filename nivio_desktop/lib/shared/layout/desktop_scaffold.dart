@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart' hide SearchController;
 import 'package:flutter/services.dart';
 
@@ -7,6 +9,10 @@ import '../../features/library/library_view.dart';
 import '../../features/live_tv/live_tv_view.dart';
 import '../../features/party/party_view.dart';
 import '../../features/profile/profile_view.dart';
+import '../../features/providers/controllers/providers_controller.dart';
+import '../../features/providers/models/provider_models.dart';
+import '../../features/providers/providers_view.dart';
+import '../../features/providers/repositories/tmdb_providers_repository.dart';
 import '../../features/player/models/playback_request.dart';
 import '../../features/player/resolving_player_screen.dart';
 import '../../features/player/services/stream_resolver.dart';
@@ -86,11 +92,16 @@ class _DesktopScaffoldState extends State<DesktopScaffold> {
         TmdbDetailsRepository(client: TmdbClient(apiKey: tmdbApiKey)),
   );
 
+  late final ProvidersController _providersController = ProvidersController(
+    repository: TmdbProvidersRepository(client: TmdbClient(apiKey: tmdbApiKey)),
+  );
+
   int _selectedIndex = _homeIndex;
   int _lastSidebarIndex = _homeIndex;
   bool _isSidebarExpanded = true;
   DetailRouteArgs? _detailRouteArgs;
   PlaybackRequest? _playbackRequest;
+  bool _isProviderBrowserOpen = false;
 
   @override
   void initState() {
@@ -104,6 +115,7 @@ class _DesktopScaffoldState extends State<DesktopScaffold> {
     _searchPageFocusNode.dispose();
     _searchStateController.dispose();
     _homeStateController.dispose();
+    _providersController.dispose();
     super.dispose();
   }
 
@@ -111,6 +123,7 @@ class _DesktopScaffoldState extends State<DesktopScaffold> {
     setState(() {
       _selectedIndex = index;
       _detailRouteArgs = null;
+      _isProviderBrowserOpen = false;
       _lastSidebarIndex = index;
     });
 
@@ -152,6 +165,35 @@ class _DesktopScaffoldState extends State<DesktopScaffold> {
 
   void _openPlayback(PlaybackRequest request) {
     setState(() => _playbackRequest = request);
+  }
+
+  void _openAllProviders() {
+    _providersController.showAllProviders();
+    setState(() {
+      _selectedIndex = _homeIndex;
+      _lastSidebarIndex = _homeIndex;
+      _detailRouteArgs = null;
+      _isProviderBrowserOpen = true;
+    });
+  }
+
+  void _openProvider(StreamingProviderItem provider) {
+    setState(() {
+      _selectedIndex = _homeIndex;
+      _lastSidebarIndex = _homeIndex;
+      _detailRouteArgs = null;
+      _isProviderBrowserOpen = true;
+    });
+    unawaited(_providersController.selectProvider(provider));
+  }
+
+  void _closeProviderBrowser() {
+    setState(() {
+      _isProviderBrowserOpen = false;
+      _detailRouteArgs = null;
+      _selectedIndex = _homeIndex;
+      _lastSidebarIndex = _homeIndex;
+    });
   }
 
   void _closePlayback() {
@@ -267,11 +309,22 @@ class _DesktopScaffoldState extends State<DesktopScaffold> {
       );
     }
 
+    if (_selectedIndex == _homeIndex && _isProviderBrowserOpen) {
+      return ProvidersView(
+        controller: _providersController,
+        onOpenDetail: _openDetail,
+        onPlay: _openPlayback,
+        onBack: _closeProviderBrowser,
+      );
+    }
+
     return switch (_selectedIndex) {
       _homeIndex => HomeView(
         controller: _homeStateController,
         onOpenDetail: _openDetail,
         onPlay: _openPlayback,
+        onOpenAllProviders: _openAllProviders,
+        onOpenProvider: _openProvider,
       ),
       _libraryIndex => LibraryView(
         onOpenDetail: _openDetail,
@@ -280,7 +333,12 @@ class _DesktopScaffoldState extends State<DesktopScaffold> {
       ),
       _liveTvIndex => LiveTvView(onPlay: _openPlayback),
       _partyIndex => PartyView(onPlay: _openPlayback),
-      _profileIndex => ProfileView(onOpenDetail: _openDetail),
+      _profileIndex => ProfileView(
+        onOpenDetail: _openDetail,
+        onHomeLayoutChanged: () {
+          unawaited(_homeStateController.reloadHomeLayoutOrder());
+        },
+      ),
       _searchIndex => SearchView(
         controller: _searchStateController,
         queryController: _searchController,
@@ -292,6 +350,8 @@ class _DesktopScaffoldState extends State<DesktopScaffold> {
         controller: _homeStateController,
         onOpenDetail: _openDetail,
         onPlay: _openPlayback,
+        onOpenAllProviders: _openAllProviders,
+        onOpenProvider: _openProvider,
       ),
     };
   }
