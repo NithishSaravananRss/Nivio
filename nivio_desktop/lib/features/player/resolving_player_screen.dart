@@ -9,6 +9,7 @@ import 'models/playback_request.dart';
 import 'player_screen.dart';
 import 'playback_engine.dart';
 import 'services/desktop_streaming_service.dart';
+import 'services/mini_player_service.dart';
 import 'services/playback_runtime_diagnostics.dart';
 import 'services/stream_resolver.dart';
 
@@ -21,6 +22,7 @@ class ResolvingPlayerScreen extends StatefulWidget {
     this.engineFactory,
     this.watchHistoryRepository,
     this.onNextEpisode,
+    this.onMinimize,
   });
 
   final PlaybackRequest request;
@@ -29,6 +31,7 @@ class ResolvingPlayerScreen extends StatefulWidget {
   final PlaybackEngineFactory? engineFactory;
   final WatchHistoryRepository? watchHistoryRepository;
   final ValueChanged<PlaybackRequest>? onNextEpisode;
+  final VoidCallback? onMinimize;
 
   @override
   State<ResolvingPlayerScreen> createState() => _ResolvingPlayerScreenState();
@@ -61,6 +64,23 @@ class _ResolvingPlayerScreenState extends State<ResolvingPlayerScreen> {
   }
 
   Future<void> _resolve() async {
+    final miniSession = MiniPlayerService.instance.reclaimIfMatches(
+      widget.request,
+    );
+    if (miniSession != null) {
+      setState(() {
+        _engine = miniSession.engine;
+        _sourceOptions = miniSession.sourceOptions;
+        _resolvedRequest = miniSession.request;
+        _isResolving = false;
+        _error = null;
+        _canRetry = true;
+        _status = 'Resuming player...';
+        _playerGeneration++;
+      });
+      return;
+    }
+
     final attempt = ++_attempt;
     final hadResolvedPlayer = _resolvedRequest != null;
     final existingEngine = _engine;
@@ -85,7 +105,7 @@ class _ResolvingPlayerScreenState extends State<ResolvingPlayerScreen> {
       _error = null;
       _canRetry = true;
       _isResolving = true;
-      _status = 'Finding a playable source...';
+      _status = _initialResolvingStatus(widget.request);
     });
 
     try {
@@ -191,6 +211,21 @@ class _ResolvingPlayerScreenState extends State<ResolvingPlayerScreen> {
         .join(', ');
   }
 
+  String _initialResolvingStatus(PlaybackRequest request) {
+    final providerIndex = request.providerIndex;
+    if (providerIndex == null) return 'Finding a playable source...';
+    for (final option in _sourceOptions) {
+      if (option.index != providerIndex) continue;
+      final label = option.label.trim().isNotEmpty
+          ? option.label.trim()
+          : option.server.trim().isNotEmpty
+          ? option.server.trim()
+          : option.provider.trim();
+      if (label.isNotEmpty) return 'Switching to $label...';
+    }
+    return 'Switching server...';
+  }
+
   Future<PlaybackRequest> _requestWithHistoryPreferences(
     PlaybackRequest request,
   ) async {
@@ -252,6 +287,25 @@ class _ResolvingPlayerScreenState extends State<ResolvingPlayerScreen> {
     return _engine ??= widget.engineFactory?.call() ?? AdaptivePlaybackEngine();
   }
 
+  void _minimizeToMiniPlayer() {
+    final resolved = _resolvedRequest;
+    final engine = _engine;
+    if (resolved == null || engine == null) {
+      widget.onMinimize?.call();
+      return;
+    }
+    MiniPlayerService.instance.activate(
+      MiniPlayerSession(
+        request: resolved,
+        engine: engine,
+        sourceOptions: _sourceOptions,
+        watchHistoryRepository: widget.watchHistoryRepository,
+      ),
+    );
+    _engine = null;
+    widget.onMinimize?.call();
+  }
+
   static String _sessionEngineLabel(PlaybackEngine? engine) {
     if (engine == null) return 'none';
     if (engine is AdaptivePlaybackEngine) return engine.debugSessionIdentity;
@@ -292,6 +346,7 @@ class _ResolvingPlayerScreenState extends State<ResolvingPlayerScreen> {
         engine: _playerEngine(),
         watchHistoryRepository: widget.watchHistoryRepository,
         onClose: widget.onClose,
+        onMinimize: _minimizeToMiniPlayer,
         onNextEpisode: widget.onNextEpisode,
         onSourceSwitch: widget.onNextEpisode,
         sourceOptions: _sourceOptions,

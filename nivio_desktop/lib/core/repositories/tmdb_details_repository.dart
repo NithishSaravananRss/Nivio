@@ -23,7 +23,8 @@ class TmdbDetailsRepository implements DetailsRepository {
     final detailFuture = client.getDetails(
       args.mediaId,
       args.mediaType,
-      appendToResponse: 'credits,videos',
+      appendToResponse:
+          'credits,videos,external_ids,content_ratings,release_dates',
     );
     final providersFuture = client.getWatchProviders(
       args.mediaId,
@@ -42,7 +43,9 @@ class TmdbDetailsRepository implements DetailsRepository {
       imagesFuture,
     ]);
 
-    final detailDto = DetailDto(results[0]);
+    final detailMap = Map<String, dynamic>.from(results[0]);
+    detailMap['media_type'] = args.mediaType;
+    final detailDto = DetailDto(detailMap);
     final creditsDto = CreditsDto(results[0]['credits'] ?? {});
     final videosDto = VideosDto(results[0]['videos'] ?? {});
     final providersDto = ProvidersDto(results[1]);
@@ -95,6 +98,10 @@ class TmdbDetailsRepository implements DetailsRepository {
           status
           format
           genres
+          nextAiringEpisode { episode }
+          airingSchedule(page: 1, perPage: 50, notYetAired: false) {
+            nodes { episode airingAt }
+          }
           studios(isMain: true) { nodes { name } }
           trailer { site id }
           recommendations(sort: RATING_DESC, perPage: 12) {
@@ -130,15 +137,29 @@ class TmdbDetailsRepository implements DetailsRepository {
         .toList();
     final episodesCount = (media['episodes'] as num?)?.toInt() ?? 0;
     final durationMinutes = (media['duration'] as num?)?.toInt() ?? 0;
+    final format = media['format']?.toString();
     final startDate = _dateFromAniList(media['startDate']);
     final releaseYear = (media['seasonYear'] ?? startDate.split('-').first)
         .toString();
     final rating = ((media['averageScore'] as num?)?.toDouble() ?? 0) / 10;
     final trailer = media['trailer'] as Map?;
 
-    final episodes = episodesCount > 0
+    final aniZipEpisodes = await _loadAniZipEpisodes(
+      anilistId,
+      fallbackRuntimeMinutes: durationMinutes,
+    );
+    final airDatesByEpisode = _airDatesByEpisode(media['airingSchedule']);
+    final knownEpisodesCount = _knownAnimeEpisodeCount(
+      episodesCount: episodesCount,
+      nextAiringEpisode: _nextAiringEpisode(media['nextAiringEpisode']),
+      airedEpisodeNumbers: airDatesByEpisode.keys,
+      format: format,
+    );
+    final episodes = aniZipEpisodes.isNotEmpty
+        ? aniZipEpisodes
+        : knownEpisodesCount > 0
         ? [
-            for (var index = 1; index <= episodesCount; index++)
+            for (var index = 1; index <= knownEpisodesCount; index++)
               DetailEpisode(
                 number: index,
                 title: 'Episode $index',
@@ -146,6 +167,7 @@ class TmdbDetailsRepository implements DetailsRepository {
                 overview: '',
                 progress: 0,
                 status: 'Unwatched',
+                airDate: airDatesByEpisode[index],
               ),
           ]
         : const <DetailEpisode>[];
@@ -255,4 +277,116 @@ class TmdbDetailsRepository implements DetailsRepository {
 
   String _stripHtml(String value) =>
       value.replaceAll(RegExp(r'<[^>]*>'), '').trim();
+
+  Future<List<DetailEpisode>> _loadAniZipEpisodes(
+    int anilistId, {
+    required int fallbackRuntimeMinutes,
+  }) async {
+    try {
+      final mappings = await aniListClient.getAniZipMappings(anilistId);
+      final rawEpisodes = mappings['episodes'];
+      if (rawEpisodes is! Map || rawEpisodes.isEmpty) {
+        return const [];
+      }
+
+      final sortedKeys =
+          rawEpisodes.keys
+              .map((key) => key.toString())
+              .where((key) => int.tryParse(key) != null)
+              .toList()
+            ..sort((a, b) => int.parse(a).compareTo(int.parse(b)));
+
+      final episodes = <DetailEpisode>[];
+      for (final key in sortedKeys) {
+        final rawEpisode = rawEpisodes[key];
+        if (rawEpisode is! Map) continue;
+
+        final number = int.parse(key);
+        final runtimeMinutes =
+            (rawEpisode['runtime'] as num?)?.toInt() ??
+            (rawEpisode['length'] as num?)?.toInt() ??
+            fallbackRuntimeMinutes;
+        episodes.add(
+          DetailEpisode(
+            number: number,
+            title: _aniZipTitle(rawEpisode['title']) ?? 'Episode $number',
+            runtime: runtimeMinutes > 0 ? '${runtimeMinutes}m' : '',
+            overview:
+                rawEpisode['overview']?.toString() ??
+                rawEpisode['summary']?.toString() ??
+                '',
+            progress: 0,
+            status: 'Unwatched',
+            stillPath: rawEpisode['image']?.toString(),
+            airDate:
+                rawEpisode['airDate']?.toString() ??
+                rawEpisode['airdate']?.toString(),
+          ),
+        );
+      }
+      return episodes;
+    } catch (_) {
+      return const [];
+    }
+  }
+
+  String? _aniZipTitle(Object? value) {
+    if (value is String && value.trim().isNotEmpty) return value.trim();
+    if (value is! Map) return null;
+    for (final key in const ['en', 'x-jat', 'ja']) {
+      final title = value[key]?.toString().trim();
+      if (title != null && title.isNotEmpty) return title;
+    }
+    return null;
+  }
+
+  Map<int, String> _airDatesByEpisode(Object? value) {
+    if (value is! Map) return const {};
+    final nodes = value['nodes'] as List? ?? const [];
+    final dates = <int, String>{};
+    for (final node in nodes) {
+      if (node is! Map) continue;
+      final episode = (node['episode'] as num?)?.toInt();
+      final airingAt = (node['airingAt'] as num?)?.toInt();
+      if (episode == null || episode <= 0 || airingAt == null) continue;
+      dates[episode] = DateTime.fromMillisecondsSinceEpoch(
+        airingAt * 1000,
+        isUtc: true,
+      ).toIso8601String().split('T').first;
+    }
+    return dates;
+  }
+
+  int? _nextAiringEpisode(Object? value) {
+    if (value is! Map) return null;
+    final episode = (value['episode'] as num?)?.toInt();
+    return episode != null && episode > 0 ? episode : null;
+  }
+
+  int _knownAnimeEpisodeCount({
+    required int episodesCount,
+    required int? nextAiringEpisode,
+    required Iterable<int> airedEpisodeNumbers,
+    required String? format,
+  }) {
+    if (episodesCount > 0) return episodesCount;
+    if (nextAiringEpisode != null && nextAiringEpisode > 1) {
+      return nextAiringEpisode - 1;
+    }
+
+    var highestAiredEpisode = 0;
+    for (final episode in airedEpisodeNumbers) {
+      if (episode > highestAiredEpisode) highestAiredEpisode = episode;
+    }
+    if (highestAiredEpisode > 0) return highestAiredEpisode;
+
+    return _canUseDefaultAnimeEpisodeCount(format) ? 12 : 0;
+  }
+
+  bool _canUseDefaultAnimeEpisodeCount(String? format) {
+    return switch (format) {
+      'TV' || 'TV_SHORT' || 'ONA' || 'OVA' => true,
+      _ => false,
+    };
+  }
 }

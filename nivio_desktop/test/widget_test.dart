@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:nivio_desktop/app/app.dart';
 
@@ -67,8 +68,8 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('Nivio Desktop'), findsOneWidget);
-    expect(find.text('Search'), findsOneWidget);
+    expect(find.text('Nivio Desktop'), findsNothing);
+    expect(find.byKey(const ValueKey('desktop_sidebar_1')), findsOneWidget);
     expect(find.text('Continue Watching'), findsNothing);
     expect(find.text('Trending Now'), findsOneWidget);
     expect(find.text('Trending TV Shows'), findsOneWidget);
@@ -77,6 +78,6 @@ void main() {
     expect(find.text('Upcoming Movies'), findsNothing);
     expect(find.text('Airing Today'), findsNothing);
     expect(find.text('Studios'), findsOneWidget);
-    expect(find.text('Netflix'), findsOneWidget);
+    expect(find.bySemanticsLabel('Netflix'), findsOneWidget);
   });
 }

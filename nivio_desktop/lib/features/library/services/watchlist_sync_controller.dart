@@ -20,13 +20,13 @@ class WatchlistSyncController extends ChangeNotifier {
   late final ValueListenable<dynamic> _boxListenable;
 
   bool isInWatchlist(String mediaId) {
-    final id = int.tryParse(mediaId);
+    final id = _numericMediaId(mediaId);
     if (id == null) return false;
     return _service.isInWatchlist(id);
   }
 
   Future<void> toggleDetailMedia(DetailMedia media) {
-    final id = int.tryParse(media.id);
+    final id = _numericMediaId(media.id);
     if (id == null) return Future<void>.value();
     return _service.toggle(
       LibraryWatchlistItem(
@@ -43,7 +43,7 @@ class WatchlistSyncController extends ChangeNotifier {
   }
 
   Future<void> toggleSearchItem(SearchMediaItem item) {
-    final id = int.tryParse(item.id);
+    final id = _numericMediaId(item.id);
     if (id == null) return Future<void>.value();
     return _service.toggle(
       LibraryWatchlistItem(
@@ -81,5 +81,10 @@ class WatchlistSyncController extends ChangeNotifier {
       SearchMediaTypeFilter.anime => 'anime',
       SearchMediaTypeFilter.all => 'movie',
     };
+  }
+
+  int? _numericMediaId(String mediaId) {
+    final raw = mediaId.contains(':') ? mediaId.split(':').last : mediaId;
+    return int.tryParse(raw);
   }
 }

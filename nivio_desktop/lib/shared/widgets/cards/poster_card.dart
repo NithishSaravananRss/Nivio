@@ -1,22 +1,27 @@
+import 'dart:async';
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:webview_all/webview_all.dart';
+import 'package:webview_all_linux/webview_all_linux.dart';
 
+import '../../../core/services/trailer_preview_service.dart';
+import '../../../features/player/services/web_runtime_service.dart';
 import '../../theme/index.dart';
-import '../badges/rating_badge.dart';
-import '../badges/year_badge.dart';
-import '../buttons/ghost_button.dart';
-import '../buttons/primary_button.dart';
-import '../buttons/secondary_button.dart';
 import '../common/animated_fade_container.dart';
-import '../common/hover_card.dart';
 
-class PosterCard extends StatelessWidget {
+class PosterCard extends StatefulWidget {
   const PosterCard({
     super.key,
+    this.mediaId,
     required this.title,
     this.imageProvider,
+    this.previewImageProvider,
     this.year,
     this.rating,
     this.subtitle,
+    this.overview,
     this.semanticLabel,
     this.focusNode,
     this.autofocus = false,
@@ -28,13 +33,17 @@ class PosterCard extends StatelessWidget {
     this.onWatchlist,
     this.isInWatchlist = false,
     this.onMore,
+    this.progress,
   });
 
+  final String? mediaId;
   final String title;
   final ImageProvider? imageProvider;
+  final ImageProvider? previewImageProvider;
   final String? year;
   final String? rating;
   final String? subtitle;
+  final String? overview;
   final String? semanticLabel;
   final FocusNode? focusNode;
   final bool autofocus;
@@ -46,117 +55,452 @@ class PosterCard extends StatelessWidget {
   final VoidCallback? onWatchlist;
   final bool isInWatchlist;
   final VoidCallback? onMore;
+  final double? progress;
+
+  @override
+  State<PosterCard> createState() => _PosterCardState();
+}
+
+class _PosterCardState extends State<PosterCard> {
+  static Offset? _lastPointerPosition;
+  static _PosterCardState? _activeOverlayOwner;
+
+  final GlobalKey _targetKey = GlobalKey();
+
+  OverlayEntry? _overlayEntry;
+  Timer? _showTimer;
+  Timer? _hideTimer;
+  Timer? _postScrollHoverTimer;
+  ScrollPosition? _horizontalScrollPosition;
+  ScrollPosition? _verticalScrollPosition;
+  _PosterCardLayout? _latestLayout;
+  Offset? _overlayOffset;
+  bool _isHovered = false;
+  bool _isFocused = false;
+  bool _isDeactivated = false;
+  bool _isScrolling = false;
+
+  bool get _isActive => _isHovered || _isFocused;
+
+  @override
+  void didUpdateWidget(covariant PosterCard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (_overlayEntry != null) {
+      _scheduleOverlayUpdate();
+    }
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _syncScrollPosition(
+      current: _horizontalScrollPosition,
+      next: Scrollable.maybeOf(context, axis: Axis.horizontal)?.position,
+      update: (position) => _horizontalScrollPosition = position,
+    );
+    _syncScrollPosition(
+      current: _verticalScrollPosition,
+      next: Scrollable.maybeOf(context, axis: Axis.vertical)?.position,
+      update: (position) => _verticalScrollPosition = position,
+    );
+    _isScrolling = _isAnyScrollPositionActive;
+  }
+
+  @override
+  void activate() {
+    super.activate();
+    _isDeactivated = false;
+  }
+
+  @override
+  void deactivate() {
+    _isDeactivated = true;
+    _showTimer?.cancel();
+    _hideTimer?.cancel();
+    _removeOverlay();
+    super.deactivate();
+  }
+
+  @override
+  void dispose() {
+    _horizontalScrollPosition?.isScrollingNotifier.removeListener(
+      _onScrollChanged,
+    );
+    _verticalScrollPosition?.isScrollingNotifier.removeListener(
+      _onScrollChanged,
+    );
+    _showTimer?.cancel();
+    _hideTimer?.cancel();
+    _postScrollHoverTimer?.cancel();
+    _removeOverlay();
+    super.dispose();
+  }
+
+  bool get _isAnyScrollPositionActive =>
+      (_horizontalScrollPosition?.isScrollingNotifier.value ?? false) ||
+      (_verticalScrollPosition?.isScrollingNotifier.value ?? false);
+
+  void _syncScrollPosition({
+    required ScrollPosition? current,
+    required ScrollPosition? next,
+    required ValueChanged<ScrollPosition?> update,
+  }) {
+    if (identical(current, next)) return;
+    current?.isScrollingNotifier.removeListener(_onScrollChanged);
+    update(next);
+    next?.isScrollingNotifier.addListener(_onScrollChanged);
+  }
+
+  void _onScrollChanged() {
+    final scrolling = _isAnyScrollPositionActive;
+    if (_isScrolling == scrolling) return;
+    _isScrolling = scrolling;
+    if (scrolling) {
+      _cancelHoverForScroll();
+    } else {
+      _scheduleHoverFromPointerPosition();
+    }
+  }
+
+  void _cancelHoverForScroll() {
+    _showTimer?.cancel();
+    _hideTimer?.cancel();
+    _postScrollHoverTimer?.cancel();
+    _removeOverlay();
+    if (_isHovered && mounted && !_isDeactivated) {
+      setState(() => _isHovered = false);
+    }
+  }
+
+  void _setHovered(bool value) {
+    if (!mounted || _isDeactivated) return;
+    if (value && _isScrolling) return;
+    if (_isHovered == value) return;
+    setState(() => _isHovered = value);
+    _syncOverlay();
+  }
+
+  void _setFocused(bool value) {
+    if (!mounted || _isDeactivated) return;
+    if (_isFocused == value) return;
+    setState(() => _isFocused = value);
+    _syncOverlay();
+  }
+
+  void _handlePointerEnter(PointerEnterEvent event) {
+    _lastPointerPosition = event.position;
+    _removeOtherActiveOverlay();
+    _setHovered(true);
+  }
+
+  void _handlePointerHover(PointerHoverEvent event) {
+    _lastPointerPosition = event.position;
+    _removeOtherActiveOverlay();
+    if (!_isHovered) _setHovered(true);
+  }
+
+  void _handlePointerExit(PointerExitEvent event) {
+    _lastPointerPosition = event.position;
+    if (_isPointerOverHoverRegion(event.position)) return;
+    _setHovered(false);
+  }
+
+  void _scheduleHoverFromPointerPosition() {
+    _postScrollHoverTimer?.cancel();
+    _postScrollHoverTimer = Timer(const Duration(milliseconds: 90), () {
+      if (!mounted || _isDeactivated || _isScrolling || _isHovered) return;
+      final pointerPosition = _lastPointerPosition;
+      if (pointerPosition == null || !_isPointerOverCard(pointerPosition)) {
+        return;
+      }
+      _setHovered(true);
+    });
+  }
+
+  bool _isPointerOverCard(Offset globalPosition) {
+    final targetContext = _targetKey.currentContext;
+    if (targetContext == null || !targetContext.mounted) return false;
+    final targetBox = targetContext.findRenderObject() as RenderBox?;
+    if (targetBox == null || !targetBox.hasSize) return false;
+    final localPosition = targetBox.globalToLocal(globalPosition);
+    return (Offset.zero & targetBox.size).contains(localPosition);
+  }
+
+  bool _isPointerOverOverlay(Offset globalPosition) {
+    final layout = _latestLayout;
+    final offset = _overlayOffset;
+    if (layout == null || offset == null) return false;
+    final overlayContext = Overlay.maybeOf(context)?.context;
+    if (overlayContext == null || !overlayContext.mounted) return false;
+    final overlayBox = overlayContext.findRenderObject() as RenderBox?;
+    if (overlayBox == null || !overlayBox.hasSize) return false;
+    final localPosition = overlayBox.globalToLocal(globalPosition);
+    return Rect.fromLTWH(
+      offset.dx,
+      offset.dy,
+      layout.expandedWidth,
+      layout.availableHeight,
+    ).contains(localPosition);
+  }
+
+  bool _isPointerOverHoverRegion(Offset globalPosition) {
+    return _isPointerOverCard(globalPosition) ||
+        _isPointerOverOverlay(globalPosition);
+  }
+
+  void _scheduleOverlayUpdate() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || _isDeactivated || !_isActive || _isScrolling) {
+        return;
+      }
+      _showOrUpdateOverlay();
+    });
+  }
+
+  void _scheduleDelayedOverlay() {
+    _showTimer?.cancel();
+    if (_isScrolling) return;
+    _showTimer = Timer(const Duration(milliseconds: 150), () {
+      if (!mounted || _isDeactivated || !_isActive || _isScrolling) return;
+      _scheduleOverlayUpdate();
+    });
+  }
+
+  void _syncOverlay() {
+    _showTimer?.cancel();
+    _hideTimer?.cancel();
+    if (_isActive) {
+      if (_overlayEntry != null) {
+        _scheduleOverlayUpdate();
+      } else {
+        _scheduleDelayedOverlay();
+      }
+      return;
+    }
+
+    _hideTimer = Timer(const Duration(milliseconds: 180), () {
+      final pointerPosition = _lastPointerPosition;
+      if (pointerPosition != null &&
+          _isPointerOverHoverRegion(pointerPosition)) {
+        _setHovered(true);
+        return;
+      }
+      if (mounted && !_isDeactivated && !_isActive) {
+        _removeOverlay();
+      }
+    });
+  }
+
+  void _showOrUpdateOverlay() {
+    if (!mounted || _isDeactivated || _isScrolling) {
+      return;
+    }
+    _removeOtherActiveOverlay();
+
+    final layout = _latestLayout;
+    if (layout == null || !layout.canShowDetails) return;
+
+    final targetContext = _targetKey.currentContext;
+    if (targetContext == null || !targetContext.mounted) {
+      return;
+    }
+
+    final overlay = Overlay.maybeOf(context);
+    final overlayContext = overlay?.context;
+    if (overlay == null || overlayContext == null) {
+      return;
+    }
+
+    final targetBox = targetContext.findRenderObject() as RenderBox?;
+    final overlayBox = overlayContext.findRenderObject() as RenderBox?;
+    if (targetBox == null ||
+        overlayBox == null ||
+        !targetBox.hasSize ||
+        !overlayBox.hasSize) {
+      return;
+    }
+
+    final targetOffset = targetBox.localToGlobal(
+      Offset.zero,
+      ancestor: overlayBox,
+    );
+    final targetBottom = targetOffset.dy + targetBox.size.height;
+    if (targetBottom <= 0 || targetOffset.dy >= overlayBox.size.height) {
+      _removeOverlay();
+      return;
+    }
+    final maxLeft = (overlayBox.size.width - layout.expandedWidth).clamp(
+      0.0,
+      double.infinity,
+    );
+    final maxTop = (overlayBox.size.height - layout.availableHeight).clamp(
+      0.0,
+      double.infinity,
+    );
+    _overlayOffset = Offset(
+      (targetOffset.dx - ((layout.expandedWidth - layout.baseWidth) / 2))
+          .clamp(0.0, maxLeft)
+          .toDouble(),
+      (targetOffset.dy - 6).clamp(0.0, maxTop).toDouble(),
+    );
+
+    if (_overlayEntry == null) {
+      _activeOverlayOwner = this;
+      _overlayEntry = OverlayEntry(builder: _buildOverlay);
+      overlay.insert(_overlayEntry!);
+    } else {
+      _activeOverlayOwner = this;
+      _overlayEntry!.markNeedsBuild();
+    }
+  }
+
+  void _removeOverlay() {
+    _overlayEntry?.remove();
+    _overlayEntry = null;
+    _overlayOffset = null;
+    if (identical(_activeOverlayOwner, this)) {
+      _activeOverlayOwner = null;
+    }
+  }
+
+  void _removeOtherActiveOverlay() {
+    final activeOwner = _activeOverlayOwner;
+    if (activeOwner == null || identical(activeOwner, this)) return;
+    activeOwner
+      .._showTimer?.cancel()
+      .._hideTimer?.cancel()
+      .._postScrollHoverTimer?.cancel()
+      .._removeOverlay();
+    if (activeOwner.mounted && !activeOwner._isDeactivated) {
+      activeOwner.setState(() {
+        activeOwner._isHovered = false;
+        activeOwner._isFocused = false;
+      });
+    }
+  }
+
+  Widget _buildOverlay(BuildContext context) {
+    final layout = _latestLayout;
+    final offset = _overlayOffset;
+    if (layout == null || offset == null || !layout.canShowDetails) {
+      return const SizedBox.shrink();
+    }
+
+    return Positioned(
+      left: offset.dx,
+      top: offset.dy,
+      width: layout.expandedWidth,
+      height: layout.availableHeight,
+      child: MouseRegion(
+        cursor: SystemMouseCursors.click,
+        onEnter: (event) {
+          _lastPointerPosition = event.position;
+          _setHovered(true);
+        },
+        onHover: (event) {
+          _lastPointerPosition = event.position;
+          if (!_isHovered) _setHovered(true);
+        },
+        onExit: (event) {
+          _lastPointerPosition = event.position;
+          if (_isPointerOverHoverRegion(event.position)) return;
+          _setHovered(false);
+        },
+        child: _HoverUplift(
+          child: Material(
+            color: Colors.transparent,
+            child: _ExpandedPosterTrayCard(
+              mediaId: widget.mediaId,
+              title: widget.title,
+              imageProvider:
+                  widget.previewImageProvider ?? widget.imageProvider,
+              isLoading: widget.isLoading,
+              subtitle: widget.subtitle,
+              year: widget.year,
+              rating: widget.rating,
+              overview: widget.overview,
+              isInWatchlist: widget.isInWatchlist,
+              onPlay: widget.onPlay ?? widget.onTap,
+              onWatchlist: widget.onWatchlist,
+              onOpenDetail: widget.onTap,
+              onMore: widget.onMore ?? widget.onSecondaryTap,
+              progress: widget.progress,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
-    return HoverCard(
-      focusNode: focusNode,
-      autofocus: autofocus,
-      semanticLabel: semanticLabel ?? title,
-      onTap: onTap,
-      onSecondaryTap: onSecondaryTap,
-      padding: EdgeInsets.zero,
-      child: const SizedBox.shrink(),
-      builder: (context, isHovered, isFocused) {
-        return GestureDetector(
-          onDoubleTap: onDoubleTap,
-          behavior: HitTestBehavior.opaque,
-          child: AspectRatio(
-            aspectRatio: AppBreakpoints.posterRatio,
-            child: Stack(
-              fit: StackFit.expand,
-              children: [
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    Expanded(
-                      child: _PosterArtwork(
-                        imageProvider: imageProvider,
-                        isLoading: isLoading,
-                      ),
-                    ),
-                    Padding(
-                      padding: const EdgeInsets.all(AppSpacing.md),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            title,
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
-                            style: AppTypography.title,
-                          ),
-                          if (subtitle != null) ...[
-                            const SizedBox(height: AppSpacing.xs),
-                            Text(
-                              subtitle!,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: AppTypography.caption,
-                            ),
-                          ],
-                          const SizedBox(height: AppSpacing.sm),
-                          Wrap(
-                            spacing: AppSpacing.xs,
-                            runSpacing: AppSpacing.xs,
-                            children: [
-                              if (year != null) YearBadge(year: year!),
-                              if (rating != null) RatingBadge(rating: rating!),
-                            ],
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-                Positioned.fill(
-                  child: AnimatedOpacity(
-                    opacity: isHovered || isFocused ? 1 : 0,
-                    duration: AppAnimation.hover,
-                    curve: AppAnimation.standard,
-                    child: DecoratedBox(
-                      decoration: BoxDecoration(
-                        gradient: LinearGradient(
-                          begin: Alignment.topCenter,
-                          end: Alignment.bottomCenter,
-                          colors: [Colors.transparent, const Color(0xDB000000)],
-                        ),
-                        borderRadius: BorderRadius.circular(AppRadius.large),
-                      ),
-                      child: Padding(
-                        padding: const EdgeInsets.all(AppSpacing.md),
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.end,
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
-                          children: [
-                            PrimaryButton(
-                              label: 'Play',
-                              onPressed: onPlay ?? onTap,
-                            ),
-                            const SizedBox(height: AppSpacing.sm),
-                            Wrap(
-                              spacing: AppSpacing.sm,
-                              runSpacing: AppSpacing.sm,
-                              children: [
-                                SecondaryButton(
-                                  label: isInWatchlist
-                                      ? 'In Watchlist'
-                                      : 'Watchlist',
-                                  onPressed: onWatchlist,
-                                ),
-                                GhostButton(
-                                  label: 'More',
-                                  onPressed: onMore ?? onSecondaryTap,
-                                ),
-                              ],
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final baseWidth =
+            constraints.maxWidth.isFinite && constraints.maxWidth > 0
+            ? constraints.maxWidth
+            : 236.0;
+        final availableHeight =
+            constraints.maxHeight.isFinite && constraints.maxHeight > 0
+            ? constraints.maxHeight
+            : baseWidth / AppBreakpoints.posterRatio;
+        final compactHeight = (baseWidth / AppBreakpoints.posterRatio)
+            .clamp(0.0, availableHeight)
+            .toDouble();
+        final expandedWidth = (baseWidth * 1.46)
+            .clamp(baseWidth, 356.0)
+            .toDouble();
+        final canShowDetails = availableHeight >= 220 && baseWidth >= 140;
+        _latestLayout = _PosterCardLayout(
+          baseWidth: baseWidth,
+          compactHeight: compactHeight,
+          availableHeight: availableHeight,
+          expandedWidth: expandedWidth,
+          canShowDetails: canShowDetails,
+        );
+
+        return FocusableActionDetector(
+          focusNode: widget.focusNode,
+          autofocus: widget.autofocus,
+          mouseCursor: SystemMouseCursors.click,
+          onShowFocusHighlight: _setFocused,
+          shortcuts: const <ShortcutActivator, Intent>{
+            SingleActivator(LogicalKeyboardKey.enter): ActivateIntent(),
+            SingleActivator(LogicalKeyboardKey.space): ActivateIntent(),
+          },
+          actions: <Type, Action<Intent>>{
+            ActivateIntent: CallbackAction<ActivateIntent>(
+              onInvoke: (_) {
+                widget.onTap?.call();
+                return null;
+              },
+            ),
+          },
+          child: Semantics(
+            label: widget.semanticLabel ?? widget.title,
+            button: widget.onTap != null,
+            child: MouseRegion(
+              cursor: SystemMouseCursors.click,
+              onEnter: _handlePointerEnter,
+              onHover: _handlePointerHover,
+              onExit: _handlePointerExit,
+              child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: widget.onTap,
+                onDoubleTap: widget.onDoubleTap,
+                onSecondaryTap: widget.onSecondaryTap,
+                child: SizedBox(
+                  key: _targetKey,
+                  width: baseWidth,
+                  height: compactHeight,
+                  child: _CompactPosterTrayCard(
+                    title: widget.title,
+                    imageProvider: widget.imageProvider,
+                    isLoading: widget.isLoading,
+                    progress: widget.progress,
                   ),
                 ),
-              ],
+              ),
             ),
           ),
         );
@@ -165,22 +509,254 @@ class PosterCard extends StatelessWidget {
   }
 }
 
-class _PosterArtwork extends StatelessWidget {
-  const _PosterArtwork({required this.imageProvider, required this.isLoading});
+class _HoverUplift extends StatelessWidget {
+  const _HoverUplift({required this.child});
 
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return TweenAnimationBuilder<double>(
+      tween: Tween<double>(begin: 0, end: 1),
+      duration: const Duration(milliseconds: 190),
+      curve: AppAnimation.emphasized,
+      builder: (context, value, child) {
+        final easedOpacity = Curves.easeOut.transform(value);
+        return Opacity(
+          opacity: easedOpacity,
+          child: Transform.translate(
+            offset: Offset(0, (1 - value) * 18),
+            child: Transform.scale(
+              scale: 0.975 + (value * 0.025),
+              alignment: Alignment.bottomCenter,
+              child: child,
+            ),
+          ),
+        );
+      },
+      child: child,
+    );
+  }
+}
+
+class _PosterCardLayout {
+  const _PosterCardLayout({
+    required this.baseWidth,
+    required this.compactHeight,
+    required this.availableHeight,
+    required this.expandedWidth,
+    required this.canShowDetails,
+  });
+
+  final double baseWidth;
+  final double compactHeight;
+  final double availableHeight;
+  final double expandedWidth;
+  final bool canShowDetails;
+}
+
+class _CompactPosterTrayCard extends StatelessWidget {
+  const _CompactPosterTrayCard({
+    required this.title,
+    required this.imageProvider,
+    required this.isLoading,
+    required this.progress,
+  });
+
+  final String title;
   final ImageProvider? imageProvider;
   final bool isLoading;
+  final double? progress;
+
+  @override
+  Widget build(BuildContext context) {
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        _PosterArtwork(
+          title: title,
+          imageProvider: imageProvider,
+          isLoading: isLoading,
+          borderRadius: BorderRadius.circular(AppRadius.medium),
+        ),
+        if (progress != null && progress! > 0)
+          Positioned(
+            left: 0,
+            right: 0,
+            bottom: 0,
+            child: ClipRRect(
+              borderRadius: const BorderRadius.vertical(
+                bottom: Radius.circular(AppRadius.medium),
+              ),
+              child: LinearProgressIndicator(
+                minHeight: 4,
+                value: progress!.clamp(0.0, 1.0),
+                backgroundColor: Colors.white24,
+                color: AppColors.primary,
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+class _ExpandedPosterTrayCard extends StatelessWidget {
+  const _ExpandedPosterTrayCard({
+    required this.mediaId,
+    required this.title,
+    required this.imageProvider,
+    required this.isLoading,
+    required this.subtitle,
+    required this.year,
+    required this.rating,
+    required this.overview,
+    required this.isInWatchlist,
+    required this.onPlay,
+    required this.onWatchlist,
+    required this.onOpenDetail,
+    required this.onMore,
+    required this.progress,
+  });
+
+  final String? mediaId;
+  final String title;
+  final ImageProvider? imageProvider;
+  final bool isLoading;
+  final String? subtitle;
+  final String? year;
+  final String? rating;
+  final String? overview;
+  final bool isInWatchlist;
+  final VoidCallback? onPlay;
+  final VoidCallback? onWatchlist;
+  final VoidCallback? onOpenDetail;
+  final VoidCallback? onMore;
+  final double? progress;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onOpenDetail ?? onMore,
+        borderRadius: BorderRadius.circular(AppRadius.medium),
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            color: const Color(0xFF171B24),
+            borderRadius: BorderRadius.circular(AppRadius.medium),
+            border: Border.all(color: Colors.white.withValues(alpha: 0.18)),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.62),
+                blurRadius: 38,
+                spreadRadius: -8,
+                offset: const Offset(0, 22),
+              ),
+            ],
+          ),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(AppRadius.medium),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Expanded(
+                  flex: 58,
+                  child: Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      _PosterArtwork(
+                        title: title,
+                        imageProvider: imageProvider,
+                        isLoading: isLoading,
+                        borderRadius: BorderRadius.zero,
+                      ),
+                      _TrailerPreviewArtwork(
+                        mediaId: mediaId,
+                        title: title,
+                        imageProvider: imageProvider,
+                        isLoading: isLoading,
+                      ),
+                      const DecoratedBox(
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            begin: Alignment.topCenter,
+                            end: Alignment.bottomCenter,
+                            colors: [
+                              Color(0x00000000),
+                              Color(0x33000000),
+                              Color(0xD9171B24),
+                            ],
+                            stops: [0, 0.58, 1],
+                          ),
+                        ),
+                      ),
+                      Positioned(
+                        left: AppSpacing.md,
+                        right: AppSpacing.md,
+                        bottom: AppSpacing.sm,
+                        child: Text(
+                          title,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: AppTypography.title.copyWith(
+                            color: AppColors.textPrimary,
+                            fontSize: 15,
+                            fontWeight: FontWeight.w900,
+                            shadows: const [
+                              Shadow(color: Color(0xCC000000), blurRadius: 12),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Expanded(
+                  flex: 42,
+                  child: _PosterHoverPanel(
+                    title: title,
+                    subtitle: subtitle,
+                    year: year,
+                    rating: rating,
+                    overview: overview,
+                    isInWatchlist: isInWatchlist,
+                    onPlay: onPlay,
+                    onWatchlist: onWatchlist,
+                    onMore: onMore ?? onOpenDetail,
+                    progress: progress,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _PosterArtwork extends StatelessWidget {
+  const _PosterArtwork({
+    required this.title,
+    required this.imageProvider,
+    required this.isLoading,
+    required this.borderRadius,
+  });
+
+  final String title;
+  final ImageProvider? imageProvider;
+  final bool isLoading;
+  final BorderRadius borderRadius;
 
   @override
   Widget build(BuildContext context) {
     if (imageProvider == null || isLoading) {
-      return _Placeholder();
+      return _Placeholder(borderRadius: borderRadius);
     }
 
     return ClipRRect(
-      borderRadius: const BorderRadius.vertical(
-        top: Radius.circular(AppRadius.large),
-      ),
+      borderRadius: borderRadius,
       child: Image(
         image: imageProvider!,
         fit: BoxFit.cover,
@@ -188,18 +764,601 @@ class _PosterArtwork extends StatelessWidget {
           if (progress == null) {
             return child;
           }
-          return const _Placeholder();
+          return _Placeholder(borderRadius: borderRadius);
         },
         errorBuilder: (context, error, stackTrace) =>
-            const _Placeholder(errorState: true),
+            _Placeholder(errorState: true, borderRadius: borderRadius),
+      ),
+    );
+  }
+}
+
+class _TrailerPreviewArtwork extends StatefulWidget {
+  const _TrailerPreviewArtwork({
+    required this.mediaId,
+    required this.title,
+    required this.imageProvider,
+    required this.isLoading,
+  });
+
+  final String? mediaId;
+  final String title;
+  final ImageProvider? imageProvider;
+  final bool isLoading;
+
+  @override
+  State<_TrailerPreviewArtwork> createState() => _TrailerPreviewArtworkState();
+}
+
+class _TrailerPreviewArtworkState extends State<_TrailerPreviewArtwork> {
+  Timer? _startTimer;
+  Timer? _validationTimer;
+  WebViewController? _controller;
+  bool _isMuted = true;
+  bool _hasTrailer = false;
+  bool _disposed = false;
+  int _loadGeneration = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _scheduleTrailerStart();
+  }
+
+  @override
+  void didUpdateWidget(covariant _TrailerPreviewArtwork oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.mediaId == widget.mediaId) return;
+    _disposeController();
+    _scheduleTrailerStart();
+  }
+
+  @override
+  void dispose() {
+    _disposed = true;
+    _startTimer?.cancel();
+    _validationTimer?.cancel();
+    _disposeController();
+    super.dispose();
+  }
+
+  void _scheduleTrailerStart() {
+    _startTimer?.cancel();
+    _validationTimer?.cancel();
+    _loadGeneration++;
+    _hasTrailer = false;
+    _isMuted = true;
+    _startTimer = Timer(const Duration(milliseconds: 320), () {
+      unawaited(_loadTrailer());
+    });
+  }
+
+  Future<void> _loadTrailer() async {
+    final mediaId = widget.mediaId?.trim();
+    if (mediaId == null || mediaId.isEmpty || widget.isLoading) return;
+
+    final key = await TrailerPreviewService.instance.resolve(mediaId);
+    if (_disposed || !mounted || key == null || key.isEmpty) return;
+
+    final controller = WebRuntimeService.instance.createController();
+    final generation = _loadGeneration;
+    try {
+      await controller.setJavaScriptMode(JavaScriptMode.unrestricted);
+      await controller.setBackgroundColor(Colors.black);
+      await controller.enableZoom(false);
+      await controller.setUserAgent(
+        'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 '
+        '(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+      );
+      await controller.loadHtmlString(
+        _youtubePreviewHtml(key, muted: _isMuted),
+        baseUrl: 'https://youtube-nocookie.com',
+      );
+    } catch (_) {
+      _disposeController(controller);
+      return;
+    }
+
+    if (_disposed || !mounted) {
+      _disposeController(controller);
+      return;
+    }
+    setState(() {
+      _controller = controller;
+      _hasTrailer = false;
+    });
+    _scheduleTrailerValidation(controller, generation);
+  }
+
+  void _scheduleTrailerValidation(
+    WebViewController controller,
+    int generation, [
+    int attempt = 0,
+  ]) {
+    _validationTimer?.cancel();
+    _validationTimer = Timer(const Duration(milliseconds: 650), () {
+      unawaited(_validateTrailer(controller, generation, attempt));
+    });
+  }
+
+  Future<void> _validateTrailer(
+    WebViewController controller,
+    int generation,
+    int attempt,
+  ) async {
+    if (_disposed ||
+        !mounted ||
+        generation != _loadGeneration ||
+        !identical(controller, _controller)) {
+      return;
+    }
+
+    Object? status;
+    try {
+      status = await controller.runJavaScriptReturningResult('''
+        (function() {
+          return JSON.stringify({
+            ready: document.body.dataset.ytReady === '1',
+            playing: document.body.dataset.ytPlaying === '1',
+            error: document.body.dataset.ytError || ''
+          });
+        })();
+      ''');
+    } catch (_) {
+      if (attempt >= 6) {
+        _failTrailer(controller);
+      } else {
+        _scheduleTrailerValidation(controller, generation, attempt + 1);
+      }
+      return;
+    }
+
+    final normalized = status.toString().toLowerCase();
+    final hasError =
+        normalized.contains('error') && !normalized.contains('"error":""');
+    if (hasError ||
+        normalized.contains('153') ||
+        normalized.contains('video player configuration')) {
+      _failTrailer(controller);
+      return;
+    }
+
+    if (normalized.contains('"ready":true') ||
+        normalized.contains('"playing":true')) {
+      if (!mounted || !identical(controller, _controller)) return;
+      setState(() => _hasTrailer = true);
+      return;
+    }
+
+    if (attempt >= 6) {
+      _failTrailer(controller);
+      return;
+    }
+    _scheduleTrailerValidation(controller, generation, attempt + 1);
+  }
+
+  void _failTrailer(WebViewController controller) {
+    if (!identical(controller, _controller)) {
+      _disposeController(controller);
+      return;
+    }
+    if (mounted && !_disposed) {
+      setState(() {
+        _hasTrailer = false;
+        _controller = null;
+      });
+    } else {
+      _controller = null;
+      _hasTrailer = false;
+    }
+    _disposeController(controller);
+  }
+
+  Future<void> _toggleMute() async {
+    final controller = _controller;
+    if (controller == null) return;
+    final nextMuted = !_isMuted;
+    setState(() => _isMuted = nextMuted);
+    final command = nextMuted ? 'mute' : 'unMute';
+    final volumeCommand = nextMuted
+        ? ''
+        : '''
+          post({"event":"command","func":"setVolume","args":[100]});
+        ''';
+    try {
+      await controller.runJavaScript('''
+        (function() {
+          var iframe = document.querySelector('iframe');
+          if (!iframe || !iframe.contentWindow) return;
+          var post = function(payload) {
+            iframe.contentWindow.postMessage(JSON.stringify(payload), '*');
+          };
+          post({"event":"command","func":"$command","args":[]});
+          $volumeCommand
+        })();
+      ''');
+    } catch (_) {}
+  }
+
+  void _disposeController([WebViewController? controller]) {
+    if (controller == null) {
+      _validationTimer?.cancel();
+      _loadGeneration++;
+    }
+    final target = controller ?? _controller;
+    if (target == null) return;
+    if (controller == null) {
+      _controller = null;
+      _hasTrailer = false;
+    }
+    unawaited(() async {
+      try {
+        await target.loadHtmlString('<html><body></body></html>');
+      } catch (_) {}
+      WebRuntimeService.instance.markDestroyed();
+      if (target.platform is LinuxWebViewController) {
+        try {
+          await (target.platform as LinuxWebViewController).dispose();
+        } catch (_) {}
+      }
+    }());
+  }
+
+  String _youtubePreviewHtml(String key, {required bool muted}) {
+    final source = Uri.https('www.youtube-nocookie.com', '/embed/$key', {
+      'autoplay': '1',
+      'mute': '1',
+      'controls': '0',
+      'enablejsapi': '1',
+      'playsinline': '1',
+      'fs': '0',
+      'iv_load_policy': '3',
+      'rel': '0',
+      'modestbranding': '1',
+      'playlist': key,
+      'origin': 'https://youtube-nocookie.com',
+    }).toString();
+    final escapedSource = const HtmlEscape().convert(source);
+    final shouldUnmute = muted ? 'false' : 'true';
+
+    return '''
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <style>
+    * { margin: 0; padding: 0; overflow: hidden; }
+    html, body { width: 100%; height: 100%; background: #000; }
+    #player { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
+  </style>
+</head>
+<body>
+  <iframe
+    id="player"
+    src="$escapedSource"
+    allow="autoplay; encrypted-media"
+    allowfullscreen>
+  </iframe>
+  <script>
+    var tag = document.createElement('script');
+    tag.src = 'https://www.youtube.com/iframe_api';
+    var firstScriptTag = document.getElementsByTagName('script')[0];
+    firstScriptTag.parentNode.insertBefore(tag, firstScriptTag);
+
+    var player;
+    function onYouTubeIframeAPIReady() {
+      player = new YT.Player('player', {
+        events: {
+          onReady: function(event) {
+            document.body.dataset.ytReady = '1';
+            event.target.mute();
+            event.target.playVideo();
+          },
+          onStateChange: function(event) {
+            if (event.data === 1) {
+              document.body.dataset.ytPlaying = '1';
+            }
+            if (event.data === 0) {
+              event.target.seekTo(0);
+              event.target.playVideo();
+            }
+            if (event.data === 1 && $shouldUnmute) {
+              setTimeout(function() {
+                event.target.unMute();
+                event.target.setVolume(100);
+              }, 250);
+            }
+          },
+          onError: function(event) {
+            document.body.dataset.ytError = String(event.data || 'unknown');
+          }
+        }
+      });
+    }
+  </script>
+</body>
+</html>
+''';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final controller = _controller;
+    if (controller == null) return const SizedBox.shrink();
+
+    return Positioned.fill(
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          AnimatedOpacity(
+            opacity: _hasTrailer ? 1 : 0,
+            duration: const Duration(milliseconds: 180),
+            child: IgnorePointer(child: WebViewWidget(controller: controller)),
+          ),
+          if (_hasTrailer)
+            Positioned(
+              right: AppSpacing.sm,
+              top: AppSpacing.sm,
+              child: _TrayIconButton(
+                icon: _isMuted
+                    ? Icons.volume_off_rounded
+                    : Icons.volume_up_rounded,
+                tooltip: _isMuted ? 'Unmute trailer' : 'Mute trailer',
+                onPressed: _toggleMute,
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _PosterHoverPanel extends StatelessWidget {
+  const _PosterHoverPanel({
+    required this.title,
+    required this.subtitle,
+    required this.year,
+    required this.rating,
+    required this.overview,
+    required this.isInWatchlist,
+    required this.onPlay,
+    required this.onWatchlist,
+    required this.onMore,
+    required this.progress,
+  });
+
+  final String title;
+  final String? subtitle;
+  final String? year;
+  final String? rating;
+  final String? overview;
+  final bool isInWatchlist;
+  final VoidCallback? onPlay;
+  final VoidCallback? onWatchlist;
+  final VoidCallback? onMore;
+  final double? progress;
+
+  @override
+  Widget build(BuildContext context) {
+    final metadata = <String>[
+      if (year != null && year!.isNotEmpty) year!,
+      if (rating != null && rating!.isNotEmpty) rating!,
+      if (subtitle != null && subtitle!.isNotEmpty) subtitle!,
+    ];
+    final description = overview?.trim().isNotEmpty == true
+        ? overview!.trim()
+        : title;
+
+    return ColoredBox(
+      color: const Color(0xFF171B24),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(
+          AppSpacing.md,
+          AppSpacing.sm,
+          AppSpacing.md,
+          AppSpacing.md,
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: _TrayActionButton.primary(
+                    icon: Icons.play_arrow_rounded,
+                    label: 'Watch Now',
+                    onPressed: onPlay,
+                  ),
+                ),
+                const SizedBox(width: AppSpacing.sm),
+                _TrayIconButton(
+                  icon: isInWatchlist ? Icons.check_rounded : Icons.add_rounded,
+                  tooltip: isInWatchlist ? 'In watchlist' : 'Add to watchlist',
+                  onPressed: onWatchlist,
+                ),
+                const SizedBox(width: AppSpacing.sm),
+                _TrayIconButton(
+                  icon: Icons.info_outline_rounded,
+                  tooltip: 'Details',
+                  onPressed: onMore,
+                ),
+              ],
+            ),
+            if (metadata.isNotEmpty) ...[
+              const SizedBox(height: AppSpacing.md),
+              Text(
+                metadata.join('  •  '),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: AppTypography.caption.copyWith(
+                  color: AppColors.textPrimary.withValues(alpha: 0.86),
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            ],
+            const SizedBox(height: AppSpacing.xs),
+            Expanded(
+              child: Text(
+                description,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: AppTypography.body.copyWith(
+                  color: AppColors.textSecondary,
+                  height: 1.28,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ),
+            if (progress != null && progress! > 0)
+              ClipRRect(
+                borderRadius: BorderRadius.circular(AppRadius.pill),
+                child: LinearProgressIndicator(
+                  minHeight: 4,
+                  value: progress!.clamp(0.0, 1.0),
+                  backgroundColor: Colors.white24,
+                  color: AppColors.primary,
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _TrayActionButton extends StatelessWidget {
+  const _TrayActionButton._({
+    required this.icon,
+    required this.label,
+    required this.onPressed,
+    required this.primary,
+  });
+
+  const _TrayActionButton.primary({
+    required IconData icon,
+    required String label,
+    required VoidCallback? onPressed,
+  }) : this._(icon: icon, label: label, onPressed: onPressed, primary: true);
+
+  final IconData icon;
+  final String label;
+  final VoidCallback? onPressed;
+  final bool primary;
+
+  @override
+  Widget build(BuildContext context) {
+    final enabled = onPressed != null;
+    return Tooltip(
+      message: label,
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: onPressed,
+          mouseCursor: enabled
+              ? SystemMouseCursors.click
+              : SystemMouseCursors.basic,
+          borderRadius: BorderRadius.circular(AppRadius.small),
+          child: AnimatedContainer(
+            duration: AppAnimation.hover,
+            curve: AppAnimation.standard,
+            height: 48,
+            padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md),
+            decoration: BoxDecoration(
+              color: primary
+                  ? AppColors.textPrimary.withValues(
+                      alpha: enabled ? 0.92 : 0.42,
+                    )
+                  : AppColors.surfaceVariant.withValues(
+                      alpha: enabled ? 0.92 : 0.42,
+                    ),
+              borderRadius: BorderRadius.circular(AppRadius.small),
+              border: Border.all(
+                color: primary
+                    ? Colors.white.withValues(alpha: 0.06)
+                    : Colors.white.withValues(alpha: 0.12),
+              ),
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  icon,
+                  size: 19,
+                  color: primary ? AppColors.background : AppColors.textPrimary,
+                ),
+                const SizedBox(width: AppSpacing.sm),
+                Flexible(
+                  child: Text(
+                    label,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: AppTypography.title.copyWith(
+                      color: primary
+                          ? AppColors.background
+                          : AppColors.textPrimary,
+                      fontSize: 15,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _TrayIconButton extends StatelessWidget {
+  const _TrayIconButton({
+    required this.icon,
+    required this.tooltip,
+    required this.onPressed,
+  });
+
+  final IconData icon;
+  final String tooltip;
+  final VoidCallback? onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    final enabled = onPressed != null;
+    return Tooltip(
+      message: tooltip,
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: onPressed,
+          mouseCursor: enabled
+              ? SystemMouseCursors.click
+              : SystemMouseCursors.basic,
+          borderRadius: BorderRadius.circular(AppRadius.small),
+          child: Container(
+            width: 48,
+            height: 48,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: AppColors.surfaceVariant.withValues(
+                alpha: enabled ? 0.92 : 0.42,
+              ),
+              borderRadius: BorderRadius.circular(AppRadius.small),
+              border: Border.all(color: Colors.white.withValues(alpha: 0.12)),
+            ),
+            child: Icon(icon, size: 21, color: AppColors.textPrimary),
+          ),
+        ),
       ),
     );
   }
 }
 
 class _Placeholder extends StatelessWidget {
-  const _Placeholder({this.errorState = false});
+  const _Placeholder({required this.borderRadius, this.errorState = false});
 
+  final BorderRadius borderRadius;
   final bool errorState;
 
   @override
@@ -213,12 +1372,7 @@ class _Placeholder extends StatelessWidget {
     );
 
     return Container(
-      decoration: BoxDecoration(
-        gradient: gradient,
-        borderRadius: const BorderRadius.vertical(
-          top: Radius.circular(AppRadius.large),
-        ),
-      ),
+      decoration: BoxDecoration(gradient: gradient, borderRadius: borderRadius),
       child: Center(
         child: AnimatedFadeContainer(
           visible: true,

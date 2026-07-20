@@ -949,7 +949,10 @@ class WebPlaybackEngine implements PlaybackSurfaceEngine {
           }
 
           function setServerTriggerVisible(visible) {
-            if (rightSlot) rightSlot.style.display = visible ? 'block' : 'none';
+            if (!rightSlot) return;
+            var config = controlsConfig();
+            var sources = Array.isArray(config.sources) ? config.sources : [];
+            rightSlot.style.display = visible && sources.length > 1 ? 'block' : 'none';
           }
 
           function closeServerDrawer() {

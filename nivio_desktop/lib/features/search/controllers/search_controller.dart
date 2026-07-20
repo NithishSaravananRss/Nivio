@@ -110,6 +110,12 @@ class SearchController extends ChangeNotifier {
     notifyListeners();
   }
 
+  void removeRecentSearch(String query) {
+    if (_recentSearches.remove(query)) {
+      notifyListeners();
+    }
+  }
+
   void _scheduleSearch() {
     _debounceTimer?.cancel();
     _debounceTimer = Timer(const Duration(milliseconds: 300), () {

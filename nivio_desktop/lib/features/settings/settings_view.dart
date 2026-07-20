@@ -30,11 +30,17 @@ class SettingsView extends StatefulWidget {
     this.onBack,
     this.embedded = false,
     this.onHomeLayoutChanged,
+    this.sectionFilter,
+    this.query = '',
+    this.showHeader = true,
   });
 
   final VoidCallback? onBack;
   final bool embedded;
   final VoidCallback? onHomeLayoutChanged;
+  final String? sectionFilter;
+  final String query;
+  final bool showHeader;
 
   @override
   State<SettingsView> createState() => _SettingsViewState();
@@ -42,6 +48,22 @@ class SettingsView extends StatefulWidget {
 
 class _SettingsViewState extends State<SettingsView> {
   final _controller = SettingsController();
+  int _selectedCategoryIndex = 0;
+
+  static const List<_SettingsCategory> _categories = [
+    _SettingsCategory('playback', 'Playback', LucideIcons.play),
+    _SettingsCategory(
+      'subtitles',
+      'Subtitle Appearance',
+      LucideIcons.subtitles,
+    ),
+    _SettingsCategory('downloads', 'Downloads', LucideIcons.download),
+    _SettingsCategory('home', 'Content Feed', LucideIcons.rows3),
+    _SettingsCategory('episodes', 'Episode Alerts', LucideIcons.bell),
+    _SettingsCategory('app', 'App & Updates', LucideIcons.info),
+    _SettingsCategory('data', 'Data & Account', LucideIcons.database),
+    _SettingsCategory('offline', 'Offline & Cache', LucideIcons.hardDrive),
+  ];
 
   @override
   void initState() {
@@ -200,43 +222,156 @@ class _SettingsViewState extends State<SettingsView> {
       );
     }
 
-    final content = ListView(
-      primary: widget.embedded ? false : null,
-      shrinkWrap: widget.embedded,
-      physics: widget.embedded ? const NeverScrollableScrollPhysics() : null,
-      padding: EdgeInsets.fromLTRB(
-        AppSpacing.xxl,
-        widget.embedded ? 0 : AppSpacing.xxl,
-        AppSpacing.xxl,
-        AppSpacing.xxl,
-      ),
-      children: [
-        Row(
-          children: [
-            if (widget.onBack != null) ...[
-              IconButton.filledTonal(
-                tooltip: 'Back to Profile',
-                onPressed: widget.onBack,
-                icon: const Icon(LucideIcons.arrowLeft),
-              ),
-              const SizedBox(width: AppSpacing.md),
-            ],
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text('Settings', style: AppTypography.display),
-                  const SizedBox(height: AppSpacing.sm),
-                  Text(
-                    'Playback, download, app, and account preferences.',
-                    style: AppTypography.body,
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
+    final visibleQuery = widget.query.trim().toLowerCase();
+    final providedSection = widget.sectionFilter?.trim().toLowerCase();
+    final selectedSection = widget.embedded
+        ? providedSection
+        : providedSection ??
+              (visibleQuery.isEmpty
+                  ? _categories[_selectedCategoryIndex].id
+                  : null);
+    final sections = _buildSettingsSections(
+      state,
+      visibleSection: selectedSection,
+      visibleQuery: visibleQuery,
+    );
+
+    final children = <Widget>[
+      if (widget.embedded && widget.showHeader) ...[
+        _SettingsHeader(onBack: widget.onBack),
         const SizedBox(height: AppSpacing.xxl),
+      ],
+      ...sections,
+      if (visibleQuery.isNotEmpty && sections.isEmpty)
+        const _SettingsEmptySearch(),
+      const SizedBox(height: AppSpacing.massive),
+    ];
+
+    if (widget.embedded) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: children,
+      );
+    }
+
+    return DecoratedBox(
+      decoration: const BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [AppColors.surface, AppColors.background],
+        ),
+      ),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final desktop = constraints.maxWidth >= 900;
+          final title = visibleQuery.isEmpty
+              ? _categories[_selectedCategoryIndex].label
+              : 'Search Results';
+          if (!desktop) {
+            return CustomScrollView(
+              slivers: [
+                SliverPadding(
+                  padding: const EdgeInsets.fromLTRB(
+                    AppSpacing.xxl,
+                    AppSpacing.xxl,
+                    AppSpacing.xxl,
+                    AppSpacing.lg,
+                  ),
+                  sliver: SliverToBoxAdapter(
+                    child: _SettingsHeader(onBack: widget.onBack),
+                  ),
+                ),
+                SliverPadding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: AppSpacing.xxl,
+                  ),
+                  sliver: SliverToBoxAdapter(
+                    child: _SettingsCategoryWrap(
+                      categories: _categories,
+                      selectedIndex: _selectedCategoryIndex,
+                      onSelected: (index) {
+                        setState(() => _selectedCategoryIndex = index);
+                      },
+                    ),
+                  ),
+                ),
+                SliverPadding(
+                  padding: const EdgeInsets.all(AppSpacing.xxl),
+                  sliver: SliverToBoxAdapter(
+                    child: _SettingsContentCard(children: children),
+                  ),
+                ),
+              ],
+            );
+          }
+
+          return Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              _SettingsSidebar(
+                categories: _categories,
+                selectedIndex: _selectedCategoryIndex,
+                onSelected: (index) {
+                  setState(() => _selectedCategoryIndex = index);
+                },
+              ),
+              Expanded(
+                child: Padding(
+                  padding: const EdgeInsets.all(32),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(title, style: AppTypography.pageTitle),
+                      const SizedBox(height: AppSpacing.xxl),
+                      Expanded(
+                        child: AnimatedSwitcher(
+                          duration: const Duration(milliseconds: 240),
+                          child: _SettingsContentCard(
+                            key: ValueKey('$title-$selectedSection'),
+                            children: children,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  List<Widget> _buildSettingsSections(
+    SettingsState state, {
+    required String? visibleSection,
+    required String visibleQuery,
+  }) {
+    bool showSection(
+      String id,
+      String title, [
+      List<String> keywords = const [],
+    ]) {
+      if (visibleSection != null && visibleSection.isNotEmpty) {
+        return id == visibleSection;
+      }
+      if (visibleQuery.isEmpty) return true;
+      final haystack = [id, title, ...keywords].join(' ').toLowerCase();
+      return haystack.contains(visibleQuery);
+    }
+
+    return [
+      if (showSection('playback', 'Playback', [
+        'speed',
+        'quality',
+        'audio',
+        'subtitle',
+        'autoplay',
+        'resume',
+        'debanding',
+      ]))
         _Section(
           title: 'Playback',
           icon: LucideIcons.play,
@@ -300,6 +435,13 @@ class _SettingsViewState extends State<SettingsView> {
             ],
           ),
         ),
+      if (showSection('subtitles', 'Subtitle Appearance', [
+        'subtitle',
+        'font',
+        'background',
+        'outline',
+        'delay',
+      ]))
         _Section(
           title: 'Subtitle Appearance',
           icon: LucideIcons.subtitles,
@@ -343,59 +485,13 @@ class _SettingsViewState extends State<SettingsView> {
             ],
           ),
         ),
-        _Section(
-          title: 'Content Feed',
-          icon: LucideIcons.rows3,
-          error: state.sectionErrors['home'],
-          child: Column(
-            children: [
-              _ActionTile(
-                title: 'Customize Home Layout',
-                subtitle: state.settings.homeLayoutSummary,
-                icon: LucideIcons.listOrdered,
-                onTap: _showHomeLayoutDialog,
-              ),
-            ],
-          ),
-        ),
-        _Section(
-          title: 'Episode Alerts',
-          icon: LucideIcons.bell,
-          error: state.sectionErrors['episodes'],
-          child: Column(
-            children: [
-              _SwitchTile(
-                title: 'New Episode Alerts',
-                value: state.settings.episodeCheckEnabled,
-                onChanged: (value) => _controller.updateBool(
-                  SettingsKeys.episodeCheckEnabled,
-                  value,
-                ),
-              ),
-              _ChoiceTile(
-                title: 'Check Frequency',
-                value: state.settings.episodeCheckFrequencyHours.toString(),
-                options: SettingsDefaults.episodeCheckFrequencies
-                    .map((hours) => hours.toString())
-                    .toList(),
-                onChanged: (value) => _controller.updateInt(
-                  SettingsKeys.episodeCheckFrequencyHours,
-                  int.parse(value),
-                ),
-              ),
-              _InfoTile(
-                title: 'Last Checked',
-                value: state.episodeLastCheckLabel,
-              ),
-              _ActionTile(
-                title: 'Check Now',
-                subtitle: 'Scan watchlist shows for newly aired episodes',
-                icon: LucideIcons.refreshCw,
-                onTap: _runEpisodeCheckNow,
-              ),
-            ],
-          ),
-        ),
+      if (showSection('downloads', 'Downloads', [
+        'download',
+        'audio',
+        'subtitle',
+        'parallel',
+        'wifi',
+      ]))
         _Section(
           title: 'Downloads',
           icon: LucideIcons.download,
@@ -440,6 +536,132 @@ class _SettingsViewState extends State<SettingsView> {
             ],
           ),
         ),
+      if (showSection('home', 'Content Feed', ['home', 'layout', 'feed']))
+        _Section(
+          title: 'Content Feed',
+          icon: LucideIcons.rows3,
+          error: state.sectionErrors['home'],
+          child: Column(
+            children: [
+              _ActionTile(
+                title: 'Customize Home Layout',
+                subtitle: state.settings.homeLayoutSummary,
+                icon: LucideIcons.listOrdered,
+                onTap: _showHomeLayoutDialog,
+              ),
+            ],
+          ),
+        ),
+      if (showSection('episodes', 'Episode Alerts', [
+        'episode',
+        'alerts',
+        'notifications',
+        'check',
+      ]))
+        _Section(
+          title: 'Episode Alerts',
+          icon: LucideIcons.bell,
+          error: state.sectionErrors['episodes'],
+          child: Column(
+            children: [
+              _SwitchTile(
+                title: 'New Episode Alerts',
+                value: state.settings.episodeCheckEnabled,
+                onChanged: (value) => _controller.updateBool(
+                  SettingsKeys.episodeCheckEnabled,
+                  value,
+                ),
+              ),
+              _ChoiceTile(
+                title: 'Check Frequency',
+                value: state.settings.episodeCheckFrequencyHours.toString(),
+                options: SettingsDefaults.episodeCheckFrequencies
+                    .map((hours) => hours.toString())
+                    .toList(),
+                onChanged: (value) => _controller.updateInt(
+                  SettingsKeys.episodeCheckFrequencyHours,
+                  int.parse(value),
+                ),
+              ),
+              _InfoTile(
+                title: 'Last Checked',
+                value: state.episodeLastCheckLabel,
+              ),
+              _ActionTile(
+                title: 'Check Now',
+                subtitle: 'Scan watchlist shows for newly aired episodes',
+                icon: LucideIcons.refreshCw,
+                onTap: _runEpisodeCheckNow,
+              ),
+            ],
+          ),
+        ),
+      if (showSection('app', 'App & Updates', [
+        'theme',
+        'version',
+        'changelog',
+        'updates',
+      ]))
+        _Section(
+          title: 'App & Updates',
+          icon: LucideIcons.info,
+          error: state.sectionErrors['appearance'],
+          child: Column(
+            children: [
+              _ChoiceTile(
+                title: 'Theme Color',
+                value: state.settings.accentColor,
+                options: SettingsDefaults.accentColors,
+                onChanged: (value) =>
+                    _controller.updateString(SettingsKeys.accentColor, value),
+              ),
+              _InfoTile(title: 'App Version', value: state.appVersion),
+              _ActionTile(
+                title: 'What\'s New',
+                subtitle: state.changelogSeenLabel,
+                icon: LucideIcons.megaphone,
+                onTap: _showChangelog,
+              ),
+              _ActionTile(
+                title: 'Check for Updates',
+                subtitle: 'Verify the desktop build update channel',
+                icon: LucideIcons.refreshCw,
+                onTap: _checkForUpdates,
+              ),
+            ],
+          ),
+        ),
+      if (showSection('data', 'Data & Account', [
+        'data',
+        'account',
+        'history',
+        'metadata',
+      ]))
+        _Section(
+          title: 'Data & Account',
+          icon: LucideIcons.database,
+          error: state.sectionErrors['storage'],
+          child: Column(
+            children: [
+              _DestructiveTile(
+                title: 'Clear Watch History',
+                onConfirm: _controller.clearWatchHistory,
+              ),
+              _DestructiveTile(
+                title: 'Clear Download Metadata',
+                onConfirm: _controller.clearDownloadsMetadata,
+              ),
+            ],
+          ),
+        ),
+      if (showSection('offline', 'Offline & Cache', [
+        'offline',
+        'cache',
+        'storage',
+        'network',
+        'partial',
+        'missing',
+      ]))
         _Section(
           title: 'Offline & Cache',
           icon: LucideIcons.hardDrive,
@@ -510,67 +732,257 @@ class _SettingsViewState extends State<SettingsView> {
             ],
           ),
         ),
-        _Section(
-          title: 'App & Updates',
-          icon: LucideIcons.info,
-          error: state.sectionErrors['appearance'],
+    ];
+  }
+}
+
+class _SettingsCategory {
+  const _SettingsCategory(this.id, this.label, this.icon);
+
+  final String id;
+  final String label;
+  final IconData icon;
+}
+
+class _SettingsHeader extends StatelessWidget {
+  const _SettingsHeader({this.onBack});
+
+  final VoidCallback? onBack;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        if (onBack != null) ...[
+          IconButton.filledTonal(
+            tooltip: 'Back to Profile',
+            onPressed: onBack,
+            icon: const Icon(LucideIcons.arrowLeft),
+          ),
+          const SizedBox(width: AppSpacing.md),
+        ],
+        Expanded(
           child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              _ChoiceTile(
-                title: 'Theme Color',
-                value: state.settings.accentColor,
-                options: SettingsDefaults.accentColors,
-                onChanged: (value) =>
-                    _controller.updateString(SettingsKeys.accentColor, value),
-              ),
-              _InfoTile(title: 'App Version', value: state.appVersion),
-              _ActionTile(
-                title: 'What\'s New',
-                subtitle: state.changelogSeenLabel,
-                icon: LucideIcons.megaphone,
-                onTap: _showChangelog,
-              ),
-              _ActionTile(
-                title: 'Check for Updates',
-                subtitle: 'Verify the desktop build update channel',
-                icon: LucideIcons.refreshCw,
-                onTap: _checkForUpdates,
+              Text('Settings', style: AppTypography.display),
+              const SizedBox(height: AppSpacing.sm),
+              Text(
+                'Playback, download, app, and account preferences.',
+                style: AppTypography.body,
               ),
             ],
           ),
         ),
-        _Section(
-          title: 'Data & Account',
-          icon: LucideIcons.database,
-          error: state.sectionErrors['storage'],
-          child: Column(
-            children: [
-              _DestructiveTile(
-                title: 'Clear Watch History',
-                onConfirm: _controller.clearWatchHistory,
-              ),
-              _DestructiveTile(
-                title: 'Clear Download Metadata',
-                onConfirm: _controller.clearDownloadsMetadata,
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: AppSpacing.massive),
       ],
     );
+  }
+}
 
-    if (widget.embedded) return content;
+class _SettingsSidebar extends StatelessWidget {
+  const _SettingsSidebar({
+    required this.categories,
+    required this.selectedIndex,
+    required this.onSelected,
+  });
 
-    return DecoratedBox(
-      decoration: const BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: [AppColors.surface, AppColors.background],
+  final List<_SettingsCategory> categories;
+  final int selectedIndex;
+  final ValueChanged<int> onSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 280,
+      color: Colors.black.withValues(alpha: 0.3),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          const Padding(
+            padding: EdgeInsets.fromLTRB(20, 28, 20, 16),
+            child: _SettingsSidebarHeader(),
+          ),
+          const Divider(color: Colors.white12, height: 1),
+          Expanded(
+            child: ListView.builder(
+              padding: const EdgeInsets.symmetric(vertical: 12),
+              itemCount: categories.length,
+              itemBuilder: (context, index) {
+                return Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 4,
+                  ),
+                  child: _SettingsCategoryButton(
+                    category: categories[index],
+                    selected: selectedIndex == index,
+                    onTap: () => onSelected(index),
+                    showIcon: false,
+                  ),
+                );
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SettingsSidebarHeader extends StatelessWidget {
+  const _SettingsSidebarHeader();
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        CircleAvatar(
+          radius: 38,
+          backgroundColor: AppColors.surfaceVariant,
+          child: Icon(
+            LucideIcons.settings,
+            size: 36,
+            color: AppColors.textPrimary.withValues(alpha: 0.9),
+          ),
+        ),
+        const SizedBox(height: AppSpacing.md),
+        Text(
+          'Nivio Settings',
+          textAlign: TextAlign.center,
+          style: AppTypography.sectionTitle,
+        ),
+        const SizedBox(height: AppSpacing.xs),
+        Text(
+          'Desktop preferences',
+          textAlign: TextAlign.center,
+          style: AppTypography.caption,
+        ),
+      ],
+    );
+  }
+}
+
+class _SettingsCategoryWrap extends StatelessWidget {
+  const _SettingsCategoryWrap({
+    required this.categories,
+    required this.selectedIndex,
+    required this.onSelected,
+  });
+
+  final List<_SettingsCategory> categories;
+  final int selectedIndex;
+  final ValueChanged<int> onSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    return Wrap(
+      spacing: AppSpacing.sm,
+      runSpacing: AppSpacing.sm,
+      children: [
+        for (var index = 0; index < categories.length; index++)
+          _SettingsCategoryButton(
+            category: categories[index],
+            selected: selectedIndex == index,
+            onTap: () => onSelected(index),
+          ),
+      ],
+    );
+  }
+}
+
+class _SettingsCategoryButton extends StatelessWidget {
+  const _SettingsCategoryButton({
+    required this.category,
+    required this.selected,
+    required this.onTap,
+    this.showIcon = true,
+  });
+
+  final _SettingsCategory category;
+  final bool selected;
+  final VoidCallback onTap;
+  final bool showIcon;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(8),
+        hoverColor: Colors.white.withValues(alpha: 0.05),
+        splashColor: Colors.transparent,
+        onTap: onTap,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 200),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+          decoration: BoxDecoration(
+            color: selected
+                ? AppColors.primary.withValues(alpha: 0.15)
+                : Colors.transparent,
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(
+              color: selected
+                  ? AppColors.primary.withValues(alpha: 0.5)
+                  : Colors.transparent,
+            ),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (showIcon) ...[
+                Icon(
+                  category.icon,
+                  color: selected ? AppColors.textPrimary : Colors.white60,
+                  size: 18,
+                ),
+                const SizedBox(width: AppSpacing.sm),
+              ],
+              Flexible(
+                child: AnimatedDefaultTextStyle(
+                  duration: const Duration(milliseconds: 200),
+                  style: AppTypography.body.copyWith(
+                    color: selected ? AppColors.textPrimary : Colors.white60,
+                    fontWeight: selected ? FontWeight.w700 : FontWeight.w400,
+                  ),
+                  child: Text(
+                    category.label,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
-      child: content,
+    );
+  }
+}
+
+class _SettingsContentCard extends StatelessWidget {
+  const _SettingsContentCard({super.key, required this.children});
+
+  final List<Widget> children;
+
+  @override
+  Widget build(BuildContext context) {
+    return SingleChildScrollView(
+      child: Material(
+        color: Colors.white.withValues(alpha: 0.03),
+        borderRadius: BorderRadius.circular(16),
+        child: Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(24),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: Colors.white.withValues(alpha: 0.05)),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: children,
+          ),
+        ),
+      ),
     );
   }
 }
@@ -846,6 +1258,38 @@ class SettingsController extends ChangeNotifier {
     await LibraryPersistence.downloadsBox.clear();
     await load();
     return 'Downloads metadata cleared';
+  }
+}
+
+class _SettingsEmptySearch extends StatelessWidget {
+  const _SettingsEmptySearch();
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: AppColors.glassFill,
+        borderRadius: BorderRadius.circular(AppRadius.medium),
+        border: Border.all(color: AppColors.borderSubtle),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(AppSpacing.xl),
+        child: Row(
+          children: [
+            const Icon(LucideIcons.searchX, color: AppColors.textMuted),
+            const SizedBox(width: AppSpacing.md),
+            Expanded(
+              child: Text(
+                'No matching settings found.',
+                style: AppTypography.body.copyWith(
+                  color: AppColors.textSecondary,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }
 

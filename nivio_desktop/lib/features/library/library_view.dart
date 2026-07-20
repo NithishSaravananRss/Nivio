@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:hive_flutter/hive_flutter.dart';
+import 'package:lucide_flutter/lucide_flutter.dart';
 
 import '../../shared/theme/index.dart';
 import '../../shared/widgets/widgets.dart';
@@ -97,12 +98,11 @@ class _LibraryViewState extends State<LibraryView> {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               const SizedBox(height: AppSpacing.xxl),
-              SectionHeader(
-                title: 'Library',
-                subtitle: 'Schedule, new episodes, watchlist, and downloads',
-                trailing: _buildLibraryTabs(),
+              Align(
+                alignment: Alignment.centerRight,
+                child: _buildLibraryTabs(),
               ),
-              const SizedBox(height: AppSpacing.xxl),
+              const SizedBox(height: AppSpacing.lg),
               _buildSelectedTab(),
               const SizedBox(height: AppSpacing.massive),
             ],
@@ -240,78 +240,52 @@ class _ScheduleTab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final isWide = constraints.maxWidth >= AppBreakpoints.standard;
-        final calendar = ScheduleCalendar(
-          focusedDate: focusedDate,
-          selectedDate: selectedDate,
-          onPreviousWeek: onPreviousWeek,
-          onNextWeek: onNextWeek,
-          onPickMonth: onPickMonth,
-          onDateSelected: onDateSelected,
-        );
-        final filters = _ScheduleFilters(
-          watchlistOnly: watchlistOnly,
-          onFilterChanged: onFilterChanged,
-        );
-        final timeline =
-            FutureBuilder<LibrarySectionResult<List<LibraryScheduleItem>>>(
-              future: scheduleFuture,
-              builder: (context, snapshot) {
-                if (snapshot.connectionState != ConnectionState.done) {
-                  return const LoadingView(message: 'Loading schedule...');
-                }
-                final result = snapshot.data;
-                if (snapshot.hasError || result == null || result.hasError) {
-                  return _SectionError(
-                    title: result?.isOffline == true
-                        ? 'Schedule unavailable offline'
-                        : 'Schedule failed to load',
-                    message: 'Retry to refresh releases for the selected date.',
-                    onRetry: onRetry,
-                  );
-                }
-                return ReleaseTimeline(
-                  releases: result.data ?? const [],
-                  watchlistOnly: watchlistOnly,
-                  onOpenDetail: onOpenDetail,
-                );
-              },
+    final calendar = ScheduleCalendar(
+      focusedDate: focusedDate,
+      selectedDate: selectedDate,
+      onPreviousWeek: onPreviousWeek,
+      onNextWeek: onNextWeek,
+      onPickMonth: onPickMonth,
+      onDateSelected: onDateSelected,
+    );
+    final filters = _ScheduleFilters(
+      watchlistOnly: watchlistOnly,
+      onFilterChanged: onFilterChanged,
+    );
+    final timeline =
+        FutureBuilder<LibrarySectionResult<List<LibraryScheduleItem>>>(
+          future: scheduleFuture,
+          builder: (context, snapshot) {
+            if (snapshot.connectionState != ConnectionState.done) {
+              return const LoadingView(message: 'Loading schedule...');
+            }
+            final result = snapshot.data;
+            if (snapshot.hasError || result == null || result.hasError) {
+              return _SectionError(
+                title: result?.isOffline == true
+                    ? 'Schedule unavailable offline'
+                    : 'Schedule failed to load',
+                message: 'Retry to refresh releases for the selected date.',
+                onRetry: onRetry,
+              );
+            }
+            return ReleaseTimeline(
+              releases: result.data ?? const [],
+              watchlistOnly: watchlistOnly,
+              onOpenDetail: onOpenDetail,
             );
-
-        if (isWide) {
-          return Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              SizedBox(
-                width: 420,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    calendar,
-                    const SizedBox(height: AppSpacing.lg),
-                    filters,
-                  ],
-                ),
-              ),
-              const SizedBox(width: AppSpacing.xxl),
-              Expanded(child: timeline),
-            ],
-          );
-        }
-
-        return Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            calendar,
-            const SizedBox(height: AppSpacing.lg),
-            filters,
-            const SizedBox(height: AppSpacing.xxl),
-            timeline,
-          ],
+          },
         );
-      },
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        calendar,
+        const SizedBox(height: AppSpacing.lg),
+        Align(alignment: Alignment.centerLeft, child: filters),
+        const SizedBox(height: AppSpacing.xxl),
+        timeline,
+      ],
     );
   }
 }
@@ -329,24 +303,81 @@ class _ScheduleFilters extends StatelessWidget {
   Widget build(BuildContext context) {
     return Wrap(
       alignment: WrapAlignment.center,
-      spacing: AppSpacing.md,
+      spacing: AppSpacing.sm,
       runSpacing: AppSpacing.sm,
       children: [
-        ChoiceChip(
+        _ScheduleFilterButton(
           label: const Text('My Watchlist'),
           selected: watchlistOnly,
-          onSelected: (selected) {
-            if (selected) onFilterChanged(true);
-          },
+          icon: LucideIcons.check,
+          onTap: () => onFilterChanged(true),
         ),
-        ChoiceChip(
+        _ScheduleFilterButton(
           label: const Text('Discover'),
           selected: !watchlistOnly,
-          onSelected: (selected) {
-            if (selected) onFilterChanged(false);
-          },
+          icon: LucideIcons.sparkles,
+          onTap: () => onFilterChanged(false),
         ),
       ],
+    );
+  }
+}
+
+class _ScheduleFilterButton extends StatelessWidget {
+  const _ScheduleFilterButton({
+    required this.label,
+    required this.selected,
+    required this.icon,
+    required this.onTap,
+  });
+
+  final Widget label;
+  final bool selected;
+  final IconData icon;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(AppRadius.medium),
+        onTap: selected ? null : onTap,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 180),
+          height: 40,
+          padding: const EdgeInsets.symmetric(horizontal: AppSpacing.lg),
+          decoration: BoxDecoration(
+            color: selected ? AppColors.secondary : AppColors.surfaceVariant,
+            borderRadius: BorderRadius.circular(AppRadius.medium),
+            border: Border.all(
+              color: selected ? AppColors.secondary : AppColors.borderSubtle,
+            ),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                icon,
+                size: 16,
+                color: selected
+                    ? AppColors.textPrimary
+                    : AppColors.textSecondary,
+              ),
+              const SizedBox(width: AppSpacing.sm),
+              DefaultTextStyle.merge(
+                style: AppTypography.body.copyWith(
+                  color: selected
+                      ? AppColors.textPrimary
+                      : AppColors.textSecondary,
+                  fontWeight: FontWeight.w800,
+                ),
+                child: label,
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }

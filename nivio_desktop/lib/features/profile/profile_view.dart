@@ -32,6 +32,20 @@ class ProfileView extends StatefulWidget {
 
 class _ProfileViewState extends State<ProfileView> {
   final _controller = _ProfileController();
+  final TextEditingController _searchController = TextEditingController();
+  int _selectedCategoryIndex = 0;
+  String _query = '';
+
+  static const List<_ProfileCategory> _categories = [
+    _ProfileCategory('Profile & Activity', LucideIcons.circleUserRound, null),
+    _ProfileCategory('Playback', LucideIcons.play, 'playback'),
+    _ProfileCategory('Subtitle Appearance', LucideIcons.subtitles, 'subtitles'),
+    _ProfileCategory('Downloads', LucideIcons.download, 'downloads'),
+    _ProfileCategory('Content Feed', LucideIcons.rows3, 'home'),
+    _ProfileCategory('Episode Alerts', LucideIcons.bell, 'episodes'),
+    _ProfileCategory('App & Updates', LucideIcons.info, 'app'),
+    _ProfileCategory('Data & Account', LucideIcons.database, 'data'),
+  ];
 
   @override
   void initState() {
@@ -43,6 +57,7 @@ class _ProfileViewState extends State<ProfileView> {
   @override
   void dispose() {
     _controller.removeListener(_onProfileChanged);
+    _searchController.dispose();
     _controller.dispose();
     super.dispose();
   }
@@ -66,6 +81,18 @@ class _ProfileViewState extends State<ProfileView> {
       ),
       _ProfileStatus.ready => _ProfileContent(
         state: state,
+        categories: _categories,
+        selectedCategoryIndex: _selectedCategoryIndex,
+        query: _query,
+        searchController: _searchController,
+        onCategorySelected: (index) {
+          setState(() {
+            _selectedCategoryIndex = index;
+            _query = '';
+            _searchController.clear();
+          });
+        },
+        onQueryChanged: (value) => setState(() => _query = value.trim()),
         onOpenDetail: widget.onOpenDetail,
         onHomeLayoutChanged: widget.onHomeLayoutChanged,
       ),
@@ -76,11 +103,23 @@ class _ProfileViewState extends State<ProfileView> {
 class _ProfileContent extends StatelessWidget {
   const _ProfileContent({
     required this.state,
+    required this.categories,
+    required this.selectedCategoryIndex,
+    required this.query,
+    required this.searchController,
+    required this.onCategorySelected,
+    required this.onQueryChanged,
     required this.onOpenDetail,
     this.onHomeLayoutChanged,
   });
 
   final _ProfileState state;
+  final List<_ProfileCategory> categories;
+  final int selectedCategoryIndex;
+  final String query;
+  final TextEditingController searchController;
+  final ValueChanged<int> onCategorySelected;
+  final ValueChanged<String> onQueryChanged;
   final ValueChanged<String> onOpenDetail;
   final VoidCallback? onHomeLayoutChanged;
 
@@ -94,36 +133,412 @@ class _ProfileContent extends StatelessWidget {
           colors: [AppColors.surface, AppColors.background],
         ),
       ),
-      child: CustomScrollView(
-        slivers: [
-          SliverPadding(
-            padding: const EdgeInsets.fromLTRB(
-              AppSpacing.xxl,
-              AppSpacing.xxl,
-              AppSpacing.xxl,
-              AppSpacing.lg,
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final desktop = constraints.maxWidth >= 980;
+          final selectedCategory = categories[selectedCategoryIndex];
+          final activeFilter = query.isEmpty ? selectedCategory.filter : null;
+          final content = _ProfileCategoryContent(
+            state: state,
+            showActivity: query.isEmpty
+                ? selectedCategory.filter == null
+                : _matchesProfileQuery(query),
+            settingsSectionFilter: activeFilter,
+            settingsQuery: query,
+            onOpenDetail: onOpenDetail,
+            onHomeLayoutChanged: onHomeLayoutChanged,
+          );
+
+          if (!desktop) {
+            return CustomScrollView(
+              slivers: [
+                SliverPadding(
+                  padding: const EdgeInsets.fromLTRB(
+                    AppSpacing.xxl,
+                    AppSpacing.xxl,
+                    AppSpacing.xxl,
+                    AppSpacing.lg,
+                  ),
+                  sliver: SliverToBoxAdapter(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        _ProfileHeader(
+                          watchlistCount: state.watchlist.length,
+                          historyCount: state.history.length,
+                          completedCount: state.completedCount,
+                        ),
+                        const SizedBox(height: AppSpacing.xl),
+                        _ProfileSearchField(
+                          controller: searchController,
+                          query: query,
+                          onChanged: onQueryChanged,
+                        ),
+                        const SizedBox(height: AppSpacing.lg),
+                        _ProfileCategoryWrap(
+                          categories: categories,
+                          selectedIndex: selectedCategoryIndex,
+                          onSelected: onCategorySelected,
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                SliverPadding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: AppSpacing.xxl,
+                  ),
+                  sliver: SliverToBoxAdapter(child: content),
+                ),
+                const SliverToBoxAdapter(
+                  child: SizedBox(height: AppSpacing.massive),
+                ),
+              ],
+            );
+          }
+
+          return Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              SizedBox(
+                width: 280,
+                child: _ProfileCategoryRail(
+                  state: state,
+                  categories: categories,
+                  selectedIndex: selectedCategoryIndex,
+                  searchController: searchController,
+                  query: query,
+                  onCategorySelected: onCategorySelected,
+                  onQueryChanged: onQueryChanged,
+                  showSearch: false,
+                ),
+              ),
+              Expanded(
+                child: Padding(
+                  padding: const EdgeInsets.all(32),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        query.isEmpty
+                            ? selectedCategory.label
+                            : 'Search Results',
+                        style: AppTypography.pageTitle,
+                      ),
+                      const SizedBox(height: AppSpacing.xxl),
+                      Expanded(
+                        child: AnimatedSwitcher(
+                          duration: const Duration(milliseconds: 240),
+                          child: _ProfileDesktopContentCard(
+                            key: ValueKey(
+                              '${selectedCategory.label}-${query.hashCode}',
+                            ),
+                            child: content,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  bool _matchesProfileQuery(String value) {
+    final normalized = value.trim().toLowerCase();
+    if (normalized.isEmpty) return true;
+    return 'profile activity watchlist watched completed history account guest'
+        .contains(normalized);
+  }
+}
+
+class _ProfileCategory {
+  const _ProfileCategory(this.label, this.icon, this.filter);
+
+  final String label;
+  final IconData icon;
+  final String? filter;
+}
+
+class _ProfileCategoryRail extends StatelessWidget {
+  const _ProfileCategoryRail({
+    required this.state,
+    required this.categories,
+    required this.selectedIndex,
+    required this.searchController,
+    required this.query,
+    required this.onCategorySelected,
+    required this.onQueryChanged,
+    this.showSearch = true,
+  });
+
+  final _ProfileState state;
+  final List<_ProfileCategory> categories;
+  final int selectedIndex;
+  final TextEditingController searchController;
+  final String query;
+  final ValueChanged<int> onCategorySelected;
+  final ValueChanged<String> onQueryChanged;
+  final bool showSearch;
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: BoxDecoration(color: Colors.black.withValues(alpha: 0.3)),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(12, 28, 12, 12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            _ProfileHeader(
+              watchlistCount: state.watchlist.length,
+              historyCount: state.history.length,
+              completedCount: state.completedCount,
+              compact: true,
             ),
-            sliver: SliverToBoxAdapter(
-              child: _ProfileHeader(
-                watchlistCount: state.watchlist.length,
-                historyCount: state.history.length,
-                completedCount: state.completedCount,
+            if (showSearch) ...[
+              const SizedBox(height: AppSpacing.xl),
+              _ProfileSearchField(
+                controller: searchController,
+                query: query,
+                onChanged: onQueryChanged,
+              ),
+            ],
+            const SizedBox(height: AppSpacing.md),
+            const Divider(color: Colors.white12, height: 1),
+            const SizedBox(height: AppSpacing.sm),
+            Expanded(
+              child: ListView.separated(
+                padding: const EdgeInsets.symmetric(vertical: AppSpacing.xs),
+                itemCount: categories.length,
+                separatorBuilder: (_, _) =>
+                    const SizedBox(height: AppSpacing.xs),
+                itemBuilder: (context, index) {
+                  return _ProfileCategoryButton(
+                    category: categories[index],
+                    selected: query.isEmpty && selectedIndex == index,
+                    onTap: () => onCategorySelected(index),
+                    showIcon: showSearch,
+                  );
+                },
               ),
             ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ProfileCategoryWrap extends StatelessWidget {
+  const _ProfileCategoryWrap({
+    required this.categories,
+    required this.selectedIndex,
+    required this.onSelected,
+  });
+
+  final List<_ProfileCategory> categories;
+  final int selectedIndex;
+  final ValueChanged<int> onSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    return Wrap(
+      spacing: AppSpacing.sm,
+      runSpacing: AppSpacing.sm,
+      children: [
+        for (var index = 0; index < categories.length; index++)
+          _ProfileCategoryButton(
+            category: categories[index],
+            selected: selectedIndex == index,
+            onTap: () => onSelected(index),
           ),
-          SliverPadding(
-            padding: const EdgeInsets.symmetric(horizontal: AppSpacing.xxl),
-            sliver: SliverToBoxAdapter(
-              child: _SummaryGrid(state: state, onOpenDetail: onOpenDetail),
+      ],
+    );
+  }
+}
+
+class _ProfileCategoryButton extends StatelessWidget {
+  const _ProfileCategoryButton({
+    required this.category,
+    required this.selected,
+    required this.onTap,
+    this.showIcon = true,
+  });
+
+  final _ProfileCategory category;
+  final bool selected;
+  final VoidCallback onTap;
+  final bool showIcon;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(AppRadius.medium),
+        onTap: onTap,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 180),
+          padding: const EdgeInsets.symmetric(
+            horizontal: AppSpacing.md,
+            vertical: AppSpacing.md,
+          ),
+          decoration: BoxDecoration(
+            color: selected
+                ? AppColors.primary.withValues(alpha: 0.16)
+                : Colors.transparent,
+            borderRadius: BorderRadius.circular(AppRadius.medium),
+            border: Border.all(
+              color: selected
+                  ? AppColors.primary.withValues(alpha: 0.5)
+                  : Colors.transparent,
             ),
           ),
-          SliverToBoxAdapter(
-            child: SettingsView(
-              embedded: true,
-              onHomeLayoutChanged: onHomeLayoutChanged,
-            ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (showIcon) ...[
+                Icon(
+                  category.icon,
+                  size: 18,
+                  color: selected ? AppColors.textPrimary : AppColors.textMuted,
+                ),
+                const SizedBox(width: AppSpacing.sm),
+              ],
+              Flexible(
+                child: Text(
+                  category.label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: AppTypography.body.copyWith(
+                    color: selected
+                        ? AppColors.textPrimary
+                        : AppColors.textSecondary,
+                    fontWeight: selected ? FontWeight.w900 : FontWeight.w600,
+                  ),
+                ),
+              ),
+            ],
           ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ProfileSearchField extends StatelessWidget {
+  const _ProfileSearchField({
+    required this.controller,
+    required this.query,
+    required this.onChanged,
+  });
+
+  final TextEditingController controller;
+  final String query;
+  final ValueChanged<String> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return TextField(
+      controller: controller,
+      onChanged: onChanged,
+      cursorColor: AppColors.textPrimary,
+      decoration: InputDecoration(
+        hintText: 'Search profile settings...',
+        prefixIcon: const Icon(LucideIcons.search, size: 19),
+        suffixIcon: query.isEmpty
+            ? null
+            : IconButton(
+                tooltip: 'Clear search',
+                onPressed: () {
+                  controller.clear();
+                  onChanged('');
+                },
+                icon: const Icon(LucideIcons.x, size: 18),
+              ),
+        filled: true,
+        fillColor: AppColors.surfaceVariant.withValues(alpha: 0.55),
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(AppRadius.medium),
+          borderSide: const BorderSide(color: AppColors.borderSubtle),
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(AppRadius.medium),
+          borderSide: const BorderSide(color: AppColors.borderSubtle),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(AppRadius.medium),
+          borderSide: const BorderSide(color: AppColors.borderStrong),
+        ),
+      ),
+    );
+  }
+}
+
+class _ProfileCategoryContent extends StatelessWidget {
+  const _ProfileCategoryContent({
+    required this.state,
+    required this.showActivity,
+    required this.settingsSectionFilter,
+    required this.settingsQuery,
+    required this.onOpenDetail,
+    this.onHomeLayoutChanged,
+  });
+
+  final _ProfileState state;
+  final bool showActivity;
+  final String? settingsSectionFilter;
+  final String settingsQuery;
+  final ValueChanged<String> onOpenDetail;
+  final VoidCallback? onHomeLayoutChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        if (showActivity) ...[
+          _SummaryGrid(state: state, onOpenDetail: onOpenDetail),
+          const SizedBox(height: AppSpacing.xl),
         ],
+        if (settingsSectionFilter != null || settingsQuery.trim().isNotEmpty)
+          SettingsView(
+            embedded: true,
+            showHeader: false,
+            sectionFilter: settingsSectionFilter,
+            query: settingsQuery,
+            onHomeLayoutChanged: onHomeLayoutChanged,
+          ),
+      ],
+    );
+  }
+}
+
+class _ProfileDesktopContentCard extends StatelessWidget {
+  const _ProfileDesktopContentCard({super.key, required this.child});
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return SingleChildScrollView(
+      child: Material(
+        color: Colors.white.withValues(alpha: 0.03),
+        borderRadius: BorderRadius.circular(16),
+        child: Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(24),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: Colors.white.withValues(alpha: 0.05)),
+          ),
+          child: child,
+        ),
       ),
     );
   }
@@ -134,17 +549,39 @@ class _ProfileHeader extends StatelessWidget {
     required this.watchlistCount,
     required this.historyCount,
     required this.completedCount,
+    this.compact = false,
   });
 
   final int watchlistCount;
   final int historyCount;
   final int completedCount;
+  final bool compact;
 
   @override
   Widget build(BuildContext context) {
     return LayoutBuilder(
       builder: (context, constraints) {
-        final compact = constraints.maxWidth < 760;
+        final compactLayout = compact || constraints.maxWidth < 760;
+        if (compact) {
+          return Column(
+            children: [
+              const _Avatar(size: 76, iconSize: 36),
+              const SizedBox(height: AppSpacing.md),
+              Text(
+                'Nivio Guest',
+                textAlign: TextAlign.center,
+                style: AppTypography.sectionTitle,
+              ),
+              const SizedBox(height: AppSpacing.xs),
+              Text(
+                'Guest account',
+                textAlign: TextAlign.center,
+                style: AppTypography.caption,
+              ),
+            ],
+          );
+        }
+
         final stats = _StatsStrip(
           stats: [
             _StatData(
@@ -171,7 +608,7 @@ class _ProfileHeader extends StatelessWidget {
               children: [
                 const _Avatar(),
                 SizedBox(
-                  width: compact ? constraints.maxWidth : 360,
+                  width: compactLayout ? constraints.maxWidth : 360,
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
@@ -181,14 +618,17 @@ class _ProfileHeader extends StatelessWidget {
                     ],
                   ),
                 ),
-                if (!compact)
+                if (!compactLayout)
                   SizedBox(
                     width: (constraints.maxWidth - 560).clamp(420, 620),
                     child: stats,
                   ),
               ],
             ),
-            if (compact) ...[const SizedBox(height: AppSpacing.xl), stats],
+            if (compactLayout) ...[
+              const SizedBox(height: AppSpacing.xl),
+              stats,
+            ],
           ],
         );
       },
@@ -655,22 +1095,25 @@ class _PosterImage extends StatelessWidget {
 }
 
 class _Avatar extends StatelessWidget {
-  const _Avatar();
+  const _Avatar({this.size = 104, this.iconSize = 46});
+
+  final double size;
+  final double iconSize;
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      width: 104,
-      height: 104,
+      width: size,
+      height: size,
       decoration: BoxDecoration(
         color: AppColors.surfaceVariant,
         shape: BoxShape.circle,
         border: Border.all(color: AppColors.borderStrong),
       ),
-      child: const Icon(
+      child: Icon(
         LucideIcons.userRound,
         color: AppColors.textPrimary,
-        size: 46,
+        size: iconSize,
       ),
     );
   }

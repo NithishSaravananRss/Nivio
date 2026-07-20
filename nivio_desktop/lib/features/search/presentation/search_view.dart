@@ -9,7 +9,6 @@ import '../../player/models/playback_request.dart';
 import '../../player/playback_request_factory.dart';
 import '../controllers/search_controller.dart';
 import '../models/search_media_item.dart';
-import '../widgets/search_filter_panel.dart';
 import '../widgets/search_toolbar.dart';
 
 class SearchView extends StatefulWidget {
@@ -34,7 +33,6 @@ class SearchView extends StatefulWidget {
 
 class _SearchViewState extends State<SearchView> {
   final ScrollController _resultsScrollController = ScrollController();
-  bool _filtersVisible = true;
 
   @override
   void initState() {
@@ -62,8 +60,6 @@ class _SearchViewState extends State<SearchView> {
   Widget build(BuildContext context) {
     return LayoutBuilder(
       builder: (context, constraints) {
-        final wideLayout = constraints.maxWidth >= AppBreakpoints.standard;
-
         return SizedBox.expand(
           child: Padding(
             padding: EdgeInsets.symmetric(
@@ -79,32 +75,20 @@ class _SearchViewState extends State<SearchView> {
                 child: AnimatedBuilder(
                   animation: widget.controller,
                   builder: (context, _) {
-                    final showFilters = _filtersVisible;
-
                     return Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
-                        const Text('Search', style: AppTypography.pageTitle),
-                        const SizedBox(height: AppSpacing.lg),
                         SearchToolbar(
                           controller: widget.controller,
                           queryController: widget.queryController,
                           searchFocusNode: widget.searchFocusNode,
-                          onToggleFilters: () {
-                            if (!wideLayout) {
-                              setState(
-                                () => _filtersVisible = !_filtersVisible,
-                              );
-                            }
-                          },
-                          filtersVisible: showFilters,
                         ),
-                        const SizedBox(height: AppSpacing.xl),
                         if (widget.controller.query.isEmpty &&
                             widget.controller.recentSearches.isNotEmpty) ...[
+                          const SizedBox(height: AppSpacing.xxl),
                           _RecentSearchesRow(
                             searches: widget.controller.recentSearches,
-                            onClear: widget.controller.clearRecentSearches,
+                            onRemove: widget.controller.removeRecentSearch,
                             onSelected: (value) {
                               widget.queryController.text = value;
                               widget.controller.setQuery(value);
@@ -114,55 +98,21 @@ class _SearchViewState extends State<SearchView> {
                               ).requestFocus(widget.searchFocusNode);
                             },
                           ),
-                          const SizedBox(height: AppSpacing.lg),
                         ],
-                        Expanded(
-                          child: LayoutBuilder(
-                            builder: (context, innerConstraints) {
-                              final canUseSidePanel =
-                                  showFilters &&
-                                  wideLayout &&
-                                  innerConstraints.maxWidth >=
-                                      AppBreakpoints.standard;
-
-                              return Row(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  if (canUseSidePanel) ...[
-                                    SizedBox(
-                                      width: 300,
-                                      child: SingleChildScrollView(
-                                        child: SearchFilterPanel(
-                                          controller: widget.controller,
-                                        ),
-                                      ),
-                                    ),
-                                    const SizedBox(width: AppSpacing.xl),
-                                  ] else if (showFilters && !wideLayout) ...[
-                                    SizedBox(
-                                      width: 240,
-                                      child: SingleChildScrollView(
-                                        child: SearchFilterPanel(
-                                          controller: widget.controller,
-                                        ),
-                                      ),
-                                    ),
-                                    const SizedBox(width: AppSpacing.lg),
-                                  ],
-                                  Expanded(
-                                    child: _SearchResultsPane(
-                                      controller: widget.controller,
-                                      scrollController:
-                                          _resultsScrollController,
-                                      onOpenDetail: widget.onOpenDetail,
-                                      onPlay: widget.onPlay,
-                                    ),
-                                  ),
-                                ],
-                              );
-                            },
+                        const SizedBox(height: AppSpacing.xxl),
+                        if (widget.controller.query.trim().isEmpty &&
+                            !widget.controller.isLoading &&
+                            !widget.controller.hasError)
+                          const Spacer()
+                        else
+                          Expanded(
+                            child: _SearchResultsPane(
+                              controller: widget.controller,
+                              scrollController: _resultsScrollController,
+                              onOpenDetail: widget.onOpenDetail,
+                              onPlay: widget.onPlay,
+                            ),
                           ),
-                        ),
                       ],
                     );
                   },
@@ -193,44 +143,93 @@ class _RecentSearchesRow extends StatelessWidget {
   const _RecentSearchesRow({
     required this.searches,
     required this.onSelected,
-    required this.onClear,
+    required this.onRemove,
   });
 
   final List<String> searches;
   final ValueChanged<String> onSelected;
-  final VoidCallback onClear;
+  final ValueChanged<String> onRemove;
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+    return Wrap(
+      spacing: AppSpacing.sm,
+      runSpacing: AppSpacing.sm,
       children: [
-        Row(
-          children: [
-            Expanded(
-              child: Text('Recent searches', style: AppTypography.title),
-            ),
-            GhostButton(
-              label: 'Clear',
-              onPressed: onClear,
-              minimumSize: const Size(0, 34),
-            ),
-          ],
-        ),
-        const SizedBox(height: AppSpacing.sm),
-        ResponsiveWrap(
-          spacing: AppSpacing.sm,
-          runSpacing: AppSpacing.sm,
-          children: searches
-              .map(
-                (search) => GenreChip(
-                  label: search,
-                  onPressed: () => onSelected(search),
-                ),
-              )
-              .toList(),
-        ),
+        for (final search in searches)
+          _RecentSearchChip(
+            label: search,
+            onTap: () => onSelected(search),
+            onRemove: () => onRemove(search),
+          ),
       ],
+    );
+  }
+}
+
+class _RecentSearchChip extends StatelessWidget {
+  const _RecentSearchChip({
+    required this.label,
+    required this.onTap,
+    required this.onRemove,
+  });
+
+  final String label;
+  final VoidCallback onTap;
+  final VoidCallback onRemove;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: AppColors.surfaceVariant,
+      borderRadius: BorderRadius.circular(7),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(7),
+        child: SizedBox(
+          height: 40,
+          child: Padding(
+            padding: const EdgeInsets.only(
+              left: AppSpacing.md,
+              right: AppSpacing.xs,
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(
+                  Icons.history,
+                  size: 20,
+                  color: AppColors.textSecondary,
+                ),
+                const SizedBox(width: AppSpacing.sm),
+                ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 220),
+                  child: Text(
+                    label,
+                    overflow: TextOverflow.ellipsis,
+                    style: AppTypography.body.copyWith(
+                      color: AppColors.textSecondary,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: AppSpacing.xs),
+                IconButton(
+                  tooltip: 'Remove $label',
+                  onPressed: onRemove,
+                  icon: const Icon(Icons.close, size: 19),
+                  color: AppColors.textSecondary,
+                  style: IconButton.styleFrom(
+                    fixedSize: const Size.square(32),
+                    padding: EdgeInsets.zero,
+                    hoverColor: AppColors.hover,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
     );
   }
 }
@@ -252,41 +251,9 @@ class _SearchResultsPane extends StatelessWidget {
   Widget build(BuildContext context) {
     final showLoading = controller.isLoading && controller.results.isEmpty;
 
-    return Container(
-      decoration: BoxDecoration(
-        color: AppColors.surface,
-        borderRadius: BorderRadius.circular(AppRadius.large),
-        border: Border.all(color: AppColors.borderSubtle),
-      ),
-      padding: const EdgeInsets.all(AppSpacing.lg),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Row(
-            children: [
-              Expanded(
-                child: Text(
-                  '${controller.results.length} results',
-                  style: AppTypography.title,
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ),
-              const SizedBox(width: AppSpacing.sm),
-              Text(
-                controller.hasActiveFilters ? 'Filtered' : 'All titles',
-                style: AppTypography.caption,
-              ),
-            ],
-          ),
-          const SizedBox(height: AppSpacing.lg),
-          Expanded(
-            child: AnimatedSwitcher(
-              duration: AppAnimation.fast,
-              child: _buildBody(showLoading),
-            ),
-          ),
-        ],
-      ),
+    return AnimatedSwitcher(
+      duration: AppAnimation.fast,
+      child: _buildBody(showLoading),
     );
   }
 
@@ -312,7 +279,7 @@ class _SearchResultsPane extends StatelessWidget {
             : 'No results found',
         message: controller.query.isEmpty
             ? 'Search movies, shows, and anime using the field above.'
-            : 'Try a different title or loosen the filters.',
+            : 'Try a different title.',
       );
     }
 
@@ -347,7 +314,9 @@ class _SearchResultsPane extends StatelessWidget {
         controller: scrollController,
         itemCount:
             controller.results.length + (controller.isLoadingMore ? 1 : 0),
-        minItemWidth: 240,
+        minItemWidth: 236,
+        mainAxisSpacing: AppSpacing.xl,
+        crossAxisSpacing: AppSpacing.sm,
         itemBuilder: (context, index) {
           if (index == controller.results.length) {
             return const Center(child: CircularProgressIndicator());
@@ -382,12 +351,14 @@ class _SearchResultPosterCard extends StatelessWidget {
       builder: (context, _) {
         final isInWatchlist = watchlist.isInWatchlist(item.id);
         return MediaCard(
+          mediaId: item.id,
           title: item.title,
-          year: item.yearLabel,
-          rating: item.ratingLabel,
-          subtitle:
-              '${item.mediaTypeLabel} · ${item.languageLabel} · ${item.provider}',
+          year: item.year > 0 ? item.yearLabel : null,
+          rating: item.rating > 0 ? item.ratingLabel : null,
+          subtitle: item.mediaTypeLabel,
           posterPath: item.posterPath,
+          backdropPath: item.backdropPath,
+          overview: item.overview,
           onTap: () => onOpenDetail?.call(item.id),
           onPlay: () =>
               onPlay?.call(PlaybackRequestFactory.fromSearchItem(item)),

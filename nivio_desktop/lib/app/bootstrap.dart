@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/widgets.dart';
 
 import '../core/config/app_environment.dart';
+import '../core/services/deep_link_service.dart';
 import '../core/services/desktop_cache_service.dart';
 import '../features/library/services/desktop_download_service.dart';
 import '../features/library/services/episode_tracking_service.dart';
@@ -51,6 +52,7 @@ Future<void> bootstrap() async {
     'Watch history initialized',
     clock: startupClock,
   );
+  unawaited(DeepLinkService.instance.initialize());
   runApp(const NivioDesktopApp());
   WidgetsBinding.instance.addPostFrameCallback((_) {
     PlaybackRuntimeDiagnostics.lifecycleLog(

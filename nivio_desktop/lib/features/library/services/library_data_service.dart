@@ -52,6 +52,7 @@ class LibraryWatchlistService {
   }
 
   Future<void> toggle(LibraryWatchlistItem item) async {
+    if (!LibraryPersistence.isReady) return;
     if (_box.containsKey(item.id)) {
       await remove(item.id);
     } else {
@@ -253,6 +254,7 @@ class LibraryScheduleService {
             'Unknown Anime';
         final airingAt = schedule['airingAt'] as int;
         final episode = schedule['episode'] as int?;
+        final aniListId = media['id'] as int? ?? -1;
         int? tmdbId;
         String? tmdbPoster;
         var isInWatchlist = false;
@@ -271,7 +273,7 @@ class LibraryScheduleService {
         if (isInWatchlist) {
           items.add(
             LibraryScheduleItem(
-              id: tmdbId ?? -1,
+              id: tmdbId ?? aniListId,
               title: title,
               mediaType: 'anime',
               releaseDate: DateTime.fromMillisecondsSinceEpoch(airingAt * 1000),

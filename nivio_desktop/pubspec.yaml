@@ -17,6 +17,7 @@ dependencies:
   flutter_riverpod: ^2.6.1
 
   # Navigation
+  app_links: ^7.2.1
   go_router: ^16.0.0
 
   # Networking
@@ -26,13 +27,16 @@ dependencies:
   package_info_plus: ^10.2.0
   shorebird_code_push: ^2.0.7
   url_launcher: ^6.3.2
+  wakelock_plus: ^1.2.8
 
   # Desktop playback
+  file_picker: ^12.0.0-beta.7
   media_kit: ^1.2.6
   media_kit_video: ^2.0.1
   media_kit_libs_video: ^1.0.7
   webview_all: ^1.2.1
   webview_all_linux: ^1.2.1
+  window_manager: ^0.5.1
 
   # Local persistence
   hive: ^2.2.3

@@ -1,11 +1,13 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:nivio_desktop/core/services/deep_link_service.dart';
 import 'package:nivio_desktop/features/player/models/playback_request.dart';
 import 'package:nivio_desktop/features/player/models/playback_state.dart';
 import 'package:nivio_desktop/features/player/playback_engine.dart';
 import 'package:nivio_desktop/features/player/player_controller.dart';
 import 'package:nivio_desktop/features/player/player_screen.dart';
+import 'package:nivio_desktop/features/player/services/mini_player_service.dart';
 import 'package:nivio_desktop/features/player/services/stream_resolver.dart';
 import 'package:nivio_desktop/shared/models/stream_result.dart';
 
@@ -25,6 +27,7 @@ class FakePlaybackEngine implements PlaybackEngine {
   int disposeCount = 0;
   String? selectedAudioTrackId;
   String? selectedSubtitleTrackId;
+  String? selectedSubtitleExternalUrl;
   double? selectedSpeed;
   PlaybackRepeatMode? selectedRepeatMode;
   SubtitleStyle? selectedSubtitleStyle;
@@ -92,6 +95,7 @@ class FakePlaybackEngine implements PlaybackEngine {
     String? externalUrl,
   }) async {
     selectedSubtitleTrackId = trackId;
+    selectedSubtitleExternalUrl = externalUrl;
     notifier.value = notifier.value.copyWith(selectedSubtitleTrackId: trackId);
   }
 
@@ -158,6 +162,46 @@ void main() {
     });
   });
 
+  group('DeepLinkService', () {
+    test('maps play links into playback requests with resume position', () {
+      DeepLinkService.instance.handleForTest(
+        Uri.parse(
+          'nivio://play/media/21?type=anime&season=1&episode=4&position=95',
+        ),
+      );
+
+      final link = DeepLinkService.instance.latest.value;
+      expect(link, isA<PlayMediaDeepLink>());
+      final request = (link as PlayMediaDeepLink).request;
+      expect(request.mediaId, 'anime:21');
+      expect(request.mediaType, PlaybackMediaType.anime);
+      expect(request.season, 1);
+      expect(request.episode, 4);
+      expect(request.startPosition, const Duration(seconds: 95));
+    });
+  });
+
+  group('MiniPlayerService', () {
+    test('reclaims a matching live engine without disposing it', () async {
+      final engine = FakePlaybackEngine();
+      MiniPlayerService.instance.activate(
+        MiniPlayerSession(
+          request: movieRequest,
+          engine: engine,
+          sourceOptions: const [],
+        ),
+      );
+
+      final session = MiniPlayerService.instance.reclaimIfMatches(movieRequest);
+
+      expect(session?.engine, same(engine));
+      expect(MiniPlayerService.instance.isActive, isFalse);
+      expect(engine.disposeCount, 0);
+
+      await MiniPlayerService.instance.deactivate();
+    });
+  });
+
   group('DesktopPlayerController', () {
     late FakePlaybackEngine engine;
     late DesktopPlayerController controller;
@@ -221,6 +265,21 @@ void main() {
       await liveController.seekBy(const Duration(seconds: 10));
 
       expect(engine.soughtPosition, isNull);
+    });
+
+    test('restores custom external subtitle selections', () async {
+      const subtitleUrl = 'file:///home/user/Subtitles/movie%20en.srt';
+      final subtitleController = DesktopPlayerController(
+        engine: engine,
+        request: movieRequest.copyWith(
+          preferredSubtitleTrack: 'external:Custom:$subtitleUrl',
+        ),
+      );
+
+      await subtitleController.initialize();
+
+      expect(engine.selectedSubtitleTrackId, 'external:Custom:$subtitleUrl');
+      expect(engine.selectedSubtitleExternalUrl, subtitleUrl);
     });
   });
 

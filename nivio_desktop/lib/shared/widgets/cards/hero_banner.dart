@@ -1,12 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:lucide_flutter/lucide_flutter.dart';
 
 import '../../../features/search/models/search_media_item.dart';
 import '../../../core/network/image/tmdb_image_builder.dart';
 import '../../theme/index.dart';
-import '../badges/metadata_badge.dart';
-import '../badges/genre_chip.dart';
-import '../buttons/primary_button.dart';
-import '../buttons/secondary_button.dart';
 import '../common/animated_fade_container.dart';
 
 class HeroBanner extends StatelessWidget {
@@ -30,135 +27,165 @@ class HeroBanner extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final title = item.title;
-    final overview = item.overview;
-    final rating = item.rating > 0 ? item.ratingLabel : null;
-    final year = item.year > 0 ? item.yearLabel : null;
-    final genres = item.genres;
-    final posterImage = item.posterPath != null && item.posterPath!.isNotEmpty
-        ? NetworkImage(TmdbImageBuilder.poster(item.posterPath))
-        : null;
-    final backdropImage =
-        item.backdropPath != null && item.backdropPath!.isNotEmpty
-        ? NetworkImage(TmdbImageBuilder.backdrop(item.backdropPath))
-        : null;
 
     return LayoutBuilder(
       builder: (context, constraints) {
-        final stacked = constraints.maxWidth < AppBreakpoints.standard;
+        final compact = constraints.maxWidth < AppBreakpoints.compact;
+        final contentWidth = compact ? constraints.maxWidth : 460.0;
+        final contentInset = compact ? AppSpacing.xxl : 150.0;
 
         return Semantics(
           label: semanticLabel ?? title,
-          child: Container(
-            decoration: BoxDecoration(
-              color: AppColors.surface,
-              borderRadius: BorderRadius.circular(AppRadius.panel),
-              border: Border.all(color: AppColors.borderSubtle),
-              boxShadow: AppShadows.hover,
-            ),
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(AppRadius.panel),
-              child: Stack(
-                children: [
-                  Positioned.fill(
-                    child: _Backdrop(
-                      label: title,
-                      imageProvider: backdropImage,
+          child: ClipRect(
+            child: Stack(
+              children: [
+                Positioned.fill(child: HeroBackdropLayer(item: item)),
+                Positioned(
+                  left: contentInset,
+                  right: compact ? AppSpacing.xxl : null,
+                  bottom: compact ? AppSpacing.xxl : 58,
+                  child: ConstrainedBox(
+                    constraints: BoxConstraints(maxWidth: contentWidth),
+                    child: HeroContentPanel(
+                      item: item,
+                      primaryActionLabel: primaryActionLabel,
+                      secondaryActionLabel: secondaryActionLabel,
+                      onPrimaryAction: onPrimaryAction,
+                      onSecondaryAction: onSecondaryAction,
                     ),
                   ),
-                  Positioned.fill(
-                    child: DecoratedBox(
-                      decoration: BoxDecoration(
-                        gradient: LinearGradient(
-                          begin: Alignment.centerLeft,
-                          end: Alignment.centerRight,
-                          colors: [
-                            AppColors.posterScrimBottom,
-                            const Color(0xC7000000),
-                            Colors.transparent,
-                          ],
-                        ),
-                      ),
-                    ),
-                  ),
-                  Padding(
-                    padding: const EdgeInsets.all(AppSpacing.xxl),
-                    child: AnimatedFadeContainer(
-                      visible: true,
-                      child: stacked
-                          ? SingleChildScrollView(
-                              physics: const ClampingScrollPhysics(),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  ConstrainedBox(
-                                    constraints: const BoxConstraints(
-                                      maxWidth: 220,
-                                    ),
-                                    child: _PosterTile(
-                                      label: title,
-                                      imageProvider: posterImage,
-                                    ),
-                                  ),
-                                  const SizedBox(height: AppSpacing.xxl),
-                                  _HeroCopy(
-                                    title: title,
-                                    overview: overview,
-                                    rating: rating,
-                                    year: year,
-                                    runtime: null,
-                                    genres: genres,
-                                    primaryActionLabel: primaryActionLabel,
-                                    secondaryActionLabel: secondaryActionLabel,
-                                    onPrimaryAction: onPrimaryAction,
-                                    onSecondaryAction: onSecondaryAction,
-                                  ),
-                                ],
-                              ),
-                            )
-                          : Row(
-                              children: [
-                                Expanded(
-                                  flex: 6,
-                                  child: _HeroCopy(
-                                    title: title,
-                                    overview: overview,
-                                    rating: rating,
-                                    year: year,
-                                    runtime: null,
-                                    genres: genres,
-                                    primaryActionLabel: primaryActionLabel,
-                                    secondaryActionLabel: secondaryActionLabel,
-                                    onPrimaryAction: onPrimaryAction,
-                                    onSecondaryAction: onSecondaryAction,
-                                  ),
-                                ),
-                                const SizedBox(width: AppSpacing.xxl),
-                                Expanded(
-                                  flex: 3,
-                                  child: Align(
-                                    alignment: Alignment.centerRight,
-                                    child: ConstrainedBox(
-                                      constraints: const BoxConstraints(
-                                        maxHeight: 360,
-                                        maxWidth: 240,
-                                      ),
-                                      child: _PosterTile(
-                                        label: title,
-                                        imageProvider: posterImage,
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ),
-                    ),
-                  ),
-                ],
-              ),
+                ),
+              ],
             ),
           ),
         );
       },
+    );
+  }
+}
+
+class HeroBackdropLayer extends StatelessWidget {
+  const HeroBackdropLayer({super.key, required this.item});
+
+  final SearchMediaItem item;
+
+  @override
+  Widget build(BuildContext context) {
+    final backdropImage =
+        item.backdropPath != null && item.backdropPath!.isNotEmpty
+        ? NetworkImage(
+            TmdbImageBuilder.backdrop(item.backdropPath, size: 'w1280'),
+          )
+        : null;
+
+    return Stack(
+      children: [
+        Positioned.fill(
+          child: _Backdrop(label: item.title, imageProvider: backdropImage),
+        ),
+        const Positioned.fill(child: _MastheadScrims()),
+      ],
+    );
+  }
+}
+
+class HeroContentPanel extends StatelessWidget {
+  const HeroContentPanel({
+    super.key,
+    required this.item,
+    this.primaryActionLabel,
+    this.secondaryActionLabel,
+    this.onPrimaryAction,
+    this.onSecondaryAction,
+  });
+
+  final SearchMediaItem item;
+  final String? primaryActionLabel;
+  final String? secondaryActionLabel;
+  final VoidCallback? onPrimaryAction;
+  final VoidCallback? onSecondaryAction;
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedFadeContainer(
+      visible: true,
+      child: _HeroCopy(
+        item: item,
+        title: item.title,
+        overview: item.overview,
+        genres: item.genres,
+        primaryActionLabel: primaryActionLabel,
+        secondaryActionLabel: secondaryActionLabel,
+        onPrimaryAction: onPrimaryAction,
+        onSecondaryAction: onSecondaryAction,
+      ),
+    );
+  }
+}
+
+class _MastheadScrims extends StatelessWidget {
+  const _MastheadScrims();
+
+  @override
+  Widget build(BuildContext context) {
+    return Stack(
+      children: [
+        Positioned.fill(
+          child: Align(
+            alignment: Alignment.centerLeft,
+            child: FractionallySizedBox(
+              widthFactor: 0.58,
+              heightFactor: 1,
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.centerLeft,
+                    end: Alignment.centerRight,
+                    colors: [
+                      AppColors.background.withValues(alpha: 0.95),
+                      AppColors.background.withValues(alpha: 0.80),
+                      AppColors.background.withValues(alpha: 0.30),
+                      Colors.transparent,
+                    ],
+                    stops: const [0, 0.38, 0.78, 1],
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+        Positioned.fill(
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.bottomCenter,
+                end: Alignment.topCenter,
+                colors: [
+                  const Color(0xFF070914),
+                  AppColors.background.withValues(alpha: 0.76),
+                  Colors.transparent,
+                ],
+                stops: const [0, 0.24, 0.72],
+              ),
+            ),
+          ),
+        ),
+        Positioned.fill(
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [
+                  Colors.black.withValues(alpha: 0.24),
+                  Colors.transparent,
+                ],
+                stops: const [0, 0.28],
+              ),
+            ),
+          ),
+        ),
+      ],
     );
   }
 }
@@ -175,6 +202,7 @@ class _Backdrop extends StatelessWidget {
       return Image(
         image: imageProvider!,
         fit: BoxFit.cover,
+        alignment: Alignment.centerRight,
         errorBuilder: (context, error, stackTrace) => _buildFallback(),
       );
     }
@@ -203,85 +231,11 @@ class _Backdrop extends StatelessWidget {
   }
 }
 
-class _PosterTile extends StatelessWidget {
-  const _PosterTile({required this.label, this.imageProvider});
-
-  final String label;
-  final ImageProvider? imageProvider;
-
-  @override
-  Widget build(BuildContext context) {
-    return AspectRatio(
-      aspectRatio: AppBreakpoints.posterRatio,
-      child: Container(
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(AppRadius.extraLarge),
-          border: Border.all(color: AppColors.borderSubtle),
-          boxShadow: AppShadows.popover,
-        ),
-        child: ClipRRect(
-          borderRadius: BorderRadius.circular(AppRadius.extraLarge),
-          child: Stack(
-            children: [
-              Positioned.fill(
-                child: imageProvider != null
-                    ? Image(
-                        image: imageProvider!,
-                        fit: BoxFit.cover,
-                        errorBuilder: (context, error, stackTrace) =>
-                            _buildFallback(),
-                      )
-                    : _buildFallback(),
-              ),
-              Positioned.fill(
-                child: DecoratedBox(
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(AppRadius.extraLarge),
-                    gradient: LinearGradient(
-                      begin: Alignment.topCenter,
-                      end: Alignment.bottomCenter,
-                      colors: [Colors.transparent, const Color(0x59000000)],
-                    ),
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildFallback() {
-    return Container(
-      decoration: const BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [Color(0xFF2D3343), Color(0xFF1A1D24)],
-        ),
-      ),
-      child: Center(
-        child: Text(
-          label,
-          textAlign: TextAlign.center,
-          style: AppTypography.sectionTitle.copyWith(
-            fontSize: 24,
-            color: AppColors.textMuted,
-          ),
-        ),
-      ),
-    );
-  }
-}
-
 class _HeroCopy extends StatelessWidget {
   const _HeroCopy({
+    required this.item,
     required this.title,
     required this.overview,
-    required this.rating,
-    required this.year,
-    required this.runtime,
     required this.genres,
     required this.primaryActionLabel,
     required this.secondaryActionLabel,
@@ -289,11 +243,9 @@ class _HeroCopy extends StatelessWidget {
     required this.onSecondaryAction,
   });
 
+  final SearchMediaItem item;
   final String title;
   final String overview;
-  final String? rating;
-  final String? year;
-  final String? runtime;
   final List<String> genres;
   final String? primaryActionLabel;
   final String? secondaryActionLabel;
@@ -306,8 +258,24 @@ class _HeroCopy extends StatelessWidget {
       builder: (context, constraints) {
         final compact =
             constraints.maxHeight.isFinite && constraints.maxHeight < 300;
-        final titleSize = compact ? 28.0 : 34.0;
-        final overviewLines = compact ? 2 : 4;
+        final titleLength = title.runes.length;
+        final titleSize = compact
+            ? 34.0
+            : titleLength > 52
+            ? 38.0
+            : titleLength > 32
+            ? 42.0
+            : 46.0;
+        final overviewLines = compact ? 2 : 3;
+        final metadata = <String>[
+          if (item.year > 0) item.yearLabel,
+          if (item.runtimeLabel.trim().isNotEmpty)
+            item.runtimeLabel
+          else if (item.mediaType == SearchMediaTypeFilter.tv ||
+              item.mediaType == SearchMediaTypeFilter.anime)
+            '1 Season',
+          if (item.language != SearchLanguageFilter.all) item.languageLabel,
+        ];
 
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -315,56 +283,334 @@ class _HeroCopy extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           children: [
             Text(
+              'New Release',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: AppTypography.caption.copyWith(
+                color: const Color(0xFF1492FF),
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+            const SizedBox(height: AppSpacing.sm),
+            Text(
               title,
               maxLines: compact ? 2 : 3,
               overflow: TextOverflow.ellipsis,
-              style: AppTypography.display.copyWith(fontSize: titleSize),
-            ),
-            const SizedBox(height: AppSpacing.sm),
-            Wrap(
-              spacing: AppSpacing.sm,
-              runSpacing: AppSpacing.sm,
-              children: [
-                if (rating != null) MetadataBadge(label: rating!),
-                if (year != null) MetadataBadge(label: year!),
-                if (runtime != null) MetadataBadge(label: runtime!),
-              ],
-            ),
-            if (genres.isNotEmpty) ...[
-              const SizedBox(height: AppSpacing.sm),
-              Wrap(
-                spacing: AppSpacing.sm,
-                runSpacing: AppSpacing.sm,
-                children: genres.take(compact ? 4 : genres.length).map((genre) {
-                  return GenreChip(label: genre);
-                }).toList(),
+              style: AppTypography.display.copyWith(
+                fontSize: titleSize,
+                fontWeight: FontWeight.w900,
+                height: 1.02,
+                shadows: const [
+                  Shadow(color: Color(0xB3000000), blurRadius: 22),
+                ],
               ),
+            ),
+            if (metadata.isNotEmpty) ...[
+              const SizedBox(height: AppSpacing.lg),
+              _InlineMetadata(items: metadata),
             ],
             const SizedBox(height: AppSpacing.lg),
             Text(
               overview,
               maxLines: overviewLines,
               overflow: TextOverflow.ellipsis,
-              style: AppTypography.body.copyWith(fontSize: 15),
+              style: AppTypography.body.copyWith(
+                color: AppColors.textSecondary.withValues(alpha: 0.92),
+                fontSize: 15,
+                height: 1.38,
+                fontWeight: FontWeight.w500,
+              ),
             ),
+            if (genres.isNotEmpty) ...[
+              const SizedBox(height: AppSpacing.lg),
+              _GenreLine(genres: genres.take(4).toList()),
+            ],
             const SizedBox(height: AppSpacing.xl),
-            Wrap(
-              spacing: AppSpacing.sm,
-              runSpacing: AppSpacing.sm,
+            Row(
               children: [
-                PrimaryButton(
-                  label: primaryActionLabel ?? 'Play',
-                  onPressed: onPrimaryAction,
+                Flexible(
+                  child: _MastheadButton(
+                    key: const ValueKey('hero_watch_now_button'),
+                    icon: LucideIcons.play,
+                    label: primaryActionLabel ?? 'Watch Now',
+                    onPressed: onPrimaryAction,
+                    minWidth: compact ? 220 : 348,
+                  ),
                 ),
-                SecondaryButton(
-                  label: secondaryActionLabel ?? 'More Info',
+                const SizedBox(width: AppSpacing.md),
+                _MastheadButton.iconOnly(
+                  icon: secondaryActionLabel == 'In watchlist'
+                      ? LucideIcons.check
+                      : LucideIcons.plus,
+                  label: secondaryActionLabel ?? 'Add to watchlist',
                   onPressed: onSecondaryAction,
+                  semanticLabel: secondaryActionLabel ?? 'Add to watchlist',
                 ),
               ],
             ),
           ],
         );
       },
+    );
+  }
+}
+
+class _InlineMetadata extends StatelessWidget {
+  const _InlineMetadata({required this.items});
+
+  final List<String> items;
+
+  @override
+  Widget build(BuildContext context) {
+    return Wrap(
+      spacing: AppSpacing.sm,
+      runSpacing: AppSpacing.xs,
+      children: [
+        for (var i = 0; i < items.length; i++) ...[
+          Text(
+            items[i],
+            style: AppTypography.title.copyWith(
+              color: i == 1
+                  ? AppColors.textPrimary.withValues(alpha: 0.74)
+                  : AppColors.textPrimary,
+              fontSize: 14,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+          if (i != items.length - 1)
+            Container(
+              width: 4,
+              height: 4,
+              margin: const EdgeInsets.only(top: 8),
+              decoration: BoxDecoration(
+                color: AppColors.textMuted.withValues(alpha: 0.8),
+                shape: BoxShape.circle,
+              ),
+            ),
+        ],
+      ],
+    );
+  }
+}
+
+class _GenreLine extends StatelessWidget {
+  const _GenreLine({required this.genres});
+
+  final List<String> genres;
+
+  @override
+  Widget build(BuildContext context) {
+    return Wrap(
+      spacing: AppSpacing.sm,
+      runSpacing: AppSpacing.xs,
+      children: [
+        for (var i = 0; i < genres.length; i++) ...[
+          Text(
+            genres[i],
+            style: AppTypography.caption.copyWith(
+              color: AppColors.textPrimary,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+          if (i != genres.length - 1)
+            Text(
+              '|',
+              style: AppTypography.caption.copyWith(
+                color: AppColors.textMuted,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+        ],
+      ],
+    );
+  }
+}
+
+class _MastheadButton extends StatefulWidget {
+  const _MastheadButton({
+    super.key,
+    required this.icon,
+    required this.label,
+    required this.onPressed,
+    required this.minWidth,
+  }) : semanticLabel = null,
+       iconOnly = false;
+
+  const _MastheadButton.iconOnly({
+    required this.icon,
+    required this.label,
+    required this.onPressed,
+    this.semanticLabel,
+  }) : minWidth = 52,
+       iconOnly = true;
+
+  final IconData icon;
+  final String label;
+  final VoidCallback? onPressed;
+  final double minWidth;
+  final String? semanticLabel;
+  final bool iconOnly;
+
+  @override
+  State<_MastheadButton> createState() => _MastheadButtonState();
+}
+
+class _MastheadButtonState extends State<_MastheadButton> {
+  bool _hovered = false;
+  bool _focused = false;
+  bool _pressed = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final enabled = widget.onPressed != null;
+    final active = enabled && (_hovered || _focused);
+    final scale = _pressed
+        ? 0.985
+        : active
+        ? 1.035
+        : 1.0;
+
+    return Semantics(
+      button: true,
+      enabled: enabled,
+      label: widget.semanticLabel ?? widget.label,
+      child: Tooltip(
+        message: widget.semanticLabel ?? widget.label,
+        child: MouseRegion(
+          cursor: enabled ? SystemMouseCursors.click : SystemMouseCursors.basic,
+          onEnter: (_) => setState(() => _hovered = true),
+          onExit: (_) {
+            setState(() {
+              _hovered = false;
+              _pressed = false;
+            });
+          },
+          child: FocusableActionDetector(
+            enabled: enabled,
+            onShowFocusHighlight: (value) => setState(() => _focused = value),
+            child: GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: enabled ? widget.onPressed : null,
+              onTapDown: enabled
+                  ? (_) => setState(() => _pressed = true)
+                  : null,
+              onTapUp: enabled ? (_) => setState(() => _pressed = false) : null,
+              onTapCancel: enabled
+                  ? () => setState(() => _pressed = false)
+                  : null,
+              child: AnimatedScale(
+                scale: scale,
+                duration: AppAnimation.hover,
+                curve: AppAnimation.standard,
+                child: AnimatedSlide(
+                  offset: active && !_pressed
+                      ? const Offset(0, -0.045)
+                      : Offset.zero,
+                  duration: AppAnimation.hover,
+                  curve: AppAnimation.standard,
+                  child: ConstrainedBox(
+                    constraints: BoxConstraints(minWidth: widget.minWidth),
+                    child: AnimatedContainer(
+                      duration: AppAnimation.hover,
+                      curve: AppAnimation.standard,
+                      height: 52,
+                      padding: EdgeInsets.symmetric(
+                        horizontal: widget.iconOnly ? 0 : AppSpacing.xxl,
+                      ),
+                      decoration: BoxDecoration(
+                        color: widget.iconOnly
+                            ? Color.lerp(
+                                const Color(0xFF3A3D46),
+                                const Color(0xFF525661),
+                                active ? 1 : 0,
+                              )!.withValues(alpha: enabled ? 0.94 : 0.36)
+                            : enabled
+                            ? null
+                            : Colors.white.withValues(alpha: 0.28),
+                        gradient: !widget.iconOnly && enabled
+                            ? LinearGradient(
+                                begin: Alignment.centerLeft,
+                                end: Alignment.centerRight,
+                                colors: active
+                                    ? const [
+                                        Color(0xFF2DA7FF),
+                                        Color(0xFFED0A7C),
+                                      ]
+                                    : const [
+                                        Color(0xFF2096F3),
+                                        Color(0xFFE80073),
+                                      ],
+                              )
+                            : null,
+                        borderRadius: BorderRadius.circular(AppRadius.medium),
+                        border: Border.all(
+                          color: Colors.white.withValues(
+                            alpha: widget.iconOnly
+                                ? active
+                                      ? 0.22
+                                      : 0.10
+                                : active
+                                ? 0.18
+                                : 0,
+                          ),
+                        ),
+                        boxShadow: active
+                            ? [
+                                BoxShadow(
+                                  color:
+                                      (widget.iconOnly
+                                              ? Colors.white
+                                              : const Color(0xFFE80073))
+                                          .withValues(alpha: 0.28),
+                                  blurRadius: 24,
+                                  offset: const Offset(0, 10),
+                                ),
+                              ]
+                            : null,
+                      ),
+                      child: Row(
+                        mainAxisSize: widget.iconOnly
+                            ? MainAxisSize.min
+                            : MainAxisSize.max,
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          AnimatedSlide(
+                            offset: active && !widget.iconOnly
+                                ? const Offset(0.12, 0)
+                                : Offset.zero,
+                            duration: AppAnimation.hover,
+                            curve: AppAnimation.standard,
+                            child: Icon(
+                              widget.icon,
+                              size: widget.iconOnly ? 22 : 24,
+                              color: AppColors.textPrimary,
+                            ),
+                          ),
+                          if (!widget.iconOnly) ...[
+                            const SizedBox(width: AppSpacing.sm),
+                            Flexible(
+                              child: Text(
+                                widget.label,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: AppTypography.title.copyWith(
+                                  color: AppColors.textPrimary,
+                                  fontSize: 17,
+                                  fontWeight: FontWeight.w900,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
     );
   }
 }

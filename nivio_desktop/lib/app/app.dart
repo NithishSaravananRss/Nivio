@@ -9,6 +9,7 @@ import '../shared/theme/theme.dart';
 import '../shared/widgets/dialogs/update_dialog.dart';
 import '../core/interfaces/search_repository.dart';
 import '../core/interfaces/home_repository.dart';
+import '../core/interfaces/details_repository.dart';
 import '../features/player/services/stream_resolver.dart';
 import '../features/player/playback_engine.dart';
 import '../core/interfaces/watch_history_repository.dart';
@@ -17,6 +18,7 @@ import '../core/interfaces/watch_history_repository.dart';
 class NivioDesktopApp extends StatelessWidget {
   final SearchRepository? searchRepository;
   final HomeRepository? homeRepository;
+  final DetailsRepository? detailsRepository;
   final StreamResolver? streamResolver;
   final PlaybackEngineFactory? playbackEngineFactory;
   final WatchHistoryRepository? watchHistoryRepository;
@@ -25,6 +27,7 @@ class NivioDesktopApp extends StatelessWidget {
     super.key,
     this.searchRepository,
     this.homeRepository,
+    this.detailsRepository,
     this.streamResolver,
     this.playbackEngineFactory,
     this.watchHistoryRepository,
@@ -40,6 +43,7 @@ class NivioDesktopApp extends StatelessWidget {
         child: DesktopScaffold(
           searchRepository: searchRepository,
           homeRepository: homeRepository,
+          detailsRepository: detailsRepository,
           streamResolver: streamResolver,
           playbackEngineFactory: playbackEngineFactory,
           watchHistoryRepository: watchHistoryRepository,

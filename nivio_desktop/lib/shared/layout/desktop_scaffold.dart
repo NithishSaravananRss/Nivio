@@ -7,6 +7,10 @@ import '../../features/details/detail_view.dart';
 import '../../features/home/home_view.dart';
 import '../../features/library/library_view.dart';
 import '../../features/live_tv/live_tv_view.dart';
+import '../../features/movies/controllers/movies_controller.dart';
+import '../../features/movies/models/movie_category.dart';
+import '../../features/movies/movies_view.dart';
+import '../../features/movies/repositories/tmdb_movies_repository.dart';
 import '../../features/party/party_view.dart';
 import '../../features/profile/profile_view.dart';
 import '../../features/providers/controllers/providers_controller.dart';
@@ -22,6 +26,7 @@ import '../../core/interfaces/search_repository.dart';
 import '../../core/interfaces/home_repository.dart';
 import '../../core/interfaces/details_repository.dart';
 import '../../features/search/controllers/search_controller.dart';
+import '../../features/search/models/search_media_item.dart';
 import '../../features/home/controllers/home_controller.dart';
 import '../../features/details/controllers/detail_controller.dart';
 import '../../features/details/models/detail_route_args.dart';
@@ -31,11 +36,14 @@ import '../../core/repositories/tmdb_home_repository.dart';
 import '../../core/repositories/tmdb_details_repository.dart';
 import '../../core/network/tmdb_client.dart';
 import '../../core/constants.dart';
+import '../../core/services/deep_link_service.dart';
 import '../theme/index.dart';
 import 'desktop_sidebar.dart';
 import 'desktop_topbar.dart';
 import '../../core/interfaces/watch_history_repository.dart';
 import '../../features/history/desktop_watch_history_repository.dart';
+import '../../features/player/services/mini_player_service.dart';
+import '../../features/player/widgets/mini_player_overlay.dart';
 
 /// Permanent desktop shell used by future feature screens.
 class DesktopScaffold extends StatefulWidget {
@@ -96,34 +104,60 @@ class _DesktopScaffoldState extends State<DesktopScaffold> {
     repository: TmdbProvidersRepository(client: TmdbClient(apiKey: tmdbApiKey)),
   );
 
+  late final MoviesController _moviesController = MoviesController(
+    repository: TmdbMoviesRepository(client: TmdbClient(apiKey: tmdbApiKey)),
+  );
+
   int _selectedIndex = _homeIndex;
   int _lastSidebarIndex = _homeIndex;
-  bool _isSidebarExpanded = true;
+  bool _isSidebarHovered = false;
+  Timer? _sidebarCollapseTimer;
   DetailRouteArgs? _detailRouteArgs;
   PlaybackRequest? _playbackRequest;
   bool _isProviderBrowserOpen = false;
+  bool _isMoviesBrowserOpen = false;
+  bool _showHomeDetailOverlay = false;
+  bool _homeDetailOverlayMounted = false;
 
   @override
   void initState() {
     super.initState();
     _homeStateController.loadAll();
+    DeepLinkService.instance.latest.addListener(_handleDeepLink);
   }
 
   @override
   void dispose() {
+    _sidebarCollapseTimer?.cancel();
     _searchController.dispose();
     _searchPageFocusNode.dispose();
     _searchStateController.dispose();
     _homeStateController.dispose();
     _providersController.dispose();
+    _moviesController.dispose();
+    DeepLinkService.instance.latest.removeListener(_handleDeepLink);
     super.dispose();
+  }
+
+  void _handleDeepLink() {
+    final link = DeepLinkService.instance.latest.value;
+    if (link == null || !mounted) return;
+    switch (link) {
+      case OpenMediaDeepLink(:final mediaType, :final mediaId):
+        _openDetail('$mediaType:$mediaId');
+      case PlayMediaDeepLink(:final request):
+        _openPlayback(request);
+    }
   }
 
   void _selectDestination(int index) {
     setState(() {
       _selectedIndex = index;
       _detailRouteArgs = null;
+      _showHomeDetailOverlay = false;
+      _homeDetailOverlayMounted = false;
       _isProviderBrowserOpen = false;
+      _isMoviesBrowserOpen = false;
       _lastSidebarIndex = index;
     });
 
@@ -144,26 +178,97 @@ class _DesktopScaffoldState extends State<DesktopScaffold> {
     FocusManager.instance.primaryFocus?.unfocus();
   }
 
+  void _setSidebarHovered(bool hovered) {
+    _sidebarCollapseTimer?.cancel();
+    if (hovered) {
+      if (!_isSidebarHovered) {
+        setState(() => _isSidebarHovered = true);
+      }
+      return;
+    }
+
+    _sidebarCollapseTimer = Timer(const Duration(milliseconds: 180), () {
+      if (mounted && _isSidebarHovered) {
+        setState(() => _isSidebarHovered = false);
+      }
+    });
+  }
+
   void _openDetail(String mediaId) {
-    final parts = mediaId.split(':');
-    if (parts.length >= 2) {
-      final mediaType = parts[0];
-      final id = int.tryParse(parts[1]) ?? 0;
-      final args = DetailRouteArgs(mediaType: mediaType, mediaId: id);
-      _detailStateController.loadDetail(args);
-      setState(() {
-        _detailRouteArgs = args;
+    final args = _detailArgsFromRoute(mediaId);
+    if (args == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Details unavailable for "$mediaId".')),
+      );
+      return;
+    }
+
+    _detailStateController.loadDetail(args);
+    final shouldUseHomeOverlay =
+        _selectedIndex == _homeIndex &&
+        !_isProviderBrowserOpen &&
+        !_isMoviesBrowserOpen;
+    final overlayWasMounted = _homeDetailOverlayMounted;
+    setState(() {
+      _detailRouteArgs = args;
+      _homeDetailOverlayMounted =
+          _homeDetailOverlayMounted || shouldUseHomeOverlay;
+      _showHomeDetailOverlay = _showHomeDetailOverlay && shouldUseHomeOverlay;
+    });
+    if (shouldUseHomeOverlay && !overlayWasMounted) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted || _detailRouteArgs != args) return;
+        setState(() => _showHomeDetailOverlay = true);
       });
     }
   }
 
+  DetailRouteArgs? _detailArgsFromRoute(String route) {
+    final trimmed = route.trim();
+    final parts = trimmed.split(':');
+    if (parts.length >= 2) {
+      final mediaType = parts[0].trim().toLowerCase();
+      final id = int.tryParse(parts[1].trim());
+      if (_isDetailMediaType(mediaType) && id != null && id > 0) {
+        return DetailRouteArgs(mediaType: mediaType, mediaId: id);
+      }
+      return null;
+    }
+
+    final id = int.tryParse(trimmed);
+    if (id != null && id > 0) {
+      return DetailRouteArgs(mediaType: 'movie', mediaId: id);
+    }
+    return null;
+  }
+
+  bool _isDetailMediaType(String value) {
+    return value == 'movie' || value == 'tv' || value == 'anime';
+  }
+
   void _closeDetail() {
+    if (_homeDetailOverlayMounted) {
+      setState(() => _showHomeDetailOverlay = false);
+      Future<void>.delayed(const Duration(milliseconds: 260), () {
+        if (!mounted || _showHomeDetailOverlay) return;
+        setState(() {
+          _detailRouteArgs = null;
+          _homeDetailOverlayMounted = false;
+        });
+      });
+      return;
+    }
     setState(() {
       _detailRouteArgs = null;
+      _showHomeDetailOverlay = false;
+      _homeDetailOverlayMounted = false;
     });
   }
 
   void _openPlayback(PlaybackRequest request) {
+    if (!MiniPlayerService.instance.matches(request)) {
+      unawaited(MiniPlayerService.instance.deactivate());
+    }
     setState(() => _playbackRequest = request);
   }
 
@@ -173,7 +278,10 @@ class _DesktopScaffoldState extends State<DesktopScaffold> {
       _selectedIndex = _homeIndex;
       _lastSidebarIndex = _homeIndex;
       _detailRouteArgs = null;
+      _showHomeDetailOverlay = false;
+      _homeDetailOverlayMounted = false;
       _isProviderBrowserOpen = true;
+      _isMoviesBrowserOpen = false;
     });
   }
 
@@ -182,15 +290,92 @@ class _DesktopScaffoldState extends State<DesktopScaffold> {
       _selectedIndex = _homeIndex;
       _lastSidebarIndex = _homeIndex;
       _detailRouteArgs = null;
+      _showHomeDetailOverlay = false;
+      _homeDetailOverlayMounted = false;
       _isProviderBrowserOpen = true;
+      _isMoviesBrowserOpen = false;
     });
     unawaited(_providersController.selectProvider(provider));
+  }
+
+  void _openHomeSection(String sectionId) {
+    final movieCategory = switch (sectionId) {
+      'popular_movies' => MovieCategory.popular,
+      'trending_movies' => MovieCategory.trending,
+      'top_rated_movies' => MovieCategory.topRated,
+      _ => null,
+    };
+    if (movieCategory != null) {
+      _openMovies(movieCategory);
+      return;
+    }
+
+    _openSearchForHomeSection(sectionId);
+  }
+
+  void _openMovies(MovieCategory category) {
+    unawaited(_moviesController.selectCategory(category));
+    setState(() {
+      _selectedIndex = _homeIndex;
+      _lastSidebarIndex = _homeIndex;
+      _detailRouteArgs = null;
+      _showHomeDetailOverlay = false;
+      _homeDetailOverlayMounted = false;
+      _isProviderBrowserOpen = false;
+      _isMoviesBrowserOpen = true;
+    });
+  }
+
+  void _openSearchForHomeSection(String sectionId) {
+    final target = _searchTargetForHomeSection(sectionId);
+    _searchController.text = target.query;
+    _searchStateController.setQuery(target.query);
+    _searchStateController.setLanguage(target.language);
+    unawaited(_searchStateController.submitQuery());
+    _selectDestination(_searchIndex);
+  }
+
+  ({String query, SearchLanguageFilter language}) _searchTargetForHomeSection(
+    String sectionId,
+  ) {
+    return switch (sectionId) {
+      'popular_tv' => (
+        query: 'popular tv shows',
+        language: SearchLanguageFilter.all,
+      ),
+      'trending_tv' => (
+        query: 'trending tv shows',
+        language: SearchLanguageFilter.all,
+      ),
+      'popular_anime' || 'trending_anime' => (
+        query: 'anime',
+        language: SearchLanguageFilter.japanese,
+      ),
+      'tamil' => (query: 'Tamil movies', language: SearchLanguageFilter.tamil),
+      'telugu' => (
+        query: 'Telugu movies',
+        language: SearchLanguageFilter.telugu,
+      ),
+      'hindi' => (query: 'Hindi movies', language: SearchLanguageFilter.hindi),
+      'malayalam' => (
+        query: 'Malayalam movies',
+        language: SearchLanguageFilter.all,
+      ),
+      'korean' => (
+        query: 'Korean dramas',
+        language: SearchLanguageFilter.korean,
+      ),
+      _ => (query: 'movies shows', language: SearchLanguageFilter.all),
+    };
   }
 
   void _closeProviderBrowser() {
     setState(() {
       _isProviderBrowserOpen = false;
+      _isMoviesBrowserOpen = false;
       _detailRouteArgs = null;
+      _showHomeDetailOverlay = false;
+      _homeDetailOverlayMounted = false;
       _selectedIndex = _homeIndex;
       _lastSidebarIndex = _homeIndex;
     });
@@ -210,6 +395,7 @@ class _DesktopScaffoldState extends State<DesktopScaffold> {
         engineFactory: widget.playbackEngineFactory,
         watchHistoryRepository: _watchHistoryRepository,
         onClose: _closePlayback,
+        onMinimize: _closePlayback,
         onNextEpisode: _openPlayback,
       );
     }
@@ -231,74 +417,148 @@ class _DesktopScaffoldState extends State<DesktopScaffold> {
           ),
           DismissIntent: CallbackAction<DismissIntent>(
             onInvoke: (_) {
+              if (_detailRouteArgs != null) {
+                _closeDetail();
+                return null;
+              }
               _clearFocus();
               return null;
             },
           ),
         },
-        child: Scaffold(
-          body: SafeArea(
-            child: Column(
-              children: [
-                SizedBox(
-                  height: AppBreakpoints.topbarHeight,
-                  child: const DesktopTopbar(),
-                ),
-                Expanded(
-                  child: LayoutBuilder(
-                    builder: (context, constraints) {
-                      final isCompact =
-                          constraints.maxWidth < AppBreakpoints.compactShell;
-
-                      final content = _buildContent();
-
-                      if (isCompact) {
-                        return Column(
-                          children: [
-                            DesktopSidebar(
-                              isCompact: true,
-                              selectedIndex: _lastSidebarIndex,
-                              onDestinationSelected: _selectDestination,
-                            ),
-                            Expanded(child: content),
-                          ],
-                        );
-                      }
-
-                      return Row(
-                        children: [
-                          SizedBox(
-                            width: _isSidebarExpanded
-                                ? AppBreakpoints.sidebarExpandedWidth
-                                : AppBreakpoints.sidebarCollapsedWidth,
-                            child: DesktopSidebar(
-                              isExpanded: _isSidebarExpanded,
-                              selectedIndex: _lastSidebarIndex,
-                              onToggleExpanded: () {
-                                setState(() {
-                                  _isSidebarExpanded = !_isSidebarExpanded;
-                                });
-                              },
-                              onDestinationSelected: _selectDestination,
-                            ),
-                          ),
-                          Expanded(child: content),
-                        ],
-                      );
-                    },
-                  ),
-                ),
-              ],
+        child: Stack(
+          children: [
+            Scaffold(
+              backgroundColor: AppColors.background,
+              body: SafeArea(child: _buildShell()),
             ),
-          ),
+            MiniPlayerOverlay(onExpand: _openPlayback),
+          ],
         ),
       ),
     );
   }
 
-  Widget _buildContent() {
+  Widget _buildShell() {
+    final showImmersiveDetail =
+        _detailRouteArgs != null && !_homeDetailOverlayMounted;
+    if (showImmersiveDetail) {
+      return ColoredBox(color: AppColors.background, child: _buildContent());
+    }
+
+    final content = _buildContentStack();
+    if (_selectedIndex == _homeIndex) {
+      return Stack(
+        children: [
+          Positioned.fill(child: content),
+          const Positioned(
+            left: 0,
+            right: 0,
+            top: 0,
+            height: AppBreakpoints.topbarHeight,
+            child: DesktopTopbar(isOverlay: true),
+          ),
+          if (_homeDetailOverlayMounted && _detailRouteArgs != null)
+            Positioned.fill(child: _buildHomeDetailOverlay()),
+        ],
+      );
+    }
+
+    return Column(
+      children: [
+        SizedBox(
+          height: AppBreakpoints.topbarHeight,
+          child: const DesktopTopbar(),
+        ),
+        Expanded(child: content),
+      ],
+    );
+  }
+
+  Widget _buildContentStack() {
+    return Stack(
+      children: [
+        Positioned.fill(
+          child: ColoredBox(
+            color: AppColors.background,
+            child: _buildContent(includeDetail: !_homeDetailOverlayMounted),
+          ),
+        ),
+        AnimatedPositioned(
+          duration: AppAnimation.sidebar,
+          curve: AppAnimation.emphasized,
+          left: 0,
+          top: 0,
+          bottom: 0,
+          width: _isSidebarHovered
+              ? DesktopSidebar.expandedWidth
+              : DesktopSidebar.preferredWidth,
+          child: DesktopSidebar(
+            isExpanded: _isSidebarHovered,
+            selectedIndex: _lastSidebarIndex,
+            onItemHoverChanged: _setSidebarHovered,
+            onDestinationSelected: _selectDestination,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildHomeDetailOverlay() {
     final detailRouteArgs = _detailRouteArgs;
-    if (detailRouteArgs != null) {
+    if (detailRouteArgs == null) return const SizedBox.shrink();
+
+    return Stack(
+      children: [
+        Positioned.fill(
+          child: AnimatedOpacity(
+            opacity: _showHomeDetailOverlay ? 1 : 0,
+            duration: const Duration(milliseconds: 220),
+            curve: AppAnimation.standard,
+            child: GestureDetector(
+              onTap: _closeDetail,
+              child: ColoredBox(color: Colors.black.withValues(alpha: 0.72)),
+            ),
+          ),
+        ),
+        Positioned.fill(
+          child: IgnorePointer(
+            ignoring: !_showHomeDetailOverlay,
+            child: AnimatedOpacity(
+              opacity: _showHomeDetailOverlay ? 1 : 0,
+              duration: const Duration(milliseconds: 240),
+              curve: AppAnimation.standard,
+              child: AnimatedSlide(
+                offset: _showHomeDetailOverlay
+                    ? Offset.zero
+                    : const Offset(0, 0.08),
+                duration: const Duration(milliseconds: 260),
+                curve: AppAnimation.emphasized,
+                child: AnimatedScale(
+                  scale: _showHomeDetailOverlay ? 1 : 0.985,
+                  duration: const Duration(milliseconds: 260),
+                  curve: AppAnimation.emphasized,
+                  child: DetailView(
+                    args: detailRouteArgs,
+                    controller: _detailStateController,
+                    onBack: _closeDetail,
+                    onOpenDetail: _openDetail,
+                    onPlay: _openPlayback,
+                    watchHistoryRepository: _watchHistoryRepository,
+                    homeOverlay: true,
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildContent({bool includeDetail = true}) {
+    final detailRouteArgs = _detailRouteArgs;
+    if (includeDetail && detailRouteArgs != null) {
       return DetailView(
         args: detailRouteArgs,
         controller: _detailStateController,
@@ -318,6 +578,14 @@ class _DesktopScaffoldState extends State<DesktopScaffold> {
       );
     }
 
+    if (_selectedIndex == _homeIndex && _isMoviesBrowserOpen) {
+      return MoviesView(
+        controller: _moviesController,
+        onOpenDetail: _openDetail,
+        onPlay: _openPlayback,
+      );
+    }
+
     return switch (_selectedIndex) {
       _homeIndex => HomeView(
         controller: _homeStateController,
@@ -325,6 +593,7 @@ class _DesktopScaffoldState extends State<DesktopScaffold> {
         onPlay: _openPlayback,
         onOpenAllProviders: _openAllProviders,
         onOpenProvider: _openProvider,
+        onOpenSection: _openHomeSection,
       ),
       _libraryIndex => LibraryView(
         onOpenDetail: _openDetail,
@@ -352,6 +621,7 @@ class _DesktopScaffoldState extends State<DesktopScaffold> {
         onPlay: _openPlayback,
         onOpenAllProviders: _openAllProviders,
         onOpenProvider: _openProvider,
+        onOpenSection: _openHomeSection,
       ),
     };
   }

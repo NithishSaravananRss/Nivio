@@ -135,12 +135,14 @@ class _CalendarDay extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return AspectRatio(
-      aspectRatio: 1,
+    return SizedBox(
+      height: 56,
       child: InkWell(
-        borderRadius: BorderRadius.circular(AppRadius.pill),
+        borderRadius: BorderRadius.circular(AppRadius.medium),
         onTap: onTap,
-        child: DecoratedBox(
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 180),
+          curve: Curves.easeOutCubic,
           decoration: BoxDecoration(
             color: isSelected
                 ? AppColors.sidebarSelected
@@ -152,7 +154,7 @@ class _CalendarDay extends StatelessWidget {
                   ? AppColors.borderSubtle.withValues(alpha: 0.75)
                   : AppColors.borderSubtle,
             ),
-            shape: BoxShape.circle,
+            borderRadius: BorderRadius.circular(AppRadius.medium),
           ),
           child: Stack(
             alignment: Alignment.center,

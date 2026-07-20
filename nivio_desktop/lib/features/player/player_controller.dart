@@ -211,6 +211,12 @@ class DesktopPlayerController {
   }
 
   String? _externalSubtitleUrl(String trackId) {
+    const customPrefix = 'external:Custom:';
+    if (trackId.startsWith(customPrefix)) {
+      final url = trackId.substring(customPrefix.length).trim();
+      return url.isEmpty ? null : url;
+    }
+
     for (final track in request.streamResult?.subtitles ?? const []) {
       final externalId = 'external:${track.lang}:${track.url}';
       if (trackId == externalId || trackId == track.lang) return track.url;

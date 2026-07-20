@@ -1180,8 +1180,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await tester.ensureVisible(find.text('Play now'));
-    await tester.tap(find.text('Play now'));
+    await tester.tap(find.byKey(const ValueKey('hero_watch_now_button')));
     await tester.pumpAndSettle();
 
     expect(resolver.request?.mediaId, 'movie:550');

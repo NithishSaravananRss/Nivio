@@ -24,13 +24,15 @@ class DetailMapper {
     final runtimeMinutes = detailDto.runtime;
     final runtimeStr = runtimeMinutes != null && runtimeMinutes > 0
         ? (runtimeMinutes >= 60
-            ? '${runtimeMinutes ~/ 60}h ${runtimeMinutes % 60}m'
-            : '${runtimeMinutes}m')
+              ? '${runtimeMinutes ~/ 60}h ${runtimeMinutes % 60}m'
+              : '${runtimeMinutes}m')
         : 'N/A';
 
     // Release Date and Year
     final releaseDate = detailDto.releaseDate ?? '';
-    final releaseYear = releaseDate.length >= 4 ? releaseDate.substring(0, 4) : 'N/A';
+    final releaseYear = releaseDate.length >= 4
+        ? releaseDate.substring(0, 4)
+        : 'N/A';
 
     // Languages
     final languages = detailDto.spokenLanguages;
@@ -39,7 +41,11 @@ class DetailMapper {
     // Watch providers (check US region, fallback to any first available)
     final providersList = <String>[];
     final usProviders = providersDto.results['US'] as Map?;
-    final targetProviders = usProviders ?? (providersDto.results.isNotEmpty ? providersDto.results.values.first as Map? : null);
+    final targetProviders =
+        usProviders ??
+        (providersDto.results.isNotEmpty
+            ? providersDto.results.values.first as Map?
+            : null);
     if (targetProviders != null) {
       final flatrate = targetProviders['flatrate'] as List?;
       final free = targetProviders['free'] as List?;
@@ -109,7 +115,11 @@ class DetailMapper {
 
     // Videos / Trailers (YouTube keys)
     final trailers = videosDto.results
-        .where((v) => v['site'] == 'YouTube' && (v['type'] == 'Trailer' || v['type'] == 'Teaser'))
+        .where(
+          (v) =>
+              v['site'] == 'YouTube' &&
+              (v['type'] == 'Trailer' || v['type'] == 'Teaser'),
+        )
         .map((v) => v['key'] as String? ?? '')
         .where((key) => key.isNotEmpty)
         .toList();
@@ -127,7 +137,9 @@ class DetailMapper {
     }
 
     // Map recommendations raw JSON to SearchMediaItem
-    final List<SearchMediaItem> recommendations = recommendationsRaw.map((item) {
+    final List<SearchMediaItem> recommendations = recommendationsRaw.map((
+      item,
+    ) {
       // Inject media_type if missing in result
       if (item['media_type'] == null) {
         item['media_type'] = detailDto.raw['media_type'];
@@ -147,14 +159,9 @@ class DetailMapper {
       );
     }).toList();
 
-    // TV seasons list mapping
-    final seasons = detailDto.seasons.map((s) {
-      return DetailSeason(
-        number: s['season_number'] as int? ?? 0,
-        name: (s['name'] ?? 'Season ${s['season_number']}') as String,
-        episodes: const [], // To be fetched dynamically via getSeasonEpisodes
-      );
-    }).toList();
+    final seasons = _mapTvSeasons(detailDto, mediaType);
+
+    final certification = _certification(detailDto, mediaType);
 
     return DetailMedia(
       id: '${detailDto.raw['media_type']}:${detailDto.id}',
@@ -164,7 +171,7 @@ class DetailMapper {
       releaseYear: releaseYear,
       releaseDate: releaseDate,
       runtime: runtimeStr,
-      certification: mediaType == DetailMediaType.tv ? 'TV-MA' : 'PG-13', // fallback default
+      certification: certification,
       rating: detailDto.voteAverage,
       voteCount: detailDto.voteCount,
       popularity: detailDto.popularity,
@@ -192,12 +199,18 @@ class DetailMapper {
       networks: detailDto.networks,
       homepage: detailDto.homepage,
       imdbId: detailDto.imdbId,
+      externalIds: _mapStringKeyedMap(detailDto.raw['external_ids']),
+      lastEpisode: _mapEpisodeObject(detailDto.raw['last_episode_to_air']),
+      nextEpisode: _mapEpisodeObject(detailDto.raw['next_episode_to_air']),
       type: detailDto.type,
       posterPath: detailDto.posterPath,
       backdropPath: detailDto.backdropPath,
       logoPath: logoPath,
       trailers: trailers,
-      images: imagesDto.backdrops.map((i) => i['file_path'] as String? ?? '').where((p) => p.isNotEmpty).toList(),
+      images: imagesDto.backdrops
+          .map((i) => i['file_path'] as String? ?? '')
+          .where((p) => p.isNotEmpty)
+          .toList(),
     );
   }
 
@@ -216,5 +229,122 @@ class DetailMapper {
         airDate: e['air_date'] as String?,
       );
     }).toList();
+  }
+
+  static DetailEpisode? _mapEpisodeObject(Object? value) {
+    if (value is! Map) return null;
+    return DetailEpisode(
+      number: (value['episode_number'] as num?)?.toInt() ?? 0,
+      title: value['name']?.toString() ?? 'Episode',
+      runtime: ((value['runtime'] as num?)?.toInt() ?? 0) > 0
+          ? '${(value['runtime'] as num).toInt()}m'
+          : '',
+      overview: value['overview']?.toString() ?? '',
+      progress: 0,
+      status: 'Unwatched',
+      stillPath: value['still_path']?.toString(),
+      airDate: value['air_date']?.toString(),
+    );
+  }
+
+  static String _certification(DetailDto detailDto, DetailMediaType mediaType) {
+    if (mediaType == DetailMediaType.tv) {
+      final contentRatings = detailDto.raw['content_ratings'];
+      if (contentRatings is Map) {
+        final rating = _countryRating(
+          contentRatings['results'],
+          countryKey: 'iso_3166_1',
+          valueKey: 'rating',
+        );
+        if (rating != null) return rating;
+      }
+      return 'TV';
+    }
+
+    final releaseDates = detailDto.raw['release_dates'];
+    if (releaseDates is Map) {
+      final results = releaseDates['results'];
+      if (results is List) {
+        final us = results.whereType<Map>().firstWhere(
+          (entry) => entry['iso_3166_1'] == 'US',
+          orElse: () => const {},
+        );
+        final dates = us['release_dates'];
+        if (dates is List) {
+          for (final rawDate in dates.whereType<Map>()) {
+            final certification = rawDate['certification']?.toString().trim();
+            if (certification != null && certification.isNotEmpty) {
+              return certification;
+            }
+          }
+        }
+      }
+    }
+    return 'NR';
+  }
+
+  static String? _countryRating(
+    Object? entries, {
+    required String countryKey,
+    required String valueKey,
+  }) {
+    if (entries is! List) return null;
+    final us = entries.whereType<Map>().firstWhere(
+      (entry) => entry[countryKey] == 'US',
+      orElse: () => const {},
+    );
+    final rating = us[valueKey]?.toString().trim();
+    return rating == null || rating.isEmpty ? null : rating;
+  }
+
+  static Map<String, dynamic>? _mapStringKeyedMap(Object? value) {
+    if (value is! Map) return null;
+    return Map<String, dynamic>.from(value);
+  }
+
+  static List<DetailSeason> _mapTvSeasons(
+    DetailDto detailDto,
+    DetailMediaType mediaType,
+  ) {
+    if (mediaType != DetailMediaType.tv) return const [];
+
+    final seasons = detailDto.seasons.map((season) {
+      final number = (season['season_number'] as num?)?.toInt() ?? 0;
+      return DetailSeason(
+        number: number,
+        name: (season['name'] ?? 'Season $number') as String,
+        episodes: const [],
+      );
+    }).toList();
+
+    final expectedSeasonCount =
+        (detailDto.raw['number_of_seasons'] as num?)?.toInt() ?? 0;
+    final existingSeasonNumbers = seasons
+        .map((season) => season.number)
+        .toSet();
+    for (
+      var seasonNumber = 1;
+      seasonNumber <= expectedSeasonCount;
+      seasonNumber++
+    ) {
+      if (existingSeasonNumbers.contains(seasonNumber)) continue;
+      seasons.add(
+        DetailSeason(
+          number: seasonNumber,
+          name: 'Season $seasonNumber',
+          episodes: const [],
+        ),
+      );
+    }
+
+    final episodeCount =
+        (detailDto.raw['number_of_episodes'] as num?)?.toInt() ?? 0;
+    if (seasons.isEmpty && episodeCount > 0) {
+      seasons.add(
+        const DetailSeason(number: 1, name: 'Season 1', episodes: []),
+      );
+    }
+
+    return seasons;
   }
 }

@@ -1,7 +1,6 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:lucide_flutter/lucide_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -33,6 +32,7 @@ class DetailView extends StatefulWidget {
     required this.onOpenDetail,
     required this.onPlay,
     required this.watchHistoryRepository,
+    this.homeOverlay = false,
   });
 
   final DetailRouteArgs args;
@@ -41,6 +41,7 @@ class DetailView extends StatefulWidget {
   final ValueChanged<String> onOpenDetail;
   final ValueChanged<PlaybackRequest> onPlay;
   final WatchHistoryRepository watchHistoryRepository;
+  final bool homeOverlay;
 
   @override
   State<DetailView> createState() => _DetailViewState();
@@ -48,6 +49,7 @@ class DetailView extends StatefulWidget {
 
 class _DetailViewState extends State<DetailView> {
   final ScrollController _scrollController = ScrollController();
+  final GlobalKey _moreLikeThisKey = GlobalKey();
   final WatchlistSyncController _watchlistController =
       WatchlistSyncController.instance;
   DetailMedia? _media;
@@ -186,6 +188,12 @@ class _DetailViewState extends State<DetailView> {
         final media = widget.controller.media;
 
         if (status == DetailStatus.loading || status == DetailStatus.retrying) {
+          if (widget.homeOverlay) {
+            return _HomeOverlayStatus(
+              onClose: widget.onBack,
+              child: const CircularProgressIndicator(color: AppColors.primary),
+            );
+          }
           return const Scaffold(
             backgroundColor: AppColors.background,
             body: Center(
@@ -195,6 +203,19 @@ class _DetailViewState extends State<DetailView> {
         }
 
         if (status == DetailStatus.offline) {
+          if (widget.homeOverlay) {
+            return _HomeOverlayStatus(
+              onClose: widget.onBack,
+              child: _OverlayMessage(
+                icon: LucideIcons.wifiOff,
+                title: 'Offline',
+                message:
+                    widget.controller.errorMessage ?? 'No internet connection',
+                actionLabel: 'Retry',
+                onAction: widget.controller.retry,
+              ),
+            );
+          }
           return Scaffold(
             backgroundColor: AppColors.background,
             body: Stack(
@@ -239,6 +260,18 @@ class _DetailViewState extends State<DetailView> {
         }
 
         if (status == DetailStatus.apiError || status == DetailStatus.error) {
+          if (widget.homeOverlay) {
+            return _HomeOverlayStatus(
+              onClose: widget.onBack,
+              child: _OverlayMessage(
+                icon: LucideIcons.alertTriangle,
+                title: 'Error Loading Details',
+                message: widget.controller.errorMessage ?? 'An error occurred',
+                actionLabel: 'Retry',
+                onAction: widget.controller.retry,
+              ),
+            );
+          }
           return Scaffold(
             backgroundColor: AppColors.background,
             body: Stack(
@@ -291,6 +324,16 @@ class _DetailViewState extends State<DetailView> {
         }
 
         if (media == null || status == DetailStatus.empty) {
+          if (widget.homeOverlay) {
+            return _HomeOverlayStatus(
+              onClose: widget.onBack,
+              child: const _OverlayMessage(
+                icon: LucideIcons.info,
+                title: 'No details found',
+                message: 'This title does not have details yet.',
+              ),
+            );
+          }
           return Scaffold(
             backgroundColor: AppColors.background,
             body: Stack(
@@ -310,8 +353,22 @@ class _DetailViewState extends State<DetailView> {
             ? _media!
             : _withWatchlistState(media);
         _media = displayMedia;
+        if (widget.homeOverlay) {
+          return _buildHomeOverlayDetail(displayMedia);
+        }
+
+        return _buildFullPageDetail(displayMedia);
+      },
+    );
+  }
+
+  Widget _buildFullPageDetail(DetailMedia displayMedia) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final heroHeight = constraints.maxHeight.clamp(620.0, 820.0).toDouble();
+
         return Scaffold(
-          backgroundColor: AppColors.background,
+          backgroundColor: const Color(0xFF0F1016),
           body: Stack(
             children: [
               DesktopScrollbar(
@@ -322,68 +379,66 @@ class _DetailViewState extends State<DetailView> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      HeroSection(
-                        title: displayMedia.title,
-                        backdropPath: displayMedia.backdropPath,
-                        poster: _HeroPoster(
-                          title: displayMedia.title,
-                          posterPath: displayMedia.posterPath,
+                      _HotstarModalHero(
+                        media: displayMedia,
+                        watchProgress: _watchProgress,
+                        height: heroHeight,
+                        contentLeft: AppSpacing.massive,
+                        contentBottom: AppSpacing.massive,
+                        contentWidth: 520,
+                        logoWidth: 300,
+                        titleFontSize: 54,
+                        onPlay: () => _playMedia(
+                          season: displayMedia.isSeries
+                              ? _selectedSeason
+                              : null,
+                          episode: displayMedia.isSeries
+                              ? _resumeEpisode
+                              : null,
                         ),
-                        content: _HeroDetailsContent(
+                        onToggleWatchlist: _toggleWatchlist,
+                      ),
+                      _ModalTabsHeader(
+                        primaryLabel: displayMedia.isSeries
+                            ? 'Episodes'
+                            : 'More Like This',
+                        secondaryLabel: displayMedia.isSeries
+                            ? 'More Like This'
+                            : null,
+                        onSecondaryTap: displayMedia.isSeries
+                            ? _scrollToMoreLikeThis
+                            : null,
+                      ),
+                      if (displayMedia.isSeries)
+                        _EpisodePlaybackSection(
                           media: displayMedia,
-                          watchProgress: _watchProgress,
-                          onAction: _showActionFeedback,
-                          onPlay: () => _playMedia(
-                            season: displayMedia.isSeries
-                                ? _selectedSeason
-                                : null,
-                            episode: displayMedia.isSeries
-                                ? _resumeEpisode
-                                : null,
+                          controller: widget.controller,
+                          selectedSeason: _selectedSeason,
+                          modalStyle: true,
+                          onSeasonSelected: _selectSeason,
+                          onPlayEpisode: (episode) => _playMedia(
+                            season: _selectedSeason,
+                            episode: episode.number,
                           ),
-                          onToggleWatchlist: _toggleWatchlist,
-                          onTrailer: _openTrailer,
-                          onShare: _shareMedia,
-                          onDownload: () => _queueDownload(displayMedia),
-                          onMoreLikeThis: _scrollToMoreLikeThis,
+                          onDownloadEpisode: (episode) => _queueDownload(
+                            displayMedia,
+                            season: _selectedSeason,
+                            episode: episode.number,
+                            stillPath: episode.stillPath,
+                          ),
+                          onDownloadSeason: (episodes) => _queueSeasonDownload(
+                            displayMedia,
+                            season: _selectedSeason,
+                            episodes: episodes,
+                          ),
                         ),
+                      _RecommendationsSection(
+                        key: _moreLikeThisKey,
+                        media: displayMedia,
+                        onOpenDetail: widget.onOpenDetail,
+                        onPlay: widget.onPlay,
                       ),
-                      PageContainer(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
-                          children: [
-                            if (displayMedia.isSeries)
-                              _EpisodePlaybackSection(
-                                media: displayMedia,
-                                controller: widget.controller,
-                                selectedSeason: _selectedSeason,
-                                onSeasonSelected: _selectSeason,
-                                onPlayEpisode: (episode) => _playMedia(
-                                  season: _selectedSeason,
-                                  episode: episode.number,
-                                ),
-                                onDownloadEpisode: (episode) => _queueDownload(
-                                  displayMedia,
-                                  season: _selectedSeason,
-                                  episode: episode.number,
-                                  stillPath: episode.stillPath,
-                                ),
-                                onDownloadSeason: (episodes) =>
-                                    _queueSeasonDownload(
-                                      displayMedia,
-                                      season: _selectedSeason,
-                                      episodes: episodes,
-                                    ),
-                              ),
-                            _DetailStoryFlow(
-                              media: displayMedia,
-                              crew: _getCrewList(displayMedia),
-                              onOpenDetail: widget.onOpenDetail,
-                              onPlay: widget.onPlay,
-                            ),
-                          ],
-                        ),
-                      ),
+                      const SizedBox(height: AppSpacing.xxxl),
                     ],
                   ),
                 ),
@@ -400,19 +455,139 @@ class _DetailViewState extends State<DetailView> {
     );
   }
 
-  List<DetailPerson> _getCrewList(DetailMedia media) {
-    return [
-      if (media.crew.director != 'N/A')
-        DetailPerson(name: media.crew.director, role: 'Director'),
-      if (media.crew.writer != 'N/A')
-        DetailPerson(name: media.crew.writer, role: 'Writer'),
-      if (media.crew.producer != 'N/A')
-        DetailPerson(name: media.crew.producer, role: 'Producer'),
-      if (media.crew.composer != 'N/A')
-        DetailPerson(name: media.crew.composer, role: 'Music'),
-      if (media.crew.editor != 'N/A')
-        DetailPerson(name: media.crew.editor, role: 'Cinematography'),
-    ];
+  Widget _buildHomeOverlayDetail(DetailMedia displayMedia) {
+    return Material(
+      color: Colors.transparent,
+      child: Center(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(
+            horizontal: AppSpacing.massive,
+            vertical: AppSpacing.xxl,
+          ),
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              final width = constraints.maxWidth.clamp(760.0, 960.0).toDouble();
+              final height = constraints.maxHeight
+                  .clamp(620.0, 900.0)
+                  .toDouble();
+
+              return SizedBox(
+                width: width,
+                height: height,
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(8),
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF0F1016),
+                      border: Border.all(
+                        color: Colors.white.withValues(alpha: 0.08),
+                      ),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withValues(alpha: 0.7),
+                          blurRadius: 54,
+                          spreadRadius: -12,
+                          offset: const Offset(0, 28),
+                        ),
+                      ],
+                    ),
+                    child: Stack(
+                      children: [
+                        DesktopScrollbar(
+                          controller: _scrollController,
+                          child: SingleChildScrollView(
+                            controller: _scrollController,
+                            physics: const BouncingScrollPhysics(),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.stretch,
+                              children: [
+                                _HotstarModalHero(
+                                  media: displayMedia,
+                                  watchProgress: _watchProgress,
+                                  onPlay: () => _playMedia(
+                                    season: displayMedia.isSeries
+                                        ? _selectedSeason
+                                        : null,
+                                    episode: displayMedia.isSeries
+                                        ? _resumeEpisode
+                                        : null,
+                                  ),
+                                  onToggleWatchlist: _toggleWatchlist,
+                                ),
+                                _ModalTabsHeader(
+                                  primaryLabel: displayMedia.isSeries
+                                      ? 'Episodes'
+                                      : 'More Like This',
+                                  secondaryLabel: displayMedia.isSeries
+                                      ? 'More Like This'
+                                      : null,
+                                  onSecondaryTap: displayMedia.isSeries
+                                      ? _scrollToMoreLikeThis
+                                      : null,
+                                ),
+                                if (displayMedia.isSeries)
+                                  _EpisodePlaybackSection(
+                                    media: displayMedia,
+                                    controller: widget.controller,
+                                    selectedSeason: _selectedSeason,
+                                    modalStyle: true,
+                                    onSeasonSelected: _selectSeason,
+                                    onPlayEpisode: (episode) => _playMedia(
+                                      season: _selectedSeason,
+                                      episode: episode.number,
+                                    ),
+                                    onDownloadEpisode: (episode) =>
+                                        _queueDownload(
+                                          displayMedia,
+                                          season: _selectedSeason,
+                                          episode: episode.number,
+                                          stillPath: episode.stillPath,
+                                        ),
+                                    onDownloadSeason: (episodes) =>
+                                        _queueSeasonDownload(
+                                          displayMedia,
+                                          season: _selectedSeason,
+                                          episodes: episodes,
+                                        ),
+                                  ),
+                                _RecommendationsSection(
+                                  key: _moreLikeThisKey,
+                                  media: displayMedia,
+                                  onOpenDetail: widget.onOpenDetail,
+                                  onPlay: widget.onPlay,
+                                ),
+                                const SizedBox(height: AppSpacing.xxxl),
+                              ],
+                            ),
+                          ),
+                        ),
+                        Positioned(
+                          top: AppSpacing.xl,
+                          right: AppSpacing.xl,
+                          child: IconButton(
+                            tooltip: 'Close details',
+                            onPressed: widget.onBack,
+                            icon: const Icon(LucideIcons.x),
+                            color: Colors.white,
+                            style: IconButton.styleFrom(
+                              fixedSize: const Size.square(40),
+                              backgroundColor: Colors.black.withValues(
+                                alpha: 0.16,
+                              ),
+                              hoverColor: Colors.white.withValues(alpha: 0.12),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              );
+            },
+          ),
+        ),
+      ),
+    );
   }
 
   Future<void> _toggleWatchlist() async {
@@ -425,45 +600,6 @@ class _DetailViewState extends State<DetailView> {
     setState(() => _media = media.copyWith(isInWatchlist: isInWatchlist));
     _showActionFeedback(
       isInWatchlist ? 'Added to watchlist' : 'Removed from watchlist',
-    );
-  }
-
-  Future<void> _shareMedia() async {
-    final media = _media;
-    if (media == null) return;
-    final type = media.mediaType.label.toLowerCase();
-    final deepLink = 'nivio://open/media/${media.id}?type=$type';
-    final text =
-        'Check out "${media.title}" on Nivio.\n\n${media.overview}\n\n$deepLink';
-    await Clipboard.setData(ClipboardData(text: text));
-    _showActionFeedback('Share link copied');
-  }
-
-  Future<void> _openTrailer() async {
-    final media = _media;
-    if (media == null || media.trailers.isEmpty) {
-      _showActionFeedback('Trailer unavailable');
-      return;
-    }
-    final url = 'https://www.youtube.com/watch?v=${media.trailers.first}';
-    final result = StreamResult(
-      url: url,
-      quality: 'Auto',
-      provider: 'YouTube Trailer',
-      isDirect: false,
-      isIframe: true,
-    );
-    widget.onPlay(
-      PlaybackRequest(
-        mediaId: 'trailer:${media.id}',
-        title: '${media.title} Trailer',
-        mediaType: media.mediaType == DetailMediaType.anime
-            ? PlaybackMediaType.anime
-            : PlaybackMediaType.movie,
-        posterPath: media.backdropPath ?? media.posterPath,
-        source: url,
-        streamResult: result,
-      ),
     );
   }
 
@@ -680,6 +816,16 @@ class _DetailViewState extends State<DetailView> {
   }
 
   void _scrollToMoreLikeThis() {
+    final context = _moreLikeThisKey.currentContext;
+    if (context != null) {
+      Scrollable.ensureVisible(
+        context,
+        duration: const Duration(milliseconds: 520),
+        curve: AppAnimation.emphasized,
+        alignment: 0.02,
+      );
+      return;
+    }
     if (!_scrollController.hasClients) return;
     _scrollController.animateTo(
       _scrollController.position.maxScrollExtent,
@@ -788,6 +934,95 @@ class _DetailViewState extends State<DetailView> {
   }
 }
 
+class _HomeOverlayStatus extends StatelessWidget {
+  const _HomeOverlayStatus({required this.child, required this.onClose});
+
+  final Widget child;
+  final VoidCallback onClose;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.transparent,
+      child: Center(
+        child: SizedBox(
+          width: 520,
+          height: 320,
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(8),
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                color: const Color(0xFF0F1016),
+                border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
+              ),
+              child: Stack(
+                children: [
+                  Center(child: child),
+                  Positioned(
+                    top: AppSpacing.md,
+                    right: AppSpacing.md,
+                    child: IconButton(
+                      tooltip: 'Close details',
+                      onPressed: onClose,
+                      icon: const Icon(LucideIcons.x),
+                      color: Colors.white,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _OverlayMessage extends StatelessWidget {
+  const _OverlayMessage({
+    required this.icon,
+    required this.title,
+    required this.message,
+    this.actionLabel,
+    this.onAction,
+  });
+
+  final IconData icon;
+  final String title;
+  final String message;
+  final String? actionLabel;
+  final VoidCallback? onAction;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.all(AppSpacing.xxxl),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 44, color: AppColors.textSecondary),
+          const SizedBox(height: AppSpacing.md),
+          Text(
+            title,
+            textAlign: TextAlign.center,
+            style: AppTypography.title.copyWith(color: Colors.white),
+          ),
+          const SizedBox(height: AppSpacing.sm),
+          Text(
+            message,
+            textAlign: TextAlign.center,
+            style: AppTypography.body.copyWith(color: AppColors.textMuted),
+          ),
+          if (actionLabel != null) ...[
+            const SizedBox(height: AppSpacing.lg),
+            TextButton(onPressed: onAction, child: Text(actionLabel!)),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
 class _FloatingBackButton extends StatefulWidget {
   const _FloatingBackButton({required this.onTap});
 
@@ -802,32 +1037,35 @@ class _FloatingBackButtonState extends State<_FloatingBackButton> {
 
   @override
   Widget build(BuildContext context) {
-    return MouseRegion(
-      cursor: SystemMouseCursors.click,
-      onEnter: (_) => setState(() => _isHovered = true),
-      onExit: (_) => setState(() => _isHovered = false),
-      child: GestureDetector(
-        onTap: widget.onTap,
-        child: AnimatedContainer(
-          duration: AppAnimation.hover,
-          curve: AppAnimation.standard,
-          width: 48,
-          height: 48,
-          decoration: BoxDecoration(
-            shape: BoxShape.circle,
-            color: _isHovered
-                ? AppColors.primary
-                : Colors.black.withValues(alpha: 0.5),
-            border: Border.all(
-              color: _isHovered ? AppColors.primary : AppColors.borderSubtle,
-              width: 1.5,
+    return Tooltip(
+      message: 'Back',
+      child: MouseRegion(
+        cursor: SystemMouseCursors.click,
+        onEnter: (_) => setState(() => _isHovered = true),
+        onExit: (_) => setState(() => _isHovered = false),
+        child: GestureDetector(
+          onTap: widget.onTap,
+          child: AnimatedContainer(
+            duration: AppAnimation.hover,
+            curve: AppAnimation.standard,
+            width: 48,
+            height: 48,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: _isHovered
+                  ? AppColors.primary
+                  : Colors.black.withValues(alpha: 0.5),
+              border: Border.all(
+                color: _isHovered ? AppColors.primary : AppColors.borderSubtle,
+                width: 1.5,
+              ),
+              boxShadow: AppShadows.hover,
             ),
-            boxShadow: AppShadows.hover,
-          ),
-          child: Icon(
-            Icons.arrow_back,
-            color: _isHovered ? AppColors.background : AppColors.textPrimary,
-            size: 24,
+            child: Icon(
+              LucideIcons.arrowLeft,
+              color: _isHovered ? AppColors.background : AppColors.textPrimary,
+              size: 24,
+            ),
           ),
         ),
       ),
@@ -835,153 +1073,216 @@ class _FloatingBackButtonState extends State<_FloatingBackButton> {
   }
 }
 
-class _HeroDetailsContent extends StatelessWidget {
-  const _HeroDetailsContent({
+class _HotstarModalHero extends StatelessWidget {
+  const _HotstarModalHero({
     required this.media,
     required this.watchProgress,
-    required this.onAction,
     required this.onPlay,
     required this.onToggleWatchlist,
-    required this.onTrailer,
-    required this.onShare,
-    required this.onDownload,
-    required this.onMoreLikeThis,
+    this.height = 470,
+    this.contentLeft = AppSpacing.huge,
+    this.contentBottom = AppSpacing.massive,
+    this.contentWidth = 430,
+    this.logoWidth = 190,
+    this.titleFontSize = 46,
   });
 
   final DetailMedia media;
   final double watchProgress;
-  final ValueChanged<String> onAction;
   final VoidCallback onPlay;
   final VoidCallback onToggleWatchlist;
-  final VoidCallback onTrailer;
-  final VoidCallback onShare;
-  final VoidCallback onDownload;
-  final VoidCallback onMoreLikeThis;
+  final double height;
+  final double contentLeft;
+  final double contentBottom;
+  final double contentWidth;
+  final double logoWidth;
+  final double titleFontSize;
 
   @override
   Widget build(BuildContext context) {
-    final primaryGenre = media.genres.take(2).toList(growable: false);
+    final backdropUrl = TmdbImageBuilder.backdrop(
+      media.backdropPath ?? media.posterPath,
+      size: 'w1280',
+    );
+    final logoUrl = TmdbImageBuilder.logo(media.logoPath, size: 'w300');
+    final seasonCount = media.seasons
+        .where((season) => season.number > 0)
+        .length;
+    final languageCount = media.languages.length;
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Text(
-          media.title,
-          style: AppTypography.display.copyWith(
-            fontSize: 76,
-            fontWeight: FontWeight.w900,
-            color: Colors.white,
-            height: 0.94,
-          ),
-        ),
-        const SizedBox(height: AppSpacing.md),
-        _InlineMetadata(
-          items: [
-            media.rating.toStringAsFixed(1),
-            media.releaseYear,
-            media.mediaType.label,
-            media.runtime,
-            if (media.languages.isNotEmpty) media.languages.first,
-            ...primaryGenre,
-          ],
-        ),
-        if (media.overview.isNotEmpty) ...[
-          const SizedBox(height: AppSpacing.lg),
-          ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 760),
-            child: _ExpandableSynopsis(
-              text: media.overview,
-              collapsedLines: 4,
-              style: AppTypography.body.copyWith(
-                color: AppColors.textPrimary.withValues(alpha: 0.86),
-                fontSize: 16,
-                height: 1.55,
+    return SizedBox(
+      height: height,
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          if (backdropUrl.isNotEmpty)
+            Image.network(
+              backdropUrl,
+              fit: BoxFit.cover,
+              alignment: Alignment.centerRight,
+              errorBuilder: (_, _, _) =>
+                  const ColoredBox(color: AppColors.surfaceVariant),
+            )
+          else
+            const ColoredBox(color: AppColors.surfaceVariant),
+          const DecoratedBox(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.centerLeft,
+                end: Alignment.centerRight,
+                colors: [
+                  Color(0xFF0F1016),
+                  Color(0xD90F1016),
+                  Color(0x33101118),
+                ],
+                stops: [0, 0.42, 1],
               ),
             ),
           ),
+          const DecoratedBox(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [
+                  Color(0x000F1016),
+                  Color(0x330F1016),
+                  Color(0xFF0F1016),
+                ],
+                stops: [0.38, 0.72, 1],
+              ),
+            ),
+          ),
+          Positioned(
+            left: contentLeft,
+            bottom: contentBottom,
+            width: contentWidth,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (logoUrl.isNotEmpty)
+                  Image.network(
+                    logoUrl,
+                    width: logoWidth,
+                    fit: BoxFit.contain,
+                    alignment: Alignment.centerLeft,
+                    errorBuilder: (_, _, _) => _ModalTitle(
+                      title: media.title,
+                      fontSize: titleFontSize,
+                    ),
+                  )
+                else
+                  _ModalTitle(title: media.title, fontSize: titleFontSize),
+                const SizedBox(height: AppSpacing.lg),
+                _ModalMetadataRow(
+                  items: [
+                    media.releaseYear,
+                    media.certification,
+                    if (media.isSeries && seasonCount > 0)
+                      '$seasonCount ${seasonCount == 1 ? 'Season' : 'Seasons'}'
+                    else
+                      media.runtime,
+                    if (languageCount > 0)
+                      '$languageCount ${languageCount == 1 ? 'Language' : 'Languages'}',
+                  ],
+                ),
+                if (media.overview.isNotEmpty) ...[
+                  const SizedBox(height: AppSpacing.lg),
+                  Text(
+                    media.overview,
+                    maxLines: 3,
+                    overflow: TextOverflow.ellipsis,
+                    style: AppTypography.body.copyWith(
+                      color: Colors.white.withValues(alpha: 0.84),
+                      fontSize: 15,
+                      height: 1.42,
+                    ),
+                  ),
+                ],
+                if (media.genres.isNotEmpty) ...[
+                  const SizedBox(height: AppSpacing.lg),
+                  _ModalMetadataRow(items: media.genres.take(4).toList()),
+                ],
+                const SizedBox(height: AppSpacing.xl),
+                Row(
+                  children: [
+                    _GradientPlayButton(
+                      label: watchProgress > 0 ? 'Resume' : 'Watch Now',
+                      onTap: onPlay,
+                    ),
+                    const SizedBox(width: AppSpacing.md),
+                    _SquareOverlayButton(
+                      icon: media.isInWatchlist
+                          ? LucideIcons.check
+                          : LucideIcons.plus,
+                      tooltip: media.isInWatchlist
+                          ? 'In watchlist'
+                          : 'Add to watchlist',
+                      onTap: onToggleWatchlist,
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
         ],
-        const SizedBox(height: AppSpacing.lg),
-        Wrap(
-          spacing: AppSpacing.sm,
-          runSpacing: AppSpacing.sm,
-          children: [
-            StreamingActionButton(
-              onTap: onPlay,
-              icon: Icons.play_arrow,
-              label: watchProgress > 0 ? 'Resume' : 'Play',
-              type: StreamingActionButtonType.primary,
-            ),
-            StreamingActionButton(
-              onTap: onToggleWatchlist,
-              icon: media.isInWatchlist
-                  ? Icons.favorite
-                  : Icons.favorite_border,
-              label: media.isInWatchlist ? 'Favorite' : 'Favorite',
-              type: StreamingActionButtonType.secondary,
-            ),
-            StreamingActionButton(
-              onTap: onTrailer,
-              icon: Icons.movie_outlined,
-              label: 'Trailer',
-              type: StreamingActionButtonType.secondary,
-            ),
-            StreamingActionButton(
-              onTap: onMoreLikeThis,
-              icon: Icons.auto_awesome,
-              label: 'More Like This',
-              type: StreamingActionButtonType.secondary,
-            ),
-            StreamingActionButton(
-              onTap: onDownload,
-              icon: Icons.download,
-              tooltip: 'Download',
-              type: StreamingActionButtonType.iconOnly,
-            ),
-            StreamingActionButton(
-              onTap: onShare,
-              icon: Icons.share,
-              tooltip: 'Share',
-              type: StreamingActionButtonType.iconOnly,
-            ),
-          ],
-        ),
-      ],
+      ),
     );
   }
 }
 
-class _InlineMetadata extends StatelessWidget {
-  const _InlineMetadata({required this.items});
+class _ModalTitle extends StatelessWidget {
+  const _ModalTitle({required this.title, this.fontSize = 46});
+
+  final String title;
+  final double fontSize;
+
+  @override
+  Widget build(BuildContext context) {
+    return Text(
+      title,
+      maxLines: 2,
+      overflow: TextOverflow.ellipsis,
+      style: AppTypography.display.copyWith(
+        color: Colors.white,
+        fontSize: fontSize,
+        height: 0.95,
+        fontWeight: FontWeight.w900,
+      ),
+    );
+  }
+}
+
+class _ModalMetadataRow extends StatelessWidget {
+  const _ModalMetadataRow({required this.items});
 
   final List<String> items;
 
   @override
   Widget build(BuildContext context) {
-    final visibleItems = items
+    final visible = items
         .where((item) => item.trim().isNotEmpty && item.trim() != 'N/A')
         .toList(growable: false);
 
     return Wrap(
       spacing: AppSpacing.sm,
       runSpacing: AppSpacing.xs,
-      crossAxisAlignment: WrapCrossAlignment.center,
       children: [
-        for (var i = 0; i < visibleItems.length; i++) ...[
-          if (i > 0)
+        for (var index = 0; index < visible.length; index++) ...[
+          if (index > 0)
             Text(
               '|',
               style: AppTypography.body.copyWith(
-                color: AppColors.textMuted.withValues(alpha: 0.6),
-                fontWeight: FontWeight.w500,
+                color: Colors.white.withValues(alpha: 0.62),
+                fontWeight: FontWeight.w700,
               ),
             ),
           Text(
-            visibleItems[i],
+            visible[index],
             style: AppTypography.body.copyWith(
-              color: i == 0 ? AppColors.primary : AppColors.textSecondary,
-              fontSize: 15,
-              fontWeight: i == 0 ? FontWeight.w800 : FontWeight.w600,
+              color: Colors.white.withValues(alpha: 0.9),
+              fontWeight: FontWeight.w800,
               height: 1.2,
             ),
           ),
@@ -991,76 +1292,41 @@ class _InlineMetadata extends StatelessWidget {
   }
 }
 
-class _HeroPoster extends StatefulWidget {
-  const _HeroPoster({required this.title, this.posterPath});
+class _GradientPlayButton extends StatelessWidget {
+  const _GradientPlayButton({required this.label, required this.onTap});
 
-  final String title;
-  final String? posterPath;
-
-  @override
-  State<_HeroPoster> createState() => _HeroPosterState();
-}
-
-class _HeroPosterState extends State<_HeroPoster> {
-  bool _isHovered = false;
+  final String label;
+  final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
-    final imageProvider =
-        (widget.posterPath != null && widget.posterPath!.isNotEmpty)
-        ? NetworkImage(TmdbImageBuilder.poster(widget.posterPath!))
-        : null;
-
-    return MouseRegion(
-      cursor: SystemMouseCursors.click,
-      onEnter: (_) => setState(() => _isHovered = true),
-      onExit: (_) => setState(() => _isHovered = false),
-      child: AnimatedScale(
-        scale: _isHovered ? 1.035 : 1,
-        duration: AppAnimation.hover,
-        curve: AppAnimation.standard,
-        child: DecoratedBox(
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(6),
+        child: Ink(
+          width: 320,
+          height: 52,
           decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(16),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withValues(alpha: _isHovered ? 0.68 : 0.52),
-                blurRadius: _isHovered ? 46 : 34,
-                spreadRadius: -4,
-                offset: const Offset(0, 24),
+            borderRadius: BorderRadius.circular(6),
+            gradient: const LinearGradient(
+              colors: [Color(0xFF1595F9), Color(0xFFE3007B)],
+            ),
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const Icon(LucideIcons.play, color: Colors.white, size: 19),
+              const SizedBox(width: AppSpacing.md),
+              Text(
+                label,
+                style: AppTypography.body.copyWith(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w900,
+                ),
               ),
             ],
-          ),
-          child: AspectRatio(
-            aspectRatio: AppBreakpoints.posterRatio,
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(16),
-              child: DecoratedBox(
-                decoration: BoxDecoration(
-                  color: AppColors.surfaceVariant,
-                  image: imageProvider != null
-                      ? DecorationImage(image: imageProvider, fit: BoxFit.cover)
-                      : null,
-                ),
-                child: imageProvider == null
-                    ? Center(
-                        child: Padding(
-                          padding: const EdgeInsets.all(AppSpacing.lg),
-                          child: Text(
-                            widget.title,
-                            maxLines: 3,
-                            textAlign: TextAlign.center,
-                            overflow: TextOverflow.ellipsis,
-                            style: AppTypography.title.copyWith(
-                              color: AppColors.textPrimary,
-                              fontWeight: FontWeight.w800,
-                            ),
-                          ),
-                        ),
-                      )
-                    : const SizedBox.shrink(),
-              ),
-            ),
           ),
         ),
       ),
@@ -1068,67 +1334,96 @@ class _HeroPosterState extends State<_HeroPoster> {
   }
 }
 
-class _ExpandableSynopsis extends StatefulWidget {
-  const _ExpandableSynopsis({
-    required this.text,
-    required this.style,
-    this.collapsedLines = 4,
+class _SquareOverlayButton extends StatelessWidget {
+  const _SquareOverlayButton({
+    required this.icon,
+    required this.tooltip,
+    required this.onTap,
   });
 
-  final String text;
-  final TextStyle style;
-  final int collapsedLines;
-
-  @override
-  State<_ExpandableSynopsis> createState() => _ExpandableSynopsisState();
-}
-
-class _ExpandableSynopsisState extends State<_ExpandableSynopsis> {
-  bool _expanded = false;
+  final IconData icon;
+  final String tooltip;
+  final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        ShaderMask(
-          shaderCallback: (bounds) {
-            if (_expanded) {
-              return const LinearGradient(
-                colors: [Colors.white, Colors.white],
-              ).createShader(bounds);
-            }
-            return LinearGradient(
-              begin: Alignment.topCenter,
-              end: Alignment.bottomCenter,
-              colors: [
-                Colors.white,
-                Colors.white,
-                Colors.white.withValues(alpha: 0.18),
+    return Tooltip(
+      message: tooltip,
+      child: IconButton(
+        onPressed: onTap,
+        icon: Icon(icon),
+        color: Colors.white,
+        style: IconButton.styleFrom(
+          fixedSize: const Size.square(52),
+          backgroundColor: Colors.white.withValues(alpha: 0.13),
+          hoverColor: Colors.white.withValues(alpha: 0.22),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+        ),
+      ),
+    );
+  }
+}
+
+class _ModalTabsHeader extends StatelessWidget {
+  const _ModalTabsHeader({
+    required this.primaryLabel,
+    this.secondaryLabel,
+    this.onSecondaryTap,
+  });
+
+  final String primaryLabel;
+  final String? secondaryLabel;
+  final VoidCallback? onSecondaryTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(
+        AppSpacing.huge,
+        AppSpacing.xxxl,
+        AppSpacing.huge,
+        0,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              Text(
+                primaryLabel,
+                style: AppTypography.title.copyWith(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+              if (secondaryLabel != null) ...[
+                const SizedBox(width: AppSpacing.massive),
+                InkWell(
+                  onTap: onSecondaryTap,
+                  borderRadius: BorderRadius.circular(4),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: AppSpacing.xs,
+                      vertical: AppSpacing.xs,
+                    ),
+                    child: Text(
+                      secondaryLabel!,
+                      style: AppTypography.title.copyWith(
+                        color: onSecondaryTap == null
+                            ? AppColors.textMuted
+                            : AppColors.textSecondary,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ),
+                ),
               ],
-              stops: const [0, 0.72, 1],
-            ).createShader(bounds);
-          },
-          blendMode: BlendMode.dstIn,
-          child: Text(
-            widget.text,
-            maxLines: _expanded ? null : widget.collapsedLines,
-            overflow: _expanded ? TextOverflow.visible : TextOverflow.fade,
-            style: widget.style,
+            ],
           ),
-        ),
-        const SizedBox(height: AppSpacing.sm),
-        GestureDetector(
-          onTap: () => setState(() => _expanded = !_expanded),
-          child: Text(
-            _expanded ? 'Show Less' : 'Read More',
-            style: AppTypography.caption.copyWith(
-              color: AppColors.primary,
-              fontWeight: FontWeight.w800,
-            ),
-          ),
-        ),
-      ],
+          const SizedBox(height: AppSpacing.xxxl),
+          Divider(color: Colors.white.withValues(alpha: 0.12), height: 1),
+        ],
+      ),
     );
   }
 }
@@ -1142,6 +1437,7 @@ class _EpisodePlaybackSection extends StatefulWidget {
     required this.onPlayEpisode,
     required this.onDownloadEpisode,
     required this.onDownloadSeason,
+    this.modalStyle = false,
   });
 
   final DetailMedia media;
@@ -1151,6 +1447,7 @@ class _EpisodePlaybackSection extends StatefulWidget {
   final ValueChanged<DetailEpisode> onPlayEpisode;
   final ValueChanged<DetailEpisode> onDownloadEpisode;
   final ValueChanged<List<DetailEpisode>> onDownloadSeason;
+  final bool modalStyle;
 
   @override
   State<_EpisodePlaybackSection> createState() =>
@@ -1160,6 +1457,7 @@ class _EpisodePlaybackSection extends StatefulWidget {
 class _EpisodePlaybackSectionState extends State<_EpisodePlaybackSection> {
   final TextEditingController _searchController = TextEditingController();
   String _query = '';
+  bool _expanded = false;
 
   @override
   void dispose() {
@@ -1178,6 +1476,10 @@ class _EpisodePlaybackSectionState extends State<_EpisodePlaybackSection> {
               episode.number.toString().contains(query);
         })
         .toList(growable: false);
+
+    if (widget.modalStyle) {
+      return _buildModalEpisodes(context, widget.controller.episodes);
+    }
 
     return Padding(
       padding: const EdgeInsets.only(top: AppSpacing.massive),
@@ -1325,11 +1627,182 @@ class _EpisodePlaybackSectionState extends State<_EpisodePlaybackSection> {
                 _EpisodeCard(
                   media: widget.media,
                   episode: episode,
+                  seasonNumber: widget.selectedSeason,
                   onPlay: () => widget.onPlayEpisode(episode),
                   onDownload: () => widget.onDownloadEpisode(episode),
                 ),
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _buildModalEpisodes(
+    BuildContext context,
+    List<DetailEpisode> episodes,
+  ) {
+    if (widget.controller.isLoadingEpisodes) {
+      return const Padding(
+        padding: EdgeInsets.symmetric(vertical: AppSpacing.xl),
+        child: Center(
+          child: CircularProgressIndicator(color: AppColors.primary),
+        ),
+      );
+    }
+
+    if (widget.controller.episodesError != null) {
+      return Padding(
+        padding: const EdgeInsets.fromLTRB(
+          AppSpacing.huge,
+          AppSpacing.xl,
+          AppSpacing.huge,
+          AppSpacing.xxxl,
+        ),
+        child: Text(
+          'Episodes unavailable: ${widget.controller.episodesError}',
+          style: AppTypography.caption.copyWith(color: AppColors.danger),
+        ),
+      );
+    }
+
+    if (episodes.isEmpty) {
+      return Padding(
+        padding: const EdgeInsets.fromLTRB(
+          AppSpacing.huge,
+          AppSpacing.xl,
+          AppSpacing.huge,
+          AppSpacing.xxxl,
+        ),
+        child: Text(
+          'Episodes unavailable.',
+          style: AppTypography.body.copyWith(color: AppColors.textMuted),
+        ),
+      );
+    }
+
+    final visibleEpisodes = _expanded || episodes.length <= 4
+        ? episodes
+        : episodes.take(4).toList(growable: false);
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(
+        AppSpacing.huge,
+        AppSpacing.xl,
+        AppSpacing.huge,
+        AppSpacing.xxxl,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          if (widget.media.seasons.length > 1) ...[
+            SizedBox(
+              height: 34,
+              child: ListView.separated(
+                scrollDirection: Axis.horizontal,
+                itemCount: widget.media.seasons.length,
+                separatorBuilder: (_, _) =>
+                    const SizedBox(width: AppSpacing.xxxl),
+                itemBuilder: (context, index) {
+                  final season = widget.media.seasons[index];
+                  final selected = season.number == widget.selectedSeason;
+                  return InkWell(
+                    onTap: () {
+                      setState(() {
+                        _expanded = false;
+                        _query = '';
+                      });
+                      _searchController.clear();
+                      widget.onSeasonSelected(season.number);
+                    },
+                    borderRadius: BorderRadius.circular(4),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: AppSpacing.xs,
+                        vertical: AppSpacing.xs,
+                      ),
+                      child: Text(
+                        season.name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: AppTypography.body.copyWith(
+                          color: selected ? Colors.white : AppColors.textMuted,
+                          fontWeight: selected
+                              ? FontWeight.w900
+                              : FontWeight.w800,
+                        ),
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
+            const SizedBox(height: AppSpacing.xl),
+          ],
+          Stack(
+            alignment: Alignment.bottomCenter,
+            children: [
+              Column(
+                children: [
+                  for (final episode in visibleEpisodes)
+                    _EpisodeCard(
+                      media: widget.media,
+                      episode: episode,
+                      seasonNumber: widget.selectedSeason,
+                      modalStyle: true,
+                      onPlay: () => widget.onPlayEpisode(episode),
+                      onDownload: () => widget.onDownloadEpisode(episode),
+                    ),
+                ],
+              ),
+              if (!_expanded && episodes.length > visibleEpisodes.length)
+                Positioned(
+                  left: 0,
+                  right: 0,
+                  bottom: 0,
+                  child: Container(
+                    height: 116,
+                    alignment: Alignment.bottomCenter,
+                    decoration: const BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: Alignment.topCenter,
+                        end: Alignment.bottomCenter,
+                        colors: [Color(0x000F1016), Color(0xFF0F1016)],
+                      ),
+                    ),
+                    child: Padding(
+                      padding: const EdgeInsets.only(bottom: AppSpacing.lg),
+                      child: TextButton.icon(
+                        onPressed: () => setState(() => _expanded = true),
+                        icon: const Icon(LucideIcons.chevronDown, size: 18),
+                        label: const Text('View More'),
+                        style: TextButton.styleFrom(
+                          foregroundColor: Colors.white,
+                          backgroundColor: const Color(0xFF272B36),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: AppSpacing.lg,
+                            vertical: AppSpacing.sm,
+                          ),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(999),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+            ],
+          ),
+          if (_expanded && episodes.length > 4)
+            Align(
+              alignment: Alignment.center,
+              child: TextButton.icon(
+                onPressed: () => setState(() => _expanded = false),
+                icon: const Icon(LucideIcons.chevronUp, size: 18),
+                label: const Text('Show Less'),
+                style: TextButton.styleFrom(foregroundColor: Colors.white),
+              ),
+            ),
+        ],
       ),
     );
   }
@@ -1341,12 +1814,16 @@ class _EpisodeCard extends StatelessWidget {
     required this.episode,
     required this.onPlay,
     required this.onDownload,
+    this.seasonNumber = 1,
+    this.modalStyle = false,
   });
 
   final DetailMedia media;
   final DetailEpisode episode;
   final VoidCallback onPlay;
   final VoidCallback onDownload;
+  final int seasonNumber;
+  final bool modalStyle;
 
   @override
   Widget build(BuildContext context) {
@@ -1355,29 +1832,35 @@ class _EpisodeCard extends StatelessWidget {
     final isCurrent = episode.progress > 0 && episode.progress < 0.95;
 
     return Container(
-      margin: const EdgeInsets.only(bottom: 12),
+      margin: EdgeInsets.only(bottom: modalStyle ? AppSpacing.xxl : 12),
       decoration: BoxDecoration(
-        color: isCurrent
-            ? AppColors.primary.withValues(alpha: 0.13)
-            : const Color(0x14FFFFFF),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(
-          color: isCurrent ? AppColors.primary : AppColors.borderSubtle,
-          width: isCurrent ? 1.5 : 1,
-        ),
+        color: modalStyle
+            ? (isCurrent
+                  ? Colors.white.withValues(alpha: 0.04)
+                  : Colors.transparent)
+            : (isCurrent
+                  ? AppColors.primary.withValues(alpha: 0.13)
+                  : const Color(0x14FFFFFF)),
+        borderRadius: BorderRadius.circular(modalStyle ? 6 : 12),
+        border: modalStyle
+            ? null
+            : Border.all(
+                color: isCurrent ? AppColors.primary : AppColors.borderSubtle,
+                width: isCurrent ? 1.5 : 1,
+              ),
       ),
       child: InkWell(
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(modalStyle ? 6 : 12),
         onTap: onPlay,
         child: Padding(
-          padding: const EdgeInsets.all(10),
+          padding: EdgeInsets.all(modalStyle ? 0 : 10),
           child: Row(
             children: [
               ClipRRect(
-                borderRadius: BorderRadius.circular(8),
+                borderRadius: BorderRadius.circular(modalStyle ? 4 : 8),
                 child: SizedBox(
-                  width: 148,
-                  height: 84,
+                  width: modalStyle ? 220 : 148,
+                  height: modalStyle ? 124 : 84,
                   child: Stack(
                     fit: StackFit.expand,
                     children: [
@@ -1392,8 +1875,8 @@ class _EpisodeCard extends StatelessWidget {
                         const ColoredBox(color: AppColors.surfaceVariant),
                       Center(
                         child: Container(
-                          width: 38,
-                          height: 38,
+                          width: modalStyle ? 34 : 38,
+                          height: modalStyle ? 34 : 38,
                           decoration: BoxDecoration(
                             color: Colors.black.withValues(alpha: 0.62),
                             shape: BoxShape.circle,
@@ -1421,7 +1904,7 @@ class _EpisodeCard extends StatelessWidget {
                   ),
                 ),
               ),
-              const SizedBox(width: 14),
+              SizedBox(width: modalStyle ? AppSpacing.xxxl : 14),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -1451,13 +1934,16 @@ class _EpisodeCard extends StatelessWidget {
                         ],
                         Expanded(
                           child: Text(
-                            'E${episode.number} - ${episode.title}',
-                            maxLines: 1,
+                            modalStyle
+                                ? episode.title
+                                : 'E${episode.number} - ${episode.title}',
+                            maxLines: modalStyle ? 2 : 1,
                             overflow: TextOverflow.ellipsis,
                             style: AppTypography.body.copyWith(
                               color: isCurrent
                                   ? AppColors.primary
                                   : AppColors.textPrimary,
+                              fontSize: modalStyle ? 18 : null,
                               fontWeight: FontWeight.w800,
                             ),
                           ),
@@ -1465,22 +1951,28 @@ class _EpisodeCard extends StatelessWidget {
                       ],
                     ),
                     const SizedBox(height: 4),
-                    if (episode.runtime.isNotEmpty)
-                      Text(
-                        episode.runtime,
-                        style: AppTypography.caption.copyWith(
-                          color: AppColors.textMuted,
-                        ),
+                    Text(
+                      _episodeMeta(),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: AppTypography.caption.copyWith(
+                        color: const Color(0xFF9EA8C3),
+                        fontSize: modalStyle ? 16 : null,
+                        fontWeight: modalStyle ? FontWeight.w800 : null,
                       ),
+                    ),
                     if (episode.overview.isNotEmpty) ...[
                       const SizedBox(height: 4),
                       Text(
                         episode.overview,
-                        maxLines: 2,
+                        maxLines: modalStyle ? 2 : 2,
                         overflow: TextOverflow.ellipsis,
                         style: AppTypography.caption.copyWith(
-                          color: AppColors.textMuted,
-                          height: 1.35,
+                          color: modalStyle
+                              ? const Color(0xFFA0A7B8)
+                              : AppColors.textMuted,
+                          fontSize: modalStyle ? 14 : null,
+                          height: modalStyle ? 1.45 : 1.35,
                         ),
                       ),
                     ],
@@ -1499,271 +1991,158 @@ class _EpisodeCard extends StatelessWidget {
       ),
     );
   }
+
+  String _episodeMeta() {
+    final parts = <String>['S$seasonNumber E${episode.number}'];
+    if (episode.airDate?.trim().isNotEmpty == true) {
+      parts.add(episode.airDate!.trim());
+    }
+    if (episode.runtime.trim().isNotEmpty) {
+      parts.add(episode.runtime.trim());
+    }
+    return parts.join(' | ');
+  }
 }
 
-class _DetailStoryFlow extends StatelessWidget {
-  const _DetailStoryFlow({
+class _RecommendationsSection extends StatelessWidget {
+  const _RecommendationsSection({
+    super.key,
     required this.media,
-    required this.crew,
     required this.onOpenDetail,
     required this.onPlay,
   });
 
   final DetailMedia media;
-  final List<DetailPerson> crew;
   final ValueChanged<String> onOpenDetail;
   final ValueChanged<PlaybackRequest> onPlay;
 
   @override
   Widget build(BuildContext context) {
-    final recommendations = _mergedRecommendations(media);
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        const SizedBox(height: AppSpacing.massive),
-        _FadeInSection(
-          delay: const Duration(milliseconds: 80),
-          child: _AboutAndMetadataSection(media: media),
-        ),
-        if (media.cast.isNotEmpty) ...[
-          const SizedBox(height: AppSpacing.massive),
-          _FadeInSection(
-            delay: const Duration(milliseconds: 150),
-            child: PersonCarousel(
-              title: 'Cast',
-              itemCount: media.cast.length,
-              height: 276,
-              itemWidth: 140,
-              itemBuilder: (context, index) {
-                final person = media.cast[index];
-                return PersonCard(
-                  title: person.name,
-                  subtitle: person.role,
-                  profilePath: person.profilePath,
-                );
-              },
-            ),
-          ),
-        ],
-        if (crew.isNotEmpty) ...[
-          const SizedBox(height: AppSpacing.massive),
-          _FadeInSection(
-            delay: const Duration(milliseconds: 220),
-            child: _CrewSection(crew: crew),
-          ),
-        ],
-        if (recommendations.isNotEmpty) ...[
-          const SizedBox(height: AppSpacing.massive),
-          _FadeInSection(
-            delay: const Duration(milliseconds: 290),
-            child: MediaCarousel(
-              title: 'You May Also Like',
-              itemCount: recommendations.length,
-              itemBuilder: (context, index) {
-                final item = recommendations[index];
-                return MediaCard(
-                  title: item.title,
-                  posterPath: item.posterPath,
-                  year: item.year,
-                  rating: item.rating,
-                  subtitle: item.subtitle,
-                  onTap: () => onOpenDetail(item.id),
-                  onPlay: () => onPlay(
-                    PlaybackRequestFactory.fromCompositeId(item.id, item.title),
-                  ),
-                  onMore: () => onOpenDetail(item.id),
-                );
-              },
-            ),
-          ),
-        ],
-        const SizedBox(height: AppSpacing.massive),
-      ],
-    );
-  }
-
-  List<DetailPosterItem> _mergedRecommendations(DetailMedia media) {
-    final seen = <String>{};
-    final items = <DetailPosterItem>[];
-
-    for (final item in [...media.related, ...media.moreLikeThis]) {
-      if (seen.add(item.id)) {
-        items.add(item);
-      }
-      if (items.length == 20) break;
+    final recommendations = _recommendationsFor(media);
+    if (recommendations.isEmpty) {
+      return const SizedBox.shrink();
     }
 
-    return items;
-  }
-}
-
-class _CrewSection extends StatelessWidget {
-  const _CrewSection({required this.crew});
-
-  final List<DetailPerson> crew;
-
-  @override
-  Widget build(BuildContext context) {
-    return _EditorialSection(
-      title: 'Crew',
-      child: Wrap(
-        spacing: AppSpacing.xl,
-        runSpacing: AppSpacing.lg,
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(
+        AppSpacing.huge,
+        AppSpacing.xxl,
+        AppSpacing.huge,
+        0,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          for (final person in crew)
-            SizedBox(
-              width: 240,
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Container(
-                    width: 44,
-                    height: 44,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: AppColors.surfaceVariant.withValues(alpha: 0.7),
-                      border: Border.all(
-                        color: AppColors.borderSubtle.withValues(alpha: 0.5),
-                      ),
-                    ),
-                    child: Icon(
-                      _crewIcon(person.role),
-                      color: AppColors.textSecondary,
-                      size: 20,
-                    ),
-                  ),
-                  const SizedBox(width: AppSpacing.md),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          person.role,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: AppTypography.metadata.copyWith(
-                            color: AppColors.textMuted,
-                            fontWeight: FontWeight.w800,
-                          ),
-                        ),
-                        const SizedBox(height: AppSpacing.xs),
-                        Text(
-                          person.name,
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                          style: AppTypography.body.copyWith(
-                            color: AppColors.textPrimary,
-                            fontWeight: FontWeight.w700,
-                            height: 1.25,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
+          Text(
+            'More Like This',
+            style: AppTypography.title.copyWith(
+              color: Colors.white,
+              fontWeight: FontWeight.w900,
             ),
+          ),
+          const SizedBox(height: AppSpacing.lg),
+          MediaRail(
+            itemWidth: 236,
+            height: 420,
+            spacing: AppSpacing.sm,
+            children: [
+              for (final item in recommendations)
+                _RecommendationMediaCard(
+                  media: media,
+                  item: item,
+                  onOpenDetail: onOpenDetail,
+                  onPlay: onPlay,
+                ),
+            ],
+          ),
         ],
       ),
     );
   }
-
-  IconData _crewIcon(String role) {
-    return switch (role) {
-      'Director' => LucideIcons.clapperboard,
-      'Writer' => LucideIcons.penLine,
-      'Producer' => LucideIcons.badgeCheck,
-      'Music' => LucideIcons.music,
-      'Cinematography' => LucideIcons.camera,
-      _ => LucideIcons.user,
-    };
-  }
 }
 
-class _AboutAndMetadataSection extends StatelessWidget {
-  const _AboutAndMetadataSection({required this.media});
+class _RecommendationMediaCard extends StatelessWidget {
+  const _RecommendationMediaCard({
+    required this.media,
+    required this.item,
+    required this.onOpenDetail,
+    required this.onPlay,
+  });
 
   final DetailMedia media;
+  final DetailPosterItem item;
+  final ValueChanged<String> onOpenDetail;
+  final ValueChanged<PlaybackRequest> onPlay;
 
   @override
   Widget build(BuildContext context) {
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final useColumns = constraints.maxWidth >= 980;
-        final about = _EditorialSection(
-          title: 'About',
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              if (media.tagline.isNotEmpty) ...[
-                Text(
-                  '"${media.tagline}"',
-                  style: AppTypography.body.copyWith(
-                    color: AppColors.textMuted,
-                    fontStyle: FontStyle.italic,
-                    height: 1.4,
-                  ),
-                ),
-                const SizedBox(height: AppSpacing.lg),
-              ],
-              Text(
-                media.overview.isEmpty
-                    ? 'Synopsis unavailable.'
-                    : media.overview,
-                style: AppTypography.body.copyWith(
-                  color: AppColors.textPrimary.withValues(alpha: 0.88),
-                  fontSize: 16,
-                  height: 1.65,
-                ),
-              ),
-              if (media.providers.isNotEmpty) ...[
-                const SizedBox(height: AppSpacing.xl),
-                ProviderRow(providers: media.providers),
-              ],
-            ],
-          ),
-        );
-
-        final details = _EditorialSection(
-          title: 'Details',
-          child: _InfoGrid(
-            items: [
-              _InfoItem('Runtime', media.runtime),
-              _InfoItem('Release', media.releaseDate),
-              _InfoItem('Language', media.languages.join(', ')),
-              _InfoItem('Country', media.productionCountries.join(', ')),
-              _InfoItem('Genres', media.genres.join(', ')),
-              _InfoItem('Status', media.status),
-              _InfoItem('Studios', media.productionCompanies.join(', ')),
-              _InfoItem('Homepage', media.homepage ?? ''),
-              _InfoItem('IMDb', media.imdbId ?? ''),
-            ],
-          ),
-        );
-
-        if (!useColumns) {
-          return Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              about,
-              const SizedBox(height: AppSpacing.massive),
-              details,
-            ],
-          );
-        }
-
-        return Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Expanded(flex: 6, child: about),
-            const SizedBox(width: 56),
-            Expanded(flex: 5, child: details),
-          ],
-        );
-      },
+    final itemId = _openableRecommendationId(media, item);
+    return MediaCard(
+      mediaId: itemId,
+      title: item.title,
+      posterPath: item.posterPath,
+      year: item.year == 'N/A' ? null : item.year,
+      rating: item.rating == '0.0' ? null : item.rating,
+      subtitle: item.subtitle,
+      onTap: () => onOpenDetail(itemId),
+      onPlay: () =>
+          onPlay(PlaybackRequestFactory.fromCompositeId(itemId, item.title)),
     );
   }
+}
+
+List<DetailPosterItem> _recommendationsFor(DetailMedia media) {
+  final seen = <String>{};
+  final items = <DetailPosterItem>[];
+
+  for (final item in [...media.related, ...media.moreLikeThis]) {
+    if (seen.add(item.id)) {
+      items.add(item);
+    }
+    if (items.length == 20) break;
+  }
+
+  return items;
+}
+
+String _openableRecommendationId(DetailMedia media, DetailPosterItem item) {
+  final rawId = item.id.trim();
+  if (rawId.isEmpty) return rawId;
+
+  final fallbackType = _routeTypeForMedia(media.mediaType);
+  final itemType = _routeTypeFromSubtitle(item.subtitle) ?? fallbackType;
+
+  if (rawId.contains(':')) {
+    final separator = rawId.indexOf(':');
+    final type = rawId.substring(0, separator).trim().toLowerCase();
+    final id = rawId.substring(separator + 1).trim();
+    if (_isSupportedRouteType(type) && id.isNotEmpty) return '$type:$id';
+    if (id.isNotEmpty) return '$itemType:$id';
+    return rawId;
+  }
+
+  return int.tryParse(rawId) == null ? rawId : '$itemType:$rawId';
+}
+
+String _routeTypeForMedia(DetailMediaType type) {
+  return switch (type) {
+    DetailMediaType.movie => 'movie',
+    DetailMediaType.tv => 'tv',
+    DetailMediaType.anime => 'anime',
+    DetailMediaType.live => 'tv',
+  };
+}
+
+String? _routeTypeFromSubtitle(String subtitle) {
+  final normalized = subtitle.toLowerCase();
+  if (normalized.contains('anime')) return 'anime';
+  if (normalized.contains('tv')) return 'tv';
+  if (normalized.contains('movie')) return 'movie';
+  return null;
+}
+
+bool _isSupportedRouteType(String type) {
+  return type == 'movie' || type == 'tv' || type == 'anime';
 }
 
 class _EditorialSection extends StatelessWidget {
@@ -1787,138 +2166,6 @@ class _EditorialSection extends StatelessWidget {
         const SizedBox(height: AppSpacing.lg),
         child,
       ],
-    );
-  }
-}
-
-class _InfoGrid extends StatelessWidget {
-  const _InfoGrid({required this.items});
-
-  final List<_InfoItem> items;
-
-  @override
-  Widget build(BuildContext context) {
-    final visibleItems = items
-        .where(
-          (item) => item.value.trim().isNotEmpty && item.value.trim() != 'N/A',
-        )
-        .toList(growable: false);
-
-    if (visibleItems.isEmpty) {
-      return Text(
-        'Details unavailable.',
-        style: AppTypography.body.copyWith(color: AppColors.textMuted),
-      );
-    }
-
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final columns = constraints.maxWidth >= 460 ? 2 : 1;
-        return Wrap(
-          spacing: AppSpacing.xl,
-          runSpacing: AppSpacing.lg,
-          children: [
-            for (final item in visibleItems)
-              SizedBox(
-                width: columns == 2
-                    ? (constraints.maxWidth - AppSpacing.xl) / 2
-                    : constraints.maxWidth,
-                child: _InfoTile(item: item),
-              ),
-          ],
-        );
-      },
-    );
-  }
-}
-
-class _InfoTile extends StatelessWidget {
-  const _InfoTile({required this.item});
-
-  final _InfoItem item;
-
-  @override
-  Widget build(BuildContext context) {
-    final value = item.value.trim();
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          item.label.toUpperCase(),
-          style: AppTypography.metadata.copyWith(
-            color: AppColors.textMuted,
-            fontWeight: FontWeight.w800,
-          ),
-        ),
-        const SizedBox(height: AppSpacing.xs),
-        Text(
-          value,
-          maxLines: 3,
-          overflow: TextOverflow.ellipsis,
-          style: AppTypography.body.copyWith(
-            color: AppColors.textPrimary.withValues(alpha: 0.88),
-            height: 1.35,
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _InfoItem {
-  const _InfoItem(this.label, this.value);
-
-  final String label;
-  final String value;
-}
-
-class _FadeInSection extends StatefulWidget {
-  const _FadeInSection({required this.child, required this.delay});
-
-  final Widget child;
-  final Duration delay;
-
-  @override
-  State<_FadeInSection> createState() => _FadeInSectionState();
-}
-
-class _FadeInSectionState extends State<_FadeInSection>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _controller;
-  late final Animation<double> _opacity;
-  late final Animation<Offset> _offset;
-
-  @override
-  void initState() {
-    super.initState();
-    _controller = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 520),
-    );
-    _opacity = CurvedAnimation(
-      parent: _controller,
-      curve: AppAnimation.standard,
-    );
-    _offset = Tween<Offset>(begin: const Offset(0, 0.035), end: Offset.zero)
-        .animate(
-          CurvedAnimation(parent: _controller, curve: AppAnimation.emphasized),
-        );
-    Future<void>.delayed(widget.delay, () {
-      if (mounted) _controller.forward();
-    });
-  }
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return FadeTransition(
-      opacity: _opacity,
-      child: SlideTransition(position: _offset, child: widget.child),
     );
   }
 }

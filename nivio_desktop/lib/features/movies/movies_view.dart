@@ -256,11 +256,14 @@ class _MovieGridCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MediaCard(
+      mediaId: item.id,
       title: item.title,
       posterPath: item.posterPath,
+      backdropPath: item.backdropPath,
       year: item.year > 0 ? item.yearLabel : null,
       rating: item.rating > 0 ? item.ratingLabel : null,
       subtitle: item.mediaTypeLabel,
+      overview: item.overview,
       onTap: () => onOpenDetail?.call(item.id),
       onPlay: () => onPlay?.call(PlaybackRequestFactory.fromSearchItem(item)),
       onMore: () => onOpenDetail?.call(item.id),

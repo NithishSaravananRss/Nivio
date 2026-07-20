@@ -3,11 +3,13 @@ import 'dart:math' as math;
 import 'dart:ui';
 
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:wakelock_plus/wakelock_plus.dart';
 
 import '../../shared/theme/index.dart';
 import '../../core/interfaces/watch_history_repository.dart';
@@ -26,9 +28,19 @@ import 'web_playback_engine.dart';
 import '../party/services/watch_party_service_supabase.dart';
 import '../party/services/watch_party_session_manager.dart';
 import 'services/m3u8_parser.dart';
+import 'services/desktop_pip_service.dart';
 import 'services/playback_runtime_diagnostics.dart';
 import 'services/skip_times_service.dart';
 import 'services/stream_resolver.dart';
+
+part 'player_gesture_layer.dart';
+part 'player_drawer.dart';
+part 'player_overlay_widgets.dart';
+part 'player_settings_overlay.dart';
+part 'watch_party_status_overlay.dart';
+
+part 'android_player_controls.dart';
+part 'embedded_web_controls.dart';
 
 typedef PlaybackSurfaceBuilder =
     Widget Function(BuildContext context, PlaybackEngine engine);
@@ -42,6 +54,7 @@ class PlayerScreen extends StatefulWidget {
     this.engine,
     this.surfaceBuilder,
     this.onClose,
+    this.onMinimize,
     this.onNextEpisode,
     this.onSourceSwitch,
     this.sourceOptions = const [],
@@ -52,6 +65,7 @@ class PlayerScreen extends StatefulWidget {
   final PlaybackEngine? engine;
   final PlaybackSurfaceBuilder? surfaceBuilder;
   final VoidCallback? onClose;
+  final VoidCallback? onMinimize;
   final ValueChanged<PlaybackRequest>? onNextEpisode;
   final ValueChanged<PlaybackRequest>? onSourceSwitch;
   final List<PlaybackSourceOption> sourceOptions;
@@ -104,6 +118,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
   bool _closeInFlight = false;
   bool _debandingEnabled = false;
   bool _sourceSwitchInFlight = false;
+  String? _sourceSwitchMessage;
   bool _subtitleBackgroundEnabled = false;
   bool _subtitleOutlineEnabled = false;
   double _subtitleScale = 1;
@@ -158,6 +173,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
     unawaited(_loadExternalSkipTimes(widget.request));
     unawaited(_discoverHlsQualities());
     unawaited(_initializeWatchParty());
+    unawaited(_setPlaybackWakelock(enabled: true));
     _engine.state.addListener(_onPlaybackChanged);
     _scheduleControlsHide();
   }
@@ -771,6 +787,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
     unawaited(_watchPartyChatSub?.cancel());
     unawaited(_watchPartyReactionSub?.cancel());
     unawaited(_watchPartyErrorSub?.cancel());
+    unawaited(_setPlaybackWakelock(enabled: false));
+    unawaited(DesktopPipService.instance.exit());
     if (_ownsEngine) {
       unawaited(_controller.close());
     } else {
@@ -782,6 +800,29 @@ class _PlayerScreenState extends State<PlayerScreen> {
       'PlayerScreen#$_instanceId dispose complete '
       '${PlaybackRuntimeDiagnostics.lifecycleSummary()}',
     );
+  }
+
+  Future<void> _setPlaybackWakelock({required bool enabled}) async {
+    try {
+      if (enabled) {
+        await WakelockPlus.enable();
+      } else {
+        await WakelockPlus.disable();
+      }
+    } catch (error) {
+      PlaybackRuntimeDiagnostics.lifecycleLog(
+        'Wakelock ${enabled ? 'enable' : 'disable'} failed: $error',
+      );
+    }
+  }
+
+  void _minimizeToMiniPlayer() {
+    widget.onMinimize?.call();
+  }
+
+  Future<void> _togglePictureInPicture() async {
+    await DesktopPipService.instance.toggle();
+    if (mounted) _showControls();
   }
 
   void _onPlaybackChanged() {
@@ -1107,7 +1148,13 @@ class _PlayerScreenState extends State<PlayerScreen> {
       );
       return;
     }
-    setState(() => _sourceSwitchInFlight = true);
+    setState(() {
+      _sourceSwitchInFlight = true;
+      _sourceSwitchMessage = _switchingMessageForSource(option);
+      _drawer = _PlayerDrawer.none;
+      _webDrawer = _WebOverlayDrawer.none;
+      _webOverlayGeneration++;
+    });
     PlaybackRuntimeDiagnostics.controllerLog(
       'Switch provider started current=${_controller.request.providerIndex ?? 'auto'} '
       'next=${option.index} owner=PlayerScreen#$_instanceId',
@@ -1141,9 +1188,23 @@ class _PlayerScreenState extends State<PlayerScreen> {
       );
       callback(nextRequest);
     } finally {
-      if (mounted) setState(() => _sourceSwitchInFlight = false);
+      if (mounted) {
+        setState(() {
+          _sourceSwitchInFlight = false;
+          _sourceSwitchMessage = null;
+        });
+      }
       _logInteractionSnapshot('after _switchSource finally');
     }
+  }
+
+  String _switchingMessageForSource(PlaybackSourceOption option) {
+    final label = option.label.trim().isNotEmpty
+        ? option.label.trim()
+        : option.server.trim().isNotEmpty
+        ? option.server.trim()
+        : option.provider.trim();
+    return label.isEmpty ? 'Switching server...' : 'Switching to $label...';
   }
 
   Future<void> _switchQuality(_QualityOption option) async {
@@ -1168,6 +1229,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
     if (callback == null) return;
     setState(() {
       _sourceSwitchInFlight = true;
+      _sourceSwitchMessage = 'Switching audio...';
       _drawer = _PlayerDrawer.none;
     });
     try {
@@ -1183,7 +1245,12 @@ class _PlayerScreenState extends State<PlayerScreen> {
       if (!mounted) return;
       callback(nextRequest);
     } finally {
-      if (mounted) setState(() => _sourceSwitchInFlight = false);
+      if (mounted) {
+        setState(() {
+          _sourceSwitchInFlight = false;
+          _sourceSwitchMessage = null;
+        });
+      }
     }
   }
 
@@ -1193,7 +1260,13 @@ class _PlayerScreenState extends State<PlayerScreen> {
     final callback = widget.onSourceSwitch ?? widget.onNextEpisode;
     final currentRequest = _controller.request;
     if (callback == null || episode == currentRequest.episode) return;
-    _sourceSwitchInFlight = true;
+    setState(() {
+      _sourceSwitchInFlight = true;
+      _sourceSwitchMessage = 'Loading episode $episode...';
+      _drawer = _PlayerDrawer.none;
+      _webDrawer = _WebOverlayDrawer.none;
+      _webOverlayGeneration++;
+    });
     unawaited(_controller.stop());
     callback(
       currentRequest.copyWith(
@@ -1220,16 +1293,42 @@ class _PlayerScreenState extends State<PlayerScreen> {
   }
 
   Future<void> _loadCustomSubtitle() async {
+    await _loadCustomSubtitleFromUrl();
+  }
+
+  Future<void> _loadCustomSubtitleFromFile() async {
+    try {
+      final file = await FilePicker.pickFile(
+        type: FileType.custom,
+        allowedExtensions: const ['srt', 'vtt', 'ass', 'ssa'],
+        lockParentWindow: true,
+      );
+      final path = file?.path?.trim();
+      if (path == null || path.isEmpty) return;
+
+      await _selectCustomSubtitle(
+        uri: Uri.file(path).toString(),
+        label: file!.name.isEmpty ? path.split('/').last : file.name,
+      );
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Could not load subtitle file: $error')),
+      );
+    }
+  }
+
+  Future<void> _loadCustomSubtitleFromUrl() async {
     final controller = TextEditingController();
     final value = await showDialog<String>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Load Subtitle'),
+        title: const Text('Load Subtitle URL'),
         content: TextField(
           controller: controller,
           decoration: const InputDecoration(
-            labelText: 'Subtitle URL or local path',
-            hintText: 'https://example.com/sub.vtt or /path/sub.srt',
+            labelText: 'Subtitle URL',
+            hintText: 'https://example.com/sub.vtt',
           ),
           autofocus: true,
           onSubmitted: (value) => Navigator.of(context).pop(value.trim()),
@@ -1247,13 +1346,35 @@ class _PlayerScreenState extends State<PlayerScreen> {
       ),
     );
     if (value == null || value.isEmpty) return;
-    final url = value.startsWith('http') || value.startsWith('file://')
-        ? value
-        : 'file://$value';
-    final label = url.split('/').last;
-    unawaited(
-      _controller.selectSubtitleTrack('external:Custom:$url', externalUrl: url),
+
+    final uri = Uri.tryParse(value);
+    final validUrl =
+        uri != null &&
+        uri.hasScheme &&
+        (uri.scheme == 'http' || uri.scheme == 'https') &&
+        uri.path.trim().isNotEmpty;
+    if (!validUrl) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Enter a valid subtitle URL.')),
+      );
+      return;
+    }
+
+    await _selectCustomSubtitle(
+      uri: value,
+      label: uri.pathSegments.isEmpty
+          ? 'Remote Subtitle'
+          : uri.pathSegments.last,
     );
+  }
+
+  Future<void> _selectCustomSubtitle({
+    required String uri,
+    required String label,
+  }) async {
+    final trackId = 'external:Custom:$uri';
+    unawaited(_controller.selectSubtitleTrack(trackId, externalUrl: uri));
     if (mounted) {
       ScaffoldMessenger.of(
         context,
@@ -1581,7 +1702,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
       onSubtitleSelected: (trackId, externalUrl) => unawaited(
         _controller.selectSubtitleTrack(trackId, externalUrl: externalUrl),
       ),
-      onLoadCustomSubtitle: _loadCustomSubtitle,
+      onLoadLocalSubtitle: _loadCustomSubtitleFromFile,
+      onLoadRemoteSubtitle: _loadCustomSubtitle,
       onSubtitleDelayChanged: _changeSubtitleDelay,
       onSubtitleScaleChanged: (value) => _applySubtitleStyle(scale: value),
       onSubtitleBackgroundChanged: (value) =>
@@ -1663,7 +1785,13 @@ class _PlayerScreenState extends State<PlayerScreen> {
                     request: widget.request,
                     providerLabel: _providerLabel,
                     serverLabel: _serverLabel,
+                    canSwitchServer: widget.sourceOptions.length > 1,
                     onClose: _close,
+                    onMiniPlayer: widget.onMinimize == null
+                        ? null
+                        : _minimizeToMiniPlayer,
+                    onPictureInPicture: () =>
+                        unawaited(_togglePictureInPicture()),
                     onPlayPause: () => unawaited(_controller.togglePlayPause()),
                     onSeek: (position) => unawaited(_engine.seek(position)),
                     onSettings: () => _openDrawer(_PlayerDrawer.settings),
@@ -1672,6 +1800,10 @@ class _PlayerScreenState extends State<PlayerScreen> {
                         ? null
                         : _showEpisodeSelector,
                   ),
+                  if (_sourceSwitchInFlight)
+                    _PlayerSwitchingOverlay(
+                      message: _sourceSwitchMessage ?? 'Switching server...',
+                    ),
                   if (_drawer != _PlayerDrawer.none)
                     _buildRightDrawer(playback),
                 ],
@@ -1680,90 +1812,104 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
             return MouseRegion(
               onHover: (_) => _showControls(),
-              child: GestureDetector(
-                behavior: HitTestBehavior.opaque,
-                onTap: _toggleControls,
-                onDoubleTap: () {
-                  if (!_ensurePartyCanControl()) return;
-                  unawaited(_controller.seekBy(const Duration(seconds: 10)));
-                  _showControls();
-                },
-                child: Stack(
-                  fit: StackFit.expand,
-                  children: [
-                    _buildSurface(context),
-                    if (_controlsVisible &&
-                        playback.status != PlaybackStatus.error)
-                      const ColoredBox(color: Color(0x66000000)),
-                    if (playback.status == PlaybackStatus.loading)
-                      _PlayerLoadingOverlay(
-                        title: widget.request.title,
-                        posterPath: widget.request.posterPath,
-                        subtitle: _requestSubtitle,
-                        message:
-                            widget.request.streamResult?.provider ??
-                            'Finding a playable source...',
-                      ),
-                    if (playback.status != PlaybackStatus.error)
-                      _AndroidPlayerControls(
-                        visible: _controlsVisible,
-                        playback: playback,
-                        request: widget.request,
-                        providerLabel: _providerLabel,
-                        serverLabel: _serverLabel,
-                        onClose: _close,
-                        onPlayPause: () {
-                          if (!_ensurePartyCanControl()) return;
-                          unawaited(_controller.togglePlayPause());
-                          _showControls();
-                        },
-                        onSeek: (position) {
-                          if (!_ensurePartyCanControl()) return;
-                          unawaited(_engine.seek(position));
-                          _showControls();
-                        },
-                        onSettings: () => _openDrawer(_PlayerDrawer.settings),
-                        onServer: () => _openDrawer(_PlayerDrawer.server),
-                        onEpisodes: widget.request.totalEpisodes == null
-                            ? null
-                            : _showEpisodeSelector,
-                      ),
-                    if (playback.status == PlaybackStatus.buffering)
-                      const _PlayerBufferingOverlay(),
-                    _SkipOverlay(
-                      playback: playback,
-                      skipTimes: _effectiveSkipTimes,
-                      onSkip: (target) {
-                        if (!_ensurePartyCanControl()) return;
-                        unawaited(_engine.seek(target));
-                      },
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  _buildSurface(context),
+                  _PlayerGestureLayer(
+                    playback: playback,
+                    onTap: _toggleControls,
+                    onSeekBy: (offset) {
+                      if (!_ensurePartyCanControl()) return;
+                      unawaited(_controller.seekBy(offset));
+                      _showControls();
+                    },
+                    onVolumeChanged: (value) {
+                      unawaited(_controller.setVolume(value));
+                      _showControls();
+                    },
+                  ),
+                  if (_controlsVisible &&
+                      playback.status != PlaybackStatus.error)
+                    const ColoredBox(color: Color(0x66000000)),
+                  if (playback.status == PlaybackStatus.loading)
+                    _PlayerLoadingOverlay(
+                      title: widget.request.title,
+                      posterPath: widget.request.posterPath,
+                      subtitle: _requestSubtitle,
+                      message:
+                          widget.request.streamResult?.provider ??
+                          'Finding a playable source...',
                     ),
-                    if (_hasNextEpisode && playback.duration > Duration.zero)
-                      _NextEpisodeOverlay(
-                        playback: playback,
-                        autoplay: _autoplayNextEpisode,
-                        onNext: _startNextEpisode,
-                      ),
-                    if (_hasWatchPartyContext)
-                      _WatchPartyStatusOverlay(
-                        session: _watchPartySession,
-                        isHost: _watchPartyService?.isHost == true,
-                        canControl: _canControlPartyPlayback,
-                        connectionLabel: _partyConnectionLabel,
-                        controllerLabel: _partyControllerLabel,
-                        statusMessage: _watchPartyStatusMessage,
-                        messages: _watchPartyMessages,
-                        reactions: _watchPartyReactions,
-                        onSendMessage: _sendWatchPartyChat,
-                        onSendReaction: _sendWatchPartyReaction,
-                        onLeaveOrEnd: _leaveOrEndWatchParty,
-                      ),
-                    if (_volumeOverlayValue != null)
-                      _VolumeOverlay(value: _volumeOverlayValue!),
-                    if (_drawer != _PlayerDrawer.none)
-                      _buildRightDrawer(playback),
-                  ],
-                ),
+                  if (playback.status != PlaybackStatus.error)
+                    _AndroidPlayerControls(
+                      visible: _controlsVisible,
+                      playback: playback,
+                      request: widget.request,
+                      providerLabel: _providerLabel,
+                      serverLabel: _serverLabel,
+                      canSwitchServer: widget.sourceOptions.length > 1,
+                      onClose: _close,
+                      onMiniPlayer: widget.onMinimize == null
+                          ? null
+                          : _minimizeToMiniPlayer,
+                      onPictureInPicture: () =>
+                          unawaited(_togglePictureInPicture()),
+                      onPlayPause: () {
+                        if (!_ensurePartyCanControl()) return;
+                        unawaited(_controller.togglePlayPause());
+                        _showControls();
+                      },
+                      onSeek: (position) {
+                        if (!_ensurePartyCanControl()) return;
+                        unawaited(_engine.seek(position));
+                        _showControls();
+                      },
+                      onSettings: () => _openDrawer(_PlayerDrawer.settings),
+                      onServer: () => _openDrawer(_PlayerDrawer.server),
+                      onEpisodes: widget.request.totalEpisodes == null
+                          ? null
+                          : _showEpisodeSelector,
+                    ),
+                  if (playback.status == PlaybackStatus.buffering)
+                    const _PlayerBufferingOverlay(),
+                  if (_sourceSwitchInFlight)
+                    _PlayerSwitchingOverlay(
+                      message: _sourceSwitchMessage ?? 'Switching server...',
+                    ),
+                  _SkipOverlay(
+                    playback: playback,
+                    skipTimes: _effectiveSkipTimes,
+                    onSkip: (target) {
+                      if (!_ensurePartyCanControl()) return;
+                      unawaited(_engine.seek(target));
+                    },
+                  ),
+                  if (_hasNextEpisode && playback.duration > Duration.zero)
+                    _NextEpisodeOverlay(
+                      playback: playback,
+                      autoplay: _autoplayNextEpisode,
+                      onNext: _startNextEpisode,
+                    ),
+                  if (_hasWatchPartyContext)
+                    _WatchPartyStatusOverlay(
+                      session: _watchPartySession,
+                      isHost: _watchPartyService?.isHost == true,
+                      canControl: _canControlPartyPlayback,
+                      connectionLabel: _partyConnectionLabel,
+                      controllerLabel: _partyControllerLabel,
+                      statusMessage: _watchPartyStatusMessage,
+                      messages: _watchPartyMessages,
+                      reactions: _watchPartyReactions,
+                      onSendMessage: _sendWatchPartyChat,
+                      onSendReaction: _sendWatchPartyReaction,
+                      onLeaveOrEnd: _leaveOrEndWatchParty,
+                    ),
+                  if (_volumeOverlayValue != null)
+                    _VolumeOverlay(value: _volumeOverlayValue!),
+                  if (_drawer != _PlayerDrawer.none)
+                    _buildRightDrawer(playback),
+                ],
               ),
             );
           },
@@ -1824,9 +1970,14 @@ class _PlayerScreenState extends State<PlayerScreen> {
                     serverLabel:
                         _serverLabel ??
                         widget.request.streamResult?.providerGroup,
-                    canSwitchServer: widget.sourceOptions.isNotEmpty,
+                    canSwitchServer: widget.sourceOptions.length > 1,
                     onBack: _close,
                     onServer: _toggleEmbeddedWebServerDrawer,
+                    onMiniPlayer: widget.onMinimize == null
+                        ? null
+                        : _minimizeToMiniPlayer,
+                    onPictureInPicture: () =>
+                        unawaited(_togglePictureInPicture()),
                     onRetry: playback.status == PlaybackStatus.error
                         ? () => unawaited(_controller.retry())
                         : null,
@@ -1861,6 +2012,12 @@ class _PlayerScreenState extends State<PlayerScreen> {
                                 onSwitchServer: _switchToNextSource,
                                 onRetry: () => unawaited(_controller.retry()),
                                 onClose: _close,
+                              ),
+                            if (_sourceSwitchInFlight)
+                              _PlayerSwitchingOverlay(
+                                message:
+                                    _sourceSwitchMessage ??
+                                    'Switching server...',
                               ),
                           ],
                         ),
@@ -2162,2472 +2319,4 @@ class _QualityOption {
   final String quality;
   final String url;
   final String label;
-}
-
-class _EmbeddedWebServerDrawer extends StatelessWidget {
-  const _EmbeddedWebServerDrawer({
-    required this.generation,
-    required this.width,
-    required this.sourceOptions,
-    required this.selectedSourceIndex,
-    required this.providerLabel,
-    required this.onClose,
-    required this.onSourceSelected,
-    this.serverLabel,
-  });
-
-  final int generation;
-  final double width;
-  final List<PlaybackSourceOption> sourceOptions;
-  final int? selectedSourceIndex;
-  final String providerLabel;
-  final String? serverLabel;
-  final VoidCallback onClose;
-  final ValueChanged<PlaybackSourceOption> onSourceSelected;
-
-  @override
-  Widget build(BuildContext context) {
-    final grouped = <String, List<PlaybackSourceOption>>{};
-    for (final option in sourceOptions) {
-      final key = option.group ?? _providerGroup(option.provider);
-      grouped.putIfAbsent(key, () => []).add(option);
-    }
-    final usedFallback = grouped.isEmpty;
-    if (grouped.isEmpty) {
-      grouped[providerLabel] = [
-        PlaybackSourceOption(
-          index: selectedSourceIndex ?? 0,
-          provider: providerLabel,
-          server: serverLabel ?? providerLabel,
-        ),
-      ];
-    }
-    final tileCount = grouped.values.fold<int>(
-      0,
-      (total, options) => total + options.length,
-    );
-    final selectedVisible = grouped.values.any(
-      (options) => options.any((option) => option.index == selectedSourceIndex),
-    );
-    final groupSummary = grouped.entries
-        .map(
-          (entry) =>
-              '${entry.key}(${entry.value.map((option) => option.index).join('|')})',
-        )
-        .join(', ');
-    PlaybackRuntimeDiagnostics.overlayLog(
-      'WebView-specific drawer content build generation=$generation '
-      'inputSourceCount=${sourceOptions.length} effectiveGroupCount=${grouped.length} '
-      'effectiveTileCount=$tileCount usedFallback=$usedFallback '
-      'selectedSourceIndex=$selectedSourceIndex selectedVisible=$selectedVisible '
-      'groups=[$groupSummary]',
-    );
-
-    final listChildren = <Widget>[];
-    for (final entry in grouped.entries) {
-      if (entry.value.length > 1) {
-        listChildren.add(
-          _DrawerGroupTitle(
-            entry.key,
-            diagnosticLabel:
-                'web drawer group generation=$generation title=${entry.key}',
-          ),
-        );
-      }
-      for (final option in entry.value) {
-        final title = _serverTitle(option);
-        final selected = option.index == selectedSourceIndex;
-        listChildren.add(
-          _DrawerOptionTile(
-            title: title,
-            selected: selected,
-            diagnosticLabel:
-                'web drawer tile generation=$generation '
-                'index=${option.index} title=$title selected=$selected',
-            onTap: () => onSourceSelected(option),
-          ),
-        );
-      }
-    }
-
-    final panel = Material(
-      color: const Color(0x99101010),
-      child: _RenderDiagnosticsProbe(
-        label: 'web drawer material child generation=$generation',
-        child: SizedBox(
-          width: width,
-          height: double.infinity,
-          child: SafeArea(
-            left: false,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                _RenderDiagnosticsProbe(
-                  label: 'web drawer header generation=$generation',
-                  child: Padding(
-                    padding: const EdgeInsets.all(24),
-                    child: Row(
-                      children: [
-                        const Icon(Icons.dns, color: Colors.white, size: 26),
-                        const SizedBox(width: 14),
-                        const Expanded(
-                          child: Text(
-                            'Select Server',
-                            style: TextStyle(
-                              color: Colors.white,
-                              fontSize: 20,
-                              fontWeight: FontWeight.w800,
-                            ),
-                          ),
-                        ),
-                        IconButton(
-                          tooltip: 'Close',
-                          onPressed: onClose,
-                          icon: const Icon(Icons.close, color: Colors.white),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-                Expanded(
-                  child: _RenderDiagnosticsProbe(
-                    label:
-                        'web drawer list generation=$generation tileCount=$tileCount',
-                    child: ListView(
-                      padding: EdgeInsets.zero,
-                      children: listChildren,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-
-    return KeyedSubtree(
-      key: ValueKey('embedded-web-server-drawer-$generation'),
-      child: _RenderDiagnosticsProbe(
-        label: 'web drawer keyed subtree generation=$generation',
-        child: panel,
-      ),
-    );
-  }
-
-  String _providerGroup(String provider) {
-    if (provider.startsWith('Animetsu')) return 'Animetsu';
-    if (provider.startsWith('Miruro')) return 'Miruro';
-    if (provider.startsWith('Animex')) return 'Animex';
-    return provider;
-  }
-
-  String _serverTitle(PlaybackSourceOption option) {
-    var server = option.server;
-    for (final prefix in const ['Animetsu (', 'Miruro (', 'Animex (']) {
-      if (server.startsWith(prefix) && server.endsWith(')')) {
-        server = server.substring(prefix.length, server.length - 1);
-      }
-    }
-    return server.isEmpty ? option.provider : server;
-  }
-}
-
-class _EmbeddedWebTopBar extends StatelessWidget {
-  const _EmbeddedWebTopBar({
-    required this.playback,
-    required this.title,
-    required this.providerLabel,
-    required this.canSwitchServer,
-    required this.onBack,
-    required this.onServer,
-    this.serverLabel,
-    this.onRetry,
-  });
-
-  final PlaybackState playback;
-  final String title;
-  final String providerLabel;
-  final String? serverLabel;
-  final bool canSwitchServer;
-  final VoidCallback onBack;
-  final VoidCallback onServer;
-  final VoidCallback? onRetry;
-
-  @override
-  Widget build(BuildContext context) {
-    final statusLabel = switch (playback.status) {
-      PlaybackStatus.loading => 'Loading',
-      PlaybackStatus.buffering => 'Buffering',
-      PlaybackStatus.error => 'Unavailable',
-      PlaybackStatus.completed => 'Completed',
-      PlaybackStatus.stopped => 'Stopped',
-      PlaybackStatus.ready => 'Ready',
-      PlaybackStatus.idle => 'Opening',
-    };
-    final server =
-        serverLabel == null ||
-            serverLabel!.isEmpty ||
-            serverLabel == providerLabel
-        ? providerLabel
-        : '$providerLabel · $serverLabel';
-    final canRetry = onRetry != null;
-
-    return Material(
-      color: const Color(0xFF050505),
-      child: SafeArea(
-        bottom: false,
-        child: SizedBox(
-          height: 54,
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 14),
-            child: Row(
-              children: [
-                IconButton(
-                  tooltip: 'Back',
-                  onPressed: onBack,
-                  icon: const Icon(Icons.arrow_back, color: Colors.white),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        title,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 14,
-                          fontWeight: FontWeight.w800,
-                        ),
-                      ),
-                      const SizedBox(height: 2),
-                      Text(
-                        '$statusLabel · $server',
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          color: Colors.white60,
-                          fontSize: 12,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                if (canRetry)
-                  IconButton(
-                    tooltip: 'Retry',
-                    onPressed: onRetry,
-                    icon: const Icon(Icons.refresh, color: Colors.white),
-                  ),
-                if (canSwitchServer)
-                  IconButton(
-                    tooltip: 'Server',
-                    onPressed: onServer,
-                    icon: const Icon(Icons.dns, color: Colors.white),
-                  ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _EmbeddedWebStatusBanner extends StatelessWidget {
-  const _EmbeddedWebStatusBanner({required this.message});
-
-  final String message;
-
-  @override
-  Widget build(BuildContext context) {
-    return Positioned(
-      top: 16,
-      left: 16,
-      child: IgnorePointer(
-        child: DecoratedBox(
-          decoration: BoxDecoration(
-            color: const Color(0xB3000000),
-            borderRadius: BorderRadius.circular(8),
-            border: Border.all(color: Colors.white12),
-          ),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
-            child: Text(
-              message,
-              style: const TextStyle(
-                color: Colors.white,
-                fontSize: 13,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _AndroidPlayerControls extends StatelessWidget {
-  const _AndroidPlayerControls({
-    required this.visible,
-    required this.playback,
-    required this.request,
-    required this.providerLabel,
-    required this.onClose,
-    required this.onPlayPause,
-    required this.onSeek,
-    required this.onSettings,
-    required this.onServer,
-    this.serverLabel,
-    this.onEpisodes,
-  });
-
-  final bool visible;
-  final PlaybackState playback;
-  final PlaybackRequest request;
-  final String providerLabel;
-  final String? serverLabel;
-  final VoidCallback onClose;
-  final VoidCallback onPlayPause;
-  final ValueChanged<Duration> onSeek;
-  final VoidCallback onSettings;
-  final VoidCallback onServer;
-  final VoidCallback? onEpisodes;
-
-  @override
-  Widget build(BuildContext context) {
-    PlaybackRuntimeDiagnostics.uiLog(
-      'AndroidPlayerControls build visible=$visible '
-      'IgnorePointer active=${!visible} serverButtonOnPressed=true '
-      'settingsButtonOnPressed=true',
-    );
-    return IgnorePointer(
-      ignoring: !visible,
-      child: Listener(
-        behavior: HitTestBehavior.translucent,
-        onPointerDown: (event) => PlaybackRuntimeDiagnostics.uiLog(
-          'AndroidPlayerControls pointer down position=${event.position} '
-          'visible=$visible',
-        ),
-        child: AnimatedOpacity(
-          opacity: visible ? 1 : 0,
-          duration: const Duration(milliseconds: 180),
-          child: Stack(
-            children: [
-              Positioned(
-                top: 0,
-                left: 0,
-                right: 0,
-                child: SafeArea(
-                  bottom: false,
-                  minimum: const EdgeInsets.symmetric(
-                    horizontal: 24,
-                    vertical: 22,
-                  ),
-                  child: Row(
-                    children: [
-                      IconButton(
-                        tooltip: 'Back',
-                        onPressed: onClose,
-                        icon: const Icon(
-                          Icons.arrow_back,
-                          color: Colors.white,
-                          size: 28,
-                        ),
-                      ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Text(
-                              request.title,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 17,
-                                fontWeight: FontWeight.w800,
-                              ),
-                            ),
-                            const SizedBox(height: 6),
-                            Wrap(
-                              spacing: 6,
-                              runSpacing: 6,
-                              children: [
-                                if (request.mediaType !=
-                                        PlaybackMediaType.movie &&
-                                    !request.isLive)
-                                  _TinyPlayerChip(
-                                    label:
-                                        'S${request.season ?? 1} E${request.episode ?? 1}',
-                                    color: AppColors.primary,
-                                  ),
-                                _TinyPlayerChip(label: providerLabel),
-                                if (serverLabel != null &&
-                                    serverLabel!.isNotEmpty &&
-                                    serverLabel != providerLabel)
-                                  _TinyPlayerChip(label: serverLabel!),
-                              ],
-                            ),
-                          ],
-                        ),
-                      ),
-                      if (onEpisodes != null)
-                        IconButton(
-                          tooltip: 'Episodes',
-                          onPressed: onEpisodes,
-                          icon: const Icon(
-                            Icons.list,
-                            color: Colors.white,
-                            size: 27,
-                          ),
-                        ),
-                      IconButton(
-                        tooltip: 'Server',
-                        onPressed: () {
-                          PlaybackRuntimeDiagnostics.uiLog(
-                            'Server IconButton onPressed entered route=androidControls',
-                          );
-                          onServer();
-                        },
-                        icon: const Icon(
-                          Icons.dns,
-                          color: Colors.white,
-                          size: 27,
-                        ),
-                      ),
-                      IconButton(
-                        tooltip: 'Settings',
-                        onPressed: () {
-                          PlaybackRuntimeDiagnostics.uiLog(
-                            'Settings IconButton onPressed entered route=androidControls',
-                          );
-                          onSettings();
-                        },
-                        icon: const Icon(
-                          Icons.settings,
-                          color: Colors.white,
-                          size: 27,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-              Center(
-                child: IconButton(
-                  tooltip: playback.isPlaying ? 'Pause' : 'Play',
-                  iconSize: 74,
-                  color: Colors.white,
-                  onPressed: onPlayPause,
-                  icon: Icon(
-                    playback.isPlaying
-                        ? Icons.pause_circle_filled
-                        : Icons.play_circle_filled,
-                  ),
-                ),
-              ),
-              if (!request.isLive)
-                Positioned(
-                  left: 24,
-                  right: 24,
-                  bottom: 20,
-                  child: SafeArea(
-                    top: false,
-                    child: _AndroidProgressBar(
-                      playback: playback,
-                      onSeek: onSeek,
-                    ),
-                  ),
-                ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _AndroidProgressBar extends StatefulWidget {
-  const _AndroidProgressBar({required this.playback, required this.onSeek});
-
-  final PlaybackState playback;
-  final ValueChanged<Duration> onSeek;
-
-  @override
-  State<_AndroidProgressBar> createState() => _AndroidProgressBarState();
-}
-
-class _AndroidProgressBarState extends State<_AndroidProgressBar> {
-  double? _dragValue;
-
-  @override
-  Widget build(BuildContext context) {
-    final duration = widget.playback.duration;
-    final position = widget.playback.position;
-    final max = duration.inMilliseconds > 0
-        ? duration.inMilliseconds.toDouble()
-        : 1.0;
-    final value = (_dragValue ?? position.inMilliseconds.toDouble()).clamp(
-      0.0,
-      max,
-    );
-    final buffered = widget.playback.bufferedPosition.inMilliseconds
-        .toDouble()
-        .clamp(0.0, max);
-
-    return Row(
-      children: [
-        _TimeText(duration: Duration(milliseconds: value.round())),
-        const SizedBox(width: 14),
-        Expanded(
-          child: SliderTheme(
-            data: SliderThemeData(
-              trackHeight: 4,
-              activeTrackColor: AppColors.primary,
-              inactiveTrackColor: Colors.white30,
-              secondaryActiveTrackColor: Colors.white70,
-              thumbColor: AppColors.primary,
-              thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 7),
-              overlayShape: const RoundSliderOverlayShape(overlayRadius: 15),
-            ),
-            child: Slider(
-              value: value,
-              secondaryTrackValue: buffered,
-              max: max,
-              onChanged: (next) => setState(() => _dragValue = next),
-              onChangeEnd: (next) {
-                setState(() => _dragValue = null);
-                widget.onSeek(Duration(milliseconds: next.round()));
-              },
-            ),
-          ),
-        ),
-        const SizedBox(width: 14),
-        _TimeText(duration: duration),
-      ],
-    );
-  }
-}
-
-class _RightPlayerDrawer extends StatelessWidget {
-  const _RightPlayerDrawer({
-    required this.drawer,
-    required this.playback,
-    required this.qualities,
-    required this.selectedQuality,
-    required this.qualityDiscoveryComplete,
-    required this.sourceOptions,
-    required this.selectedSourceIndex,
-    required this.providerLabel,
-    required this.streamAudioOptions,
-    required this.selectedStreamAudio,
-    required this.externalSubtitles,
-    required this.displayFit,
-    required this.debandingEnabled,
-    required this.subtitleDelay,
-    required this.subtitleScale,
-    required this.subtitleBackgroundEnabled,
-    required this.subtitleOutlineEnabled,
-    required this.onClose,
-    required this.onSourceSelected,
-    required this.onQualitySelected,
-    required this.onStreamAudioSelected,
-    required this.onAudioSelected,
-    required this.onSubtitleSelected,
-    required this.onLoadCustomSubtitle,
-    required this.onSubtitleDelayChanged,
-    required this.onSubtitleScaleChanged,
-    required this.onSubtitleBackgroundChanged,
-    required this.onSubtitleOutlineChanged,
-    required this.onDisplayFitChanged,
-    required this.onDebandingChanged,
-    required this.onVolumeChanged,
-    required this.onDiagnosticsPressed,
-    required this.onScreenshotPressed,
-    required this.onSpeedSelected,
-    required this.onRepeatPressed,
-    required this.autoplayNextEpisode,
-    this.inline = false,
-    this.serverLabel,
-    this.onAutoplayChanged,
-  });
-
-  final _PlayerDrawer drawer;
-  final PlaybackState playback;
-  final List<_QualityOption> qualities;
-  final String selectedQuality;
-  final bool qualityDiscoveryComplete;
-  final List<PlaybackSourceOption> sourceOptions;
-  final int? selectedSourceIndex;
-  final String providerLabel;
-  final String? serverLabel;
-  final List<String> streamAudioOptions;
-  final String selectedStreamAudio;
-  final List<stream_models.SubtitleTrack> externalSubtitles;
-  final BoxFit displayFit;
-  final bool debandingEnabled;
-  final Duration subtitleDelay;
-  final double subtitleScale;
-  final bool subtitleBackgroundEnabled;
-  final bool subtitleOutlineEnabled;
-  final VoidCallback onClose;
-  final ValueChanged<PlaybackSourceOption> onSourceSelected;
-  final ValueChanged<_QualityOption> onQualitySelected;
-  final ValueChanged<String> onStreamAudioSelected;
-  final ValueChanged<String> onAudioSelected;
-  final void Function(String trackId, String? externalUrl) onSubtitleSelected;
-  final VoidCallback onLoadCustomSubtitle;
-  final ValueChanged<Duration> onSubtitleDelayChanged;
-  final ValueChanged<double> onSubtitleScaleChanged;
-  final ValueChanged<bool> onSubtitleBackgroundChanged;
-  final ValueChanged<bool> onSubtitleOutlineChanged;
-  final ValueChanged<BoxFit> onDisplayFitChanged;
-  final ValueChanged<bool> onDebandingChanged;
-  final ValueChanged<double> onVolumeChanged;
-  final VoidCallback onDiagnosticsPressed;
-  final VoidCallback onScreenshotPressed;
-  final ValueChanged<double> onSpeedSelected;
-  final VoidCallback onRepeatPressed;
-  final bool autoplayNextEpisode;
-  final bool inline;
-  final ValueChanged<bool>? onAutoplayChanged;
-
-  static bool _sameAudioLabel(String a, String b) {
-    return a.trim().toLowerCase() == b.trim().toLowerCase();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    if (inline) return _buildDrawerPanel(context, animated: false);
-
-    return Positioned.fill(
-      child: Stack(
-        children: [
-          GestureDetector(
-            onTap: onClose,
-            child: const ColoredBox(color: Color(0x66000000)),
-          ),
-          Align(
-            alignment: Alignment.centerRight,
-            child: _buildDrawerPanel(context, animated: true),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildDrawerPanel(BuildContext context, {required bool animated}) {
-    final panel = ClipRRect(
-      borderRadius: inline
-          ? BorderRadius.zero
-          : const BorderRadius.horizontal(left: Radius.circular(24)),
-      child: BackdropFilter(
-        filter: ImageFilter.blur(
-          sigmaX: inline ? 0 : 16,
-          sigmaY: inline ? 0 : 16,
-        ),
-        child: Material(
-          color: inline ? const Color(0xFF101010) : const Color(0xB3101010),
-          child: SizedBox(
-            width: 360,
-            height: double.infinity,
-            child: SafeArea(
-              left: false,
-              child: drawer == _PlayerDrawer.server
-                  ? _buildServerDrawer(context)
-                  : _buildSettingsDrawer(context),
-            ),
-          ),
-        ),
-      ),
-    );
-    if (!animated) return panel;
-    return TweenAnimationBuilder<double>(
-      tween: Tween(begin: 1, end: 0),
-      duration: const Duration(milliseconds: 280),
-      curve: Curves.easeOutExpo,
-      builder: (context, value, child) =>
-          Transform.translate(offset: Offset(360 * value, 0), child: child),
-      child: panel,
-    );
-  }
-
-  Widget _buildHeader(IconData icon, String title) {
-    return Padding(
-      padding: const EdgeInsets.all(24),
-      child: Row(
-        children: [
-          Icon(icon, color: Colors.white, size: 26),
-          const SizedBox(width: 14),
-          Expanded(
-            child: Text(
-              title,
-              style: const TextStyle(
-                color: Colors.white,
-                fontSize: 20,
-                fontWeight: FontWeight.w800,
-              ),
-            ),
-          ),
-          IconButton(
-            tooltip: 'Close',
-            onPressed: onClose,
-            icon: const Icon(Icons.close, color: Colors.white),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildServerDrawer(BuildContext context) {
-    final grouped = <String, List<PlaybackSourceOption>>{};
-    for (final option in sourceOptions) {
-      final key = option.group ?? _providerGroup(option.provider);
-      grouped.putIfAbsent(key, () => []).add(option);
-    }
-    if (grouped.isEmpty) {
-      grouped[providerLabel] = [
-        PlaybackSourceOption(
-          index: selectedSourceIndex ?? 0,
-          provider: providerLabel,
-          server: serverLabel ?? providerLabel,
-        ),
-      ];
-    }
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        _buildHeader(Icons.dns, 'Select Server'),
-        Expanded(
-          child: ListView(
-            padding: EdgeInsets.zero,
-            children: [
-              for (final entry in grouped.entries) ...[
-                if (entry.value.length > 1) _DrawerGroupTitle(entry.key),
-                for (final option in entry.value)
-                  _DrawerOptionTile(
-                    title: _serverTitle(option),
-                    selected: option.index == selectedSourceIndex,
-                    onTap: () => onSourceSelected(option),
-                  ),
-              ],
-            ],
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildSettingsDrawer(BuildContext context) {
-    final subtitleItems = <({String id, String label, String? externalUrl})>[
-      for (final track in playback.subtitleTracks)
-        if (!track.isAuto && !track.isOff)
-          (id: track.id, label: track.label, externalUrl: null),
-      for (final track in externalSubtitles)
-        (
-          id: 'external:${track.lang}:${track.url}',
-          label: track.lang,
-          externalUrl: track.url,
-        ),
-    ];
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        _buildHeader(Icons.settings, 'Settings'),
-        Expanded(
-          child: ListView(
-            padding: EdgeInsets.zero,
-            children: [
-              _DrawerSection(
-                icon: Icons.aspect_ratio,
-                title: 'DISPLAY FIT',
-                initiallyExpanded: false,
-                children: [
-                  _DrawerOptionTile(
-                    title: 'Best Fit',
-                    selected: displayFit == BoxFit.contain,
-                    onTap: () => onDisplayFitChanged(BoxFit.contain),
-                  ),
-                  _DrawerOptionTile(
-                    title: 'Fit Screen',
-                    selected: displayFit == BoxFit.cover,
-                    onTap: () => onDisplayFitChanged(BoxFit.cover),
-                  ),
-                  _DrawerOptionTile(
-                    title: 'Fill',
-                    selected: displayFit == BoxFit.fill,
-                    onTap: () => onDisplayFitChanged(BoxFit.fill),
-                  ),
-                  _DrawerOptionTile(
-                    title: 'None',
-                    selected: displayFit == BoxFit.none,
-                    onTap: () => onDisplayFitChanged(BoxFit.none),
-                  ),
-                ],
-              ),
-              _DrawerSection(
-                icon: Icons.high_quality,
-                title: qualityDiscoveryComplete
-                    ? 'QUALITY'
-                    : 'QUALITY · DISCOVERING',
-                children: [
-                  for (final option in qualities)
-                    _DrawerOptionTile(
-                      title: option.label,
-                      selected: option.quality == selectedQuality,
-                      onTap: () => onQualitySelected(option),
-                    ),
-                ],
-              ),
-              _DrawerSection(
-                icon: Icons.audiotrack,
-                title: 'AUDIO',
-                children: [
-                  if (streamAudioOptions.isNotEmpty)
-                    for (final audio in streamAudioOptions)
-                      _DrawerOptionTile(
-                        title: audio,
-                        selected: _sameAudioLabel(audio, selectedStreamAudio),
-                        onTap: () => onStreamAudioSelected(audio),
-                      )
-                  else if (playback.audioTracks.isEmpty)
-                    const _DrawerMutedText('No audio tracks found'),
-                  if (streamAudioOptions.isEmpty)
-                    for (final track in playback.audioTracks)
-                      _DrawerOptionTile(
-                        title: track.label,
-                        selected: track.id == playback.selectedAudioTrackId,
-                        onTap: () => onAudioSelected(track.id),
-                      ),
-                ],
-              ),
-              _DrawerSection(
-                icon: Icons.subtitles,
-                title: 'SUBTITLE SETTINGS',
-                children: [
-                  const _DrawerSubheading('TRACKS'),
-                  _DrawerOptionTile(
-                    title: 'Off',
-                    selected: playback.selectedSubtitleTrackId == 'no',
-                    onTap: () => onSubtitleSelected('no', null),
-                  ),
-                  _DrawerOptionTile(
-                    title: 'Load from Local File (.srt, .vtt)',
-                    leading: Icons.folder_open,
-                    selected: false,
-                    onTap: onLoadCustomSubtitle,
-                  ),
-                  _DrawerOptionTile(
-                    title: 'Load from URL (Internet)',
-                    leading: Icons.link,
-                    selected: false,
-                    onTap: onLoadCustomSubtitle,
-                  ),
-                  if (subtitleItems.isEmpty)
-                    const _DrawerMutedText('No subtitle tracks found'),
-                  for (final track in subtitleItems)
-                    _DrawerOptionTile(
-                      title: track.label,
-                      selected: track.id == playback.selectedSubtitleTrackId,
-                      onTap: () =>
-                          onSubtitleSelected(track.id, track.externalUrl),
-                    ),
-                  const _DrawerSubheading('SIZE'),
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 24),
-                    child: Slider(
-                      min: 0.75,
-                      max: 1.5,
-                      divisions: 3,
-                      value: subtitleScale,
-                      activeColor: AppColors.primary,
-                      label: '${(subtitleScale * 100).round()}%',
-                      onChanged: onSubtitleScaleChanged,
-                    ),
-                  ),
-                  SwitchListTile(
-                    value: subtitleBackgroundEnabled,
-                    onChanged: onSubtitleBackgroundChanged,
-                    activeThumbColor: AppColors.primary,
-                    title: const Text(
-                      'Semi-Transparent Background',
-                      style: TextStyle(color: Colors.white),
-                    ),
-                  ),
-                  SwitchListTile(
-                    value: subtitleOutlineEnabled,
-                    onChanged: onSubtitleOutlineChanged,
-                    activeThumbColor: AppColors.primary,
-                    title: const Text(
-                      'Outline / Shadow',
-                      style: TextStyle(color: Colors.white),
-                    ),
-                  ),
-                  const _DrawerSubheading('SYNC'),
-                  Padding(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 24,
-                      vertical: 6,
-                    ),
-                    child: Row(
-                      children: [
-                        IconButton(
-                          onPressed: () => onSubtitleDelayChanged(
-                            const Duration(milliseconds: -250),
-                          ),
-                          icon: const Icon(Icons.remove, color: Colors.white),
-                        ),
-                        Expanded(
-                          child: Text(
-                            '${subtitleDelay.inMilliseconds > 0 ? '+' : ''}${subtitleDelay.inMilliseconds} ms',
-                            textAlign: TextAlign.center,
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontWeight: FontWeight.w800,
-                            ),
-                          ),
-                        ),
-                        IconButton(
-                          onPressed: () => onSubtitleDelayChanged(
-                            const Duration(milliseconds: 250),
-                          ),
-                          icon: const Icon(Icons.add, color: Colors.white),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-              _DrawerSection(
-                icon: Icons.blur_linear_rounded,
-                title: 'DEBANDING',
-                children: [
-                  SwitchListTile(
-                    value: debandingEnabled,
-                    onChanged: onDebandingChanged,
-                    activeThumbColor: AppColors.primary,
-                    title: const Text(
-                      'Enable Debanding',
-                      style: TextStyle(color: Colors.white),
-                    ),
-                    subtitle: const Text(
-                      'Reduces color banding artifacts.',
-                      style: TextStyle(color: Colors.white38, fontSize: 11),
-                    ),
-                  ),
-                ],
-              ),
-            ],
-          ),
-        ),
-      ],
-    );
-  }
-
-  String _providerGroup(String provider) {
-    if (provider.startsWith('Animetsu')) return 'Animetsu';
-    if (provider.startsWith('Miruro')) return 'Miruro';
-    if (provider.startsWith('Animex')) return 'Animex';
-    return provider;
-  }
-
-  String _serverTitle(PlaybackSourceOption option) {
-    var server = option.server;
-    for (final prefix in const ['Animetsu (', 'Miruro (', 'Animex (']) {
-      if (server.startsWith(prefix) && server.endsWith(')')) {
-        server = server.substring(prefix.length, server.length - 1);
-      }
-    }
-    return server.isEmpty ? option.provider : server;
-  }
-}
-
-class _DrawerSection extends StatelessWidget {
-  const _DrawerSection({
-    required this.icon,
-    required this.title,
-    required this.children,
-    this.initiallyExpanded = false,
-  });
-
-  final IconData icon;
-  final String title;
-  final List<Widget> children;
-  final bool initiallyExpanded;
-
-  @override
-  Widget build(BuildContext context) {
-    return Theme(
-      data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
-      child: ExpansionTile(
-        initiallyExpanded: initiallyExpanded,
-        iconColor: AppColors.primary,
-        collapsedIconColor: Colors.white54,
-        leading: Icon(icon, color: Colors.white54),
-        title: Text(
-          title,
-          style: const TextStyle(
-            color: Colors.white54,
-            fontSize: 12,
-            fontWeight: FontWeight.w800,
-            letterSpacing: 1.2,
-          ),
-        ),
-        children: children,
-      ),
-    );
-  }
-}
-
-class _DrawerOptionTile extends StatelessWidget {
-  const _DrawerOptionTile({
-    required this.title,
-    required this.selected,
-    required this.onTap,
-    this.leading,
-    this.diagnosticLabel,
-  });
-
-  final String title;
-  final bool selected;
-  final VoidCallback onTap;
-  final IconData? leading;
-  final String? diagnosticLabel;
-
-  @override
-  Widget build(BuildContext context) {
-    final tile = ListTile(
-      dense: true,
-      contentPadding: const EdgeInsets.symmetric(horizontal: 24),
-      leading: leading == null
-          ? null
-          : Icon(leading, color: Colors.white70, size: 19),
-      title: Text(
-        title,
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
-        style: TextStyle(
-          color: selected ? AppColors.primary : Colors.white,
-          fontWeight: selected ? FontWeight.w800 : FontWeight.w500,
-        ),
-      ),
-      trailing: selected
-          ? const Icon(Icons.check, color: AppColors.primary, size: 19)
-          : null,
-      selected: selected,
-      selectedTileColor: AppColors.primary.withValues(alpha: 0.18),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-      onTap: onTap,
-    );
-    final label = diagnosticLabel;
-    if (label == null) return tile;
-    return _RenderDiagnosticsProbe(label: label, child: tile);
-  }
-}
-
-class _DrawerGroupTitle extends StatelessWidget {
-  const _DrawerGroupTitle(this.title, {this.diagnosticLabel});
-
-  final String title;
-  final String? diagnosticLabel;
-
-  @override
-  Widget build(BuildContext context) {
-    final groupTitle = Padding(
-      padding: const EdgeInsets.fromLTRB(24, 18, 24, 8),
-      child: Text(
-        title,
-        style: const TextStyle(
-          color: AppColors.primary,
-          fontSize: 12,
-          fontWeight: FontWeight.w800,
-        ),
-      ),
-    );
-    final label = diagnosticLabel;
-    if (label == null) return groupTitle;
-    return _RenderDiagnosticsProbe(label: label, child: groupTitle);
-  }
-}
-
-class _DrawerSubheading extends StatelessWidget {
-  const _DrawerSubheading(this.title);
-
-  final String title;
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(24, 16, 24, 4),
-      child: Text(
-        title,
-        style: const TextStyle(
-          color: Colors.white70,
-          fontSize: 11,
-          fontWeight: FontWeight.w800,
-          letterSpacing: 1,
-        ),
-      ),
-    );
-  }
-}
-
-class _DrawerMutedText extends StatelessWidget {
-  const _DrawerMutedText(this.text);
-
-  final String text;
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 10),
-      child: Text(text, style: const TextStyle(color: Colors.white38)),
-    );
-  }
-}
-
-class _TinyPlayerChip extends StatelessWidget {
-  const _TinyPlayerChip({required this.label, this.color = Colors.white24});
-
-  final String label;
-  final Color color;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
-      decoration: BoxDecoration(
-        color: color,
-        borderRadius: BorderRadius.circular(4),
-      ),
-      child: Text(
-        label.toUpperCase(),
-        style: const TextStyle(
-          color: Colors.white,
-          fontSize: 10,
-          fontWeight: FontWeight.w800,
-        ),
-      ),
-    );
-  }
-}
-
-class _WatchPartyStatusOverlay extends StatefulWidget {
-  const _WatchPartyStatusOverlay({
-    required this.session,
-    required this.isHost,
-    required this.canControl,
-    required this.connectionLabel,
-    required this.controllerLabel,
-    required this.statusMessage,
-    required this.messages,
-    required this.reactions,
-    required this.onSendMessage,
-    required this.onSendReaction,
-    required this.onLeaveOrEnd,
-  });
-
-  final WatchPartySession? session;
-  final bool isHost;
-  final bool canControl;
-  final String connectionLabel;
-  final String controllerLabel;
-  final String? statusMessage;
-  final List<WatchPartyChatMessage> messages;
-  final List<WatchPartyReaction> reactions;
-  final ValueChanged<String> onSendMessage;
-  final ValueChanged<String> onSendReaction;
-  final VoidCallback onLeaveOrEnd;
-
-  @override
-  State<_WatchPartyStatusOverlay> createState() =>
-      _WatchPartyStatusOverlayState();
-}
-
-class _WatchPartyStatusOverlayState extends State<_WatchPartyStatusOverlay> {
-  final TextEditingController _chatController = TextEditingController();
-  bool _expanded = false;
-
-  @override
-  void dispose() {
-    _chatController.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final session = widget.session;
-    return Positioned(
-      right: 18,
-      top: 86,
-      child: SafeArea(
-        left: false,
-        bottom: false,
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 340),
-          child: Material(
-            color: Colors.transparent,
-            child: DecoratedBox(
-              decoration: BoxDecoration(
-                color: const Color(0xCC101010),
-                borderRadius: BorderRadius.circular(14),
-                border: Border.all(color: Colors.white12),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withValues(alpha: 0.45),
-                    blurRadius: 18,
-                    offset: const Offset(0, 8),
-                  ),
-                ],
-              ),
-              child: Padding(
-                padding: const EdgeInsets.all(10),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    InkWell(
-                      onTap: () => setState(() => _expanded = !_expanded),
-                      borderRadius: BorderRadius.circular(10),
-                      child: Row(
-                        children: [
-                          const Icon(
-                            Icons.groups_rounded,
-                            color: AppColors.primary,
-                            size: 18,
-                          ),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: Text(
-                              session == null
-                                  ? 'Watch Party'
-                                  : 'Room ${session.sessionCode}',
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontWeight: FontWeight.w800,
-                                fontSize: 13,
-                              ),
-                            ),
-                          ),
-                          _PartyPill(
-                            label: widget.canControl
-                                ? (widget.isHost ? 'Host' : 'Controller')
-                                : 'Following',
-                            color: widget.canControl
-                                ? AppColors.primary
-                                : Colors.white24,
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    Wrap(
-                      spacing: 6,
-                      runSpacing: 6,
-                      children: [
-                        _PartyPill(
-                          label: widget.connectionLabel,
-                          color: widget.connectionLabel == 'Connected'
-                              ? Colors.green
-                              : Colors.orange,
-                        ),
-                        _PartyPill(
-                          label: '${session?.participantCount ?? 0} members',
-                          color: Colors.white24,
-                        ),
-                        _PartyPill(
-                          label: 'Control: ${widget.controllerLabel}',
-                          color: Colors.white24,
-                        ),
-                      ],
-                    ),
-                    if (widget.statusMessage != null) ...[
-                      const SizedBox(height: 8),
-                      Text(
-                        widget.statusMessage!,
-                        style: const TextStyle(
-                          color: Colors.white70,
-                          fontSize: 12,
-                        ),
-                      ),
-                    ],
-                    if (_expanded) ...[
-                      const SizedBox(height: 10),
-                      _RecentPartyMessages(messages: widget.messages),
-                      if (widget.reactions.isNotEmpty) ...[
-                        const SizedBox(height: 8),
-                        Wrap(
-                          spacing: 6,
-                          runSpacing: 6,
-                          children: [
-                            for (final reaction
-                                in widget.reactions.reversed.take(5))
-                              _PartyPill(
-                                label:
-                                    '${reaction.emoji} ${reaction.senderName}',
-                                color: Colors.white24,
-                              ),
-                          ],
-                        ),
-                      ],
-                      const SizedBox(height: 8),
-                      Row(
-                        children: [
-                          TextButton.icon(
-                            onPressed: widget.onLeaveOrEnd,
-                            icon: Icon(
-                              widget.isHost
-                                  ? Icons.power_settings_new
-                                  : Icons.logout_rounded,
-                              size: 16,
-                            ),
-                            label: Text(widget.isHost ? 'End' : 'Leave'),
-                          ),
-                          const Spacer(),
-                          for (final emoji in const ['👍', '😂', '🔥', '😮'])
-                            IconButton(
-                              tooltip: 'Send $emoji',
-                              visualDensity: VisualDensity.compact,
-                              onPressed: () => widget.onSendReaction(emoji),
-                              icon: Text(
-                                emoji,
-                                style: const TextStyle(fontSize: 18),
-                              ),
-                            ),
-                        ],
-                      ),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: TextField(
-                              controller: _chatController,
-                              minLines: 1,
-                              maxLines: 2,
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 12,
-                              ),
-                              decoration: const InputDecoration(
-                                isDense: true,
-                                hintText: 'Message party',
-                                hintStyle: TextStyle(color: Colors.white38),
-                              ),
-                              onSubmitted: (_) => _sendMessage(),
-                            ),
-                          ),
-                          IconButton(
-                            tooltip: 'Send message',
-                            onPressed: _sendMessage,
-                            icon: const Icon(
-                              Icons.send_rounded,
-                              color: Colors.white,
-                              size: 18,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ],
-                ),
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  void _sendMessage() {
-    final text = _chatController.text.trim();
-    if (text.isEmpty) return;
-    widget.onSendMessage(text);
-    _chatController.clear();
-  }
-}
-
-class _RecentPartyMessages extends StatelessWidget {
-  const _RecentPartyMessages({required this.messages});
-
-  final List<WatchPartyChatMessage> messages;
-
-  @override
-  Widget build(BuildContext context) {
-    if (messages.isEmpty) {
-      return const Text(
-        'No party messages yet.',
-        style: TextStyle(color: Colors.white38, fontSize: 12),
-      );
-    }
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        for (final message in messages.reversed.take(3))
-          Padding(
-            padding: const EdgeInsets.only(bottom: 5),
-            child: Text.rich(
-              TextSpan(
-                children: [
-                  TextSpan(
-                    text: '${message.senderName}: ',
-                    style: const TextStyle(fontWeight: FontWeight.w800),
-                  ),
-                  TextSpan(text: message.text),
-                ],
-              ),
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(color: Colors.white70, fontSize: 12),
-            ),
-          ),
-      ],
-    );
-  }
-}
-
-class _PartyPill extends StatelessWidget {
-  const _PartyPill({required this.label, required this.color});
-
-  final String label;
-  final Color color;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.28),
-        borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: color.withValues(alpha: 0.35)),
-      ),
-      child: Text(
-        label,
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
-        style: const TextStyle(
-          color: Colors.white,
-          fontSize: 10,
-          fontWeight: FontWeight.w800,
-        ),
-      ),
-    );
-  }
-}
-
-class _DiagnosticsRow extends StatelessWidget {
-  const _DiagnosticsRow({required this.label, required this.value});
-
-  final String label;
-  final String value;
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 6),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          SizedBox(
-            width: 180,
-            child: Text(
-              label,
-              style: const TextStyle(
-                color: AppColors.textSecondary,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-          ),
-          Expanded(
-            child: SelectableText(
-              value,
-              style: const TextStyle(color: AppColors.textPrimary),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-// ignore: unused_element
-class _PlaybackSettingsOverlay extends StatelessWidget {
-  const _PlaybackSettingsOverlay({
-    required this.playback,
-    required this.qualities,
-    required this.sourceOptions,
-    required this.selectedSourceIndex,
-    required this.providerLabel,
-    required this.serverLabel,
-    required this.selectedQuality,
-    required this.qualityDiscoveryComplete,
-    required this.externalSubtitles,
-    required this.onQualitySelected,
-    required this.onSourceSelected,
-    required this.onAudioSelected,
-    required this.onSubtitleSelected,
-    required this.onSpeedSelected,
-    required this.onRepeatPressed,
-    required this.onLoadCustomSubtitle,
-    required this.subtitleDelay,
-    required this.onSubtitleDelayChanged,
-    required this.onEpisodesPressed,
-    required this.autoplayNextEpisode,
-    required this.onAutoplayChanged,
-  });
-
-  final PlaybackState playback;
-  final List<_QualityOption> qualities;
-  final List<PlaybackSourceOption> sourceOptions;
-  final int? selectedSourceIndex;
-  final String providerLabel;
-  final String? serverLabel;
-  final String selectedQuality;
-  final bool qualityDiscoveryComplete;
-  final List<stream_models.SubtitleTrack> externalSubtitles;
-  final ValueChanged<_QualityOption> onQualitySelected;
-  final ValueChanged<PlaybackSourceOption> onSourceSelected;
-  final ValueChanged<String> onAudioSelected;
-  final void Function(String trackId, String? externalUrl) onSubtitleSelected;
-  final ValueChanged<double> onSpeedSelected;
-  final VoidCallback onRepeatPressed;
-  final VoidCallback onLoadCustomSubtitle;
-  final Duration subtitleDelay;
-  final ValueChanged<Duration> onSubtitleDelayChanged;
-  final VoidCallback? onEpisodesPressed;
-  final bool autoplayNextEpisode;
-  final ValueChanged<bool>? onAutoplayChanged;
-
-  static const _speeds = [0.5, 0.75, 1.0, 1.25, 1.5, 2.0];
-
-  @override
-  Widget build(BuildContext context) {
-    final subtitleItems = <DropdownMenuItem<String>>[
-      ...playback.subtitleTracks.map(
-        (track) =>
-            DropdownMenuItem<String>(value: track.id, child: Text(track.label)),
-      ),
-      ...externalSubtitles.map(
-        (track) => DropdownMenuItem<String>(
-          value: _externalSubtitleId(track),
-          child: Text('${track.lang} · External'),
-        ),
-      ),
-    ];
-
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        color: const Color(0xB3000000),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: Colors.white12),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(
-          horizontal: AppSpacing.sm,
-          vertical: AppSpacing.xs,
-        ),
-        child: Wrap(
-          spacing: AppSpacing.sm,
-          runSpacing: AppSpacing.xs,
-          crossAxisAlignment: WrapCrossAlignment.center,
-          children: [
-            _OverlayStatusChip(
-              icon: Icons.dns_outlined,
-              label: serverLabel == null || serverLabel == providerLabel
-                  ? providerLabel
-                  : '$providerLabel · $serverLabel',
-            ),
-            if (sourceOptions.isNotEmpty)
-              _DarkDropdown<PlaybackSourceOption>(
-                tooltip: 'Provider / Server',
-                value: _selectedSourceOption,
-                items: sourceOptions
-                    .map(
-                      (option) => DropdownMenuItem<PlaybackSourceOption>(
-                        value: option,
-                        child: Text(option.label),
-                      ),
-                    )
-                    .toList(),
-                onChanged: (option) {
-                  if (option != null) onSourceSelected(option);
-                },
-              ),
-            _DarkDropdown<_QualityOption>(
-              tooltip: qualityDiscoveryComplete
-                  ? 'Quality'
-                  : 'Discovering qualities...',
-              value: _selectedQualityOption,
-              items: qualities
-                  .map(
-                    (option) => DropdownMenuItem<_QualityOption>(
-                      value: option,
-                      child: Text(option.label),
-                    ),
-                  )
-                  .toList(),
-              onChanged: (option) {
-                if (option != null) onQualitySelected(option);
-              },
-            ),
-            _DarkDropdown<String>(
-              tooltip: 'Audio',
-              value: _dropdownValue(
-                playback.selectedAudioTrackId,
-                playback.audioTracks.map((track) => track.id),
-              ),
-              items: playback.audioTracks
-                  .map(
-                    (track) => DropdownMenuItem<String>(
-                      value: track.id,
-                      child: Text(track.label),
-                    ),
-                  )
-                  .toList(),
-              onChanged: (trackId) {
-                if (trackId != null) onAudioSelected(trackId);
-              },
-            ),
-            _DarkDropdown<String>(
-              tooltip: 'Subtitles',
-              value: _dropdownValue(
-                playback.selectedSubtitleTrackId,
-                subtitleItems.map((item) => item.value).whereType<String>(),
-              ),
-              items: subtitleItems,
-              onChanged: (trackId) {
-                if (trackId == null) return;
-                final external = _matchingExternalSubtitle(trackId);
-                onSubtitleSelected(trackId, external?.url);
-              },
-            ),
-            IconButton(
-              tooltip: 'Load subtitle URL or local path',
-              onPressed: onLoadCustomSubtitle,
-              color: Colors.white,
-              icon: const Icon(Icons.subtitles_outlined),
-            ),
-            Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                IconButton(
-                  tooltip: 'Subtitle delay -250ms',
-                  onPressed: () => onSubtitleDelayChanged(
-                    const Duration(milliseconds: -250),
-                  ),
-                  color: Colors.white70,
-                  icon: const Icon(Icons.remove_circle_outline),
-                ),
-                Text(
-                  '${subtitleDelay.inMilliseconds}ms',
-                  style: const TextStyle(color: Colors.white70, fontSize: 12),
-                ),
-                IconButton(
-                  tooltip: 'Subtitle delay +250ms',
-                  onPressed: () =>
-                      onSubtitleDelayChanged(const Duration(milliseconds: 250)),
-                  color: Colors.white70,
-                  icon: const Icon(Icons.add_circle_outline),
-                ),
-              ],
-            ),
-            _DarkDropdown<double>(
-              tooltip: 'Playback speed',
-              value: _speeds.contains(playback.playbackSpeed)
-                  ? playback.playbackSpeed
-                  : 1.0,
-              items: _speeds
-                  .map(
-                    (speed) => DropdownMenuItem<double>(
-                      value: speed,
-                      child: Text('${speed}x'),
-                    ),
-                  )
-                  .toList(),
-              onChanged: (speed) {
-                if (speed != null) onSpeedSelected(speed);
-              },
-            ),
-            IconButton(
-              tooltip: 'Repeat: ${playback.repeatMode.name}',
-              onPressed: onRepeatPressed,
-              color: Colors.white,
-              icon: Icon(_repeatIcon(playback.repeatMode)),
-            ),
-            if (onEpisodesPressed != null)
-              IconButton(
-                tooltip: 'Episodes',
-                onPressed: onEpisodesPressed,
-                color: Colors.white,
-                icon: const Icon(Icons.format_list_numbered),
-              ),
-            if (onAutoplayChanged != null)
-              Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const Text(
-                    'Autoplay',
-                    style: TextStyle(color: Colors.white70, fontSize: 12),
-                  ),
-                  Switch.adaptive(
-                    value: autoplayNextEpisode,
-                    onChanged: onAutoplayChanged,
-                    activeThumbColor: AppColors.primary,
-                  ),
-                ],
-              ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  _QualityOption? get _selectedQualityOption {
-    return qualities.firstWhere(
-      (option) => option.quality == selectedQuality,
-      orElse: () => qualities.first,
-    );
-  }
-
-  PlaybackSourceOption? get _selectedSourceOption {
-    if (sourceOptions.isEmpty) return null;
-    for (final option in sourceOptions) {
-      if (option.index == selectedSourceIndex) return option;
-    }
-    return sourceOptions.first;
-  }
-
-  static String? _dropdownValue(String selected, Iterable<String> values) {
-    if (values.contains(selected)) return selected;
-    for (final value in values) {
-      return value;
-    }
-    return null;
-  }
-
-  stream_models.SubtitleTrack? _matchingExternalSubtitle(String trackId) {
-    for (final track in externalSubtitles) {
-      if (_externalSubtitleId(track) == trackId) return track;
-    }
-    return null;
-  }
-
-  static String _externalSubtitleId(stream_models.SubtitleTrack track) {
-    return 'external:${track.lang}:${track.url}';
-  }
-
-  static IconData _repeatIcon(PlaybackRepeatMode mode) {
-    return switch (mode) {
-      PlaybackRepeatMode.none => Icons.repeat,
-      PlaybackRepeatMode.one => Icons.repeat_one,
-      PlaybackRepeatMode.all => Icons.repeat_on,
-    };
-  }
-}
-
-class _DarkDropdown<T> extends StatelessWidget {
-  const _DarkDropdown({
-    required this.tooltip,
-    required this.value,
-    required this.items,
-    required this.onChanged,
-  });
-
-  final String tooltip;
-  final T? value;
-  final List<DropdownMenuItem<T>> items;
-  final ValueChanged<T?> onChanged;
-
-  @override
-  Widget build(BuildContext context) {
-    if (items.isEmpty) {
-      return SizedBox(
-        height: 36,
-        child: OutlinedButton(onPressed: null, child: Text(tooltip)),
-      );
-    }
-    return Tooltip(
-      message: tooltip,
-      child: DropdownButtonHideUnderline(
-        child: DropdownButton<T>(
-          value: value,
-          dropdownColor: const Color(0xF21A1A1A),
-          iconEnabledColor: Colors.white,
-          style: const TextStyle(color: Colors.white, fontSize: 13),
-          onChanged: onChanged,
-          items: items,
-        ),
-      ),
-    );
-  }
-}
-
-class _OverlayStatusChip extends StatelessWidget {
-  const _OverlayStatusChip({required this.icon, required this.label});
-
-  final IconData icon;
-  final String label;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
-      decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.08),
-        borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: Colors.white12),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, size: 15, color: Colors.white70),
-          const SizedBox(width: 6),
-          ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 220),
-            child: Text(
-              label,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(color: Colors.white, fontSize: 12),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _PlayerBufferingOverlay extends StatelessWidget {
-  const _PlayerBufferingOverlay();
-
-  @override
-  Widget build(BuildContext context) {
-    return const IgnorePointer(
-      child: Center(
-        child: DecoratedBox(
-          decoration: BoxDecoration(
-            color: Color(0x99000000),
-            shape: BoxShape.circle,
-          ),
-          child: Padding(
-            padding: EdgeInsets.all(AppSpacing.md),
-            child: CircularProgressIndicator(color: AppColors.primary),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _SkipOverlay extends StatelessWidget {
-  const _SkipOverlay({
-    required this.playback,
-    required this.skipTimes,
-    required this.onSkip,
-  });
-
-  final PlaybackState playback;
-  final List<SkipTime> skipTimes;
-  final ValueChanged<Duration> onSkip;
-
-  @override
-  Widget build(BuildContext context) {
-    SkipTime? active;
-    for (final skip in skipTimes) {
-      final type = skip.type.toLowerCase();
-      final isSupported =
-          type == 'op' ||
-          type == 'intro' ||
-          type == 'mixed-op' ||
-          type == 'ed' ||
-          type == 'outro' ||
-          type == 'mixed-ed';
-      if (isSupported &&
-          playback.position >= skip.startTime &&
-          playback.position < skip.endTime) {
-        active = skip;
-        break;
-      }
-    }
-    if (active == null) return const SizedBox.shrink();
-
-    final skip = active;
-
-    final skipType = skip.type.toLowerCase();
-    final isOutro =
-        skipType == 'ed' || skipType == 'outro' || skipType == 'mixed-ed';
-    return Positioned(
-      right: AppSpacing.xl,
-      bottom: AppSpacing.xl,
-      child: FilledButton.icon(
-        onPressed: () => onSkip(skip.endTime),
-        icon: const Icon(Icons.fast_forward),
-        label: Text(isOutro ? 'Skip Outro' : 'Skip Intro'),
-      ),
-    );
-  }
-}
-
-class _NextEpisodeOverlay extends StatelessWidget {
-  const _NextEpisodeOverlay({
-    required this.playback,
-    required this.autoplay,
-    required this.onNext,
-  });
-
-  final PlaybackState playback;
-  final bool autoplay;
-  final VoidCallback onNext;
-
-  @override
-  Widget build(BuildContext context) {
-    final remaining = playback.duration - playback.position;
-    final showCountdown =
-        autoplay &&
-        remaining > Duration.zero &&
-        remaining <= const Duration(seconds: 30);
-    if (!showCountdown && playback.status != PlaybackStatus.completed) {
-      return const SizedBox.shrink();
-    }
-    return Positioned(
-      right: 18,
-      bottom: 82,
-      child: DecoratedBox(
-        decoration: BoxDecoration(
-          color: const Color(0xFF181818),
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: Colors.white24, width: 0.5),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withValues(alpha: 0.75),
-              blurRadius: 20,
-              offset: const Offset(0, 4),
-            ),
-          ],
-        ),
-        child: SizedBox(
-          width: 280,
-          child: Padding(
-            padding: const EdgeInsets.all(12),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'UP NEXT',
-                  style: TextStyle(
-                    color: Colors.grey,
-                    fontSize: 11,
-                    fontWeight: FontWeight.w800,
-                    letterSpacing: 1.2,
-                  ),
-                ),
-                const SizedBox(height: 8),
-                FilledButton.icon(
-                  onPressed: onNext,
-                  icon: const Icon(Icons.play_arrow, size: 18),
-                  label: Text(
-                    showCountdown
-                        ? 'Play in ${remaining.inSeconds}s'
-                        : 'Play Now',
-                  ),
-                  style: FilledButton.styleFrom(
-                    backgroundColor: Colors.white,
-                    foregroundColor: Colors.black,
-                    minimumSize: const Size.fromHeight(40),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(6),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _PlayerLoadingOverlay extends StatelessWidget {
-  const _PlayerLoadingOverlay({
-    required this.title,
-    required this.message,
-    this.posterPath,
-    this.subtitle,
-  });
-
-  final String title;
-  final String message;
-  final String? posterPath;
-  final String? subtitle;
-
-  @override
-  Widget build(BuildContext context) {
-    final imageUrl = TmdbImageBuilder.backdrop(posterPath, size: 'w780');
-    return ColoredBox(
-      color: Colors.black,
-      child: Stack(
-        fit: StackFit.expand,
-        children: [
-          if (imageUrl.isNotEmpty)
-            Opacity(
-              opacity: 0.16,
-              child: CachedNetworkImage(
-                imageUrl: imageUrl,
-                fit: BoxFit.cover,
-                errorWidget: (_, _, _) => const SizedBox.shrink(),
-              ),
-            ),
-          Center(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const SizedBox(
-                  width: 56,
-                  height: 56,
-                  child: CircularProgressIndicator(
-                    color: AppColors.primary,
-                    strokeWidth: 3,
-                  ),
-                ),
-                const SizedBox(height: 24),
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 48),
-                  child: Text(
-                    title,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    textAlign: TextAlign.center,
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 16,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                ),
-                if (subtitle != null) ...[
-                  const SizedBox(height: 8),
-                  Text(
-                    subtitle!,
-                    style: const TextStyle(color: Colors.white54, fontSize: 13),
-                  ),
-                ],
-                const SizedBox(height: 16),
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 14,
-                    vertical: 7,
-                  ),
-                  decoration: BoxDecoration(
-                    color: Colors.white.withValues(alpha: 0.08),
-                    borderRadius: BorderRadius.circular(20),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const SizedBox(
-                        width: 12,
-                        height: 12,
-                        child: CircularProgressIndicator(
-                          color: AppColors.primary,
-                          strokeWidth: 1.5,
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      Text(
-                        message,
-                        style: const TextStyle(
-                          color: Colors.white60,
-                          fontSize: 12,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _PlayerErrorOverlay extends StatelessWidget {
-  const _PlayerErrorOverlay({
-    required this.message,
-    required this.canSwitchServer,
-    required this.onSwitchServer,
-    required this.onRetry,
-    required this.onClose,
-  });
-
-  final String message;
-  final bool canSwitchServer;
-  final VoidCallback onSwitchServer;
-  final VoidCallback onRetry;
-  final VoidCallback onClose;
-
-  @override
-  Widget build(BuildContext context) {
-    return ColoredBox(
-      color: const Color(0xE6000000),
-      child: Center(
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 480),
-          child: Padding(
-            padding: const EdgeInsets.all(AppSpacing.xl),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Icon(
-                  Icons.error_outline,
-                  color: AppColors.primary,
-                  size: 52,
-                ),
-                const SizedBox(height: AppSpacing.md),
-                const Text(
-                  'Playback unavailable',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 22,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-                const SizedBox(height: AppSpacing.sm),
-                Text(
-                  message,
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(color: Colors.white70),
-                ),
-                const SizedBox(height: AppSpacing.lg),
-                Wrap(
-                  spacing: AppSpacing.sm,
-                  runSpacing: AppSpacing.sm,
-                  children: [
-                    if (canSwitchServer)
-                      ElevatedButton.icon(
-                        onPressed: onSwitchServer,
-                        icon: const Icon(Icons.swap_horiz),
-                        label: const Text('Switch Server'),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.orange,
-                          foregroundColor: Colors.black,
-                        ),
-                      ),
-                    OutlinedButton(
-                      onPressed: onClose,
-                      child: const Text('Back'),
-                    ),
-                    FilledButton(
-                      onPressed: onRetry,
-                      child: const Text('Retry'),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _EpisodePickerDialog extends StatefulWidget {
-  const _EpisodePickerDialog({
-    required this.totalEpisodes,
-    required this.currentEpisode,
-  });
-
-  final int totalEpisodes;
-  final int currentEpisode;
-
-  @override
-  State<_EpisodePickerDialog> createState() => _EpisodePickerDialogState();
-}
-
-class _EpisodePickerDialogState extends State<_EpisodePickerDialog> {
-  final TextEditingController _controller = TextEditingController();
-  String _query = '';
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final episodes = List<int>.generate(widget.totalEpisodes, (i) => i + 1)
-        .where((episode) => _query.isEmpty || '$episode'.contains(_query))
-        .toList(growable: false);
-
-    return Dialog(
-      alignment: Alignment.bottomCenter,
-      insetPadding: const EdgeInsets.fromLTRB(24, 24, 24, 0),
-      backgroundColor: Colors.transparent,
-      child: ClipRRect(
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
-        child: Material(
-          color: const Color(0xFF141414),
-          child: SizedBox(
-            width: 560,
-            height: 560,
-            child: Column(
-              children: [
-                Container(
-                  width: 40,
-                  height: 4,
-                  margin: const EdgeInsets.only(top: 12, bottom: 16),
-                  decoration: BoxDecoration(
-                    color: Colors.grey[600],
-                    borderRadius: BorderRadius.circular(2),
-                  ),
-                ),
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 20),
-                  child: Row(
-                    children: [
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const Text(
-                              'Season 1',
-                              style: TextStyle(
-                                color: Colors.white,
-                                fontSize: 22,
-                                fontWeight: FontWeight.w800,
-                              ),
-                            ),
-                            Text(
-                              '${widget.totalEpisodes} Episodes',
-                              style: TextStyle(
-                                color: Colors.grey[400],
-                                fontSize: 13,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      IconButton(
-                        onPressed: () => Navigator.pop(context),
-                        icon: const Icon(Icons.close, color: Colors.white70),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 12),
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 20),
-                  child: TextField(
-                    controller: _controller,
-                    onChanged: (value) => setState(() => _query = value.trim()),
-                    style: const TextStyle(color: Colors.white, fontSize: 14),
-                    decoration: InputDecoration(
-                      hintText: 'Search episodes...',
-                      hintStyle: TextStyle(color: Colors.grey[500]),
-                      prefixIcon: Icon(
-                        Icons.search,
-                        color: Colors.grey[500],
-                        size: 20,
-                      ),
-                      suffixIcon: _query.isEmpty
-                          ? null
-                          : IconButton(
-                              onPressed: () {
-                                _controller.clear();
-                                setState(() => _query = '');
-                              },
-                              icon: Icon(
-                                Icons.clear,
-                                color: Colors.grey[500],
-                                size: 18,
-                              ),
-                            ),
-                      filled: true,
-                      fillColor: const Color(0xFF2A2A2A),
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(10),
-                        borderSide: BorderSide.none,
-                      ),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 12),
-                Expanded(
-                  child: episodes.isEmpty
-                      ? Center(
-                          child: Text(
-                            'No episodes match "$_query"',
-                            style: TextStyle(color: Colors.grey[400]),
-                          ),
-                        )
-                      : ListView.builder(
-                          padding: const EdgeInsets.symmetric(horizontal: 16),
-                          itemCount: episodes.length,
-                          itemBuilder: (context, index) {
-                            final episode = episodes[index];
-                            final current = episode == widget.currentEpisode;
-                            final shape = RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(10),
-                              side: current
-                                  ? const BorderSide(
-                                      color: AppColors.primary,
-                                      width: 1.5,
-                                    )
-                                  : BorderSide.none,
-                            );
-                            return Padding(
-                              padding: const EdgeInsets.only(bottom: 10),
-                              child: Material(
-                                color: current
-                                    ? AppColors.primary.withValues(alpha: 0.16)
-                                    : const Color(0xFF1E1E1E),
-                                shape: shape,
-                                clipBehavior: Clip.antiAlias,
-                                child: ListTile(
-                                  leading: CircleAvatar(
-                                    backgroundColor: Colors.black45,
-                                    child: Icon(
-                                      current
-                                          ? Icons.equalizer
-                                          : Icons.play_arrow,
-                                      color: current
-                                          ? AppColors.primary
-                                          : Colors.white,
-                                    ),
-                                  ),
-                                  title: Text(
-                                    'Episode $episode',
-                                    style: TextStyle(
-                                      color: current
-                                          ? AppColors.primary
-                                          : Colors.white,
-                                      fontWeight: FontWeight.w700,
-                                    ),
-                                  ),
-                                  trailing: current
-                                      ? const Text(
-                                          'NOW',
-                                          style: TextStyle(
-                                            color: AppColors.primary,
-                                            fontWeight: FontWeight.w800,
-                                            fontSize: 11,
-                                          ),
-                                        )
-                                      : null,
-                                  selected: current,
-                                  selectedTileColor: AppColors.primary
-                                      .withValues(alpha: 0.16),
-                                  hoverColor: Colors.white.withValues(
-                                    alpha: 0.06,
-                                  ),
-                                  shape: shape,
-                                  onTap: () => Navigator.pop(context, episode),
-                                ),
-                              ),
-                            );
-                          },
-                        ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _VolumeOverlay extends StatelessWidget {
-  const _VolumeOverlay({required this.value});
-
-  final double value;
-
-  @override
-  Widget build(BuildContext context) {
-    return Positioned(
-      left: 28,
-      top: 0,
-      bottom: 0,
-      child: Center(
-        child: ClipRRect(
-          borderRadius: BorderRadius.circular(12),
-          child: BackdropFilter(
-            filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
-            child: Container(
-              width: 44,
-              height: 220,
-              padding: const EdgeInsets.symmetric(vertical: 12),
-              decoration: BoxDecoration(
-                color: const Color(0xB3000000),
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: Colors.white12),
-              ),
-              child: Column(
-                children: [
-                  const Icon(Icons.volume_up, color: Colors.white70, size: 18),
-                  const SizedBox(height: 10),
-                  Expanded(
-                    child: RotatedBox(
-                      quarterTurns: -1,
-                      child: LinearProgressIndicator(
-                        value: (value / 2).clamp(0.0, 1.0),
-                        color: AppColors.primary,
-                        backgroundColor: Colors.white24,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 10),
-                  Text(
-                    '${(value * 100).round()}',
-                    style: const TextStyle(color: Colors.white70, fontSize: 11),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _TimeText extends StatelessWidget {
-  const _TimeText({required this.duration});
-
-  final Duration duration;
-
-  @override
-  Widget build(BuildContext context) {
-    final hours = duration.inHours;
-    final minutes = duration.inMinutes.remainder(60).toString().padLeft(2, '0');
-    final seconds = duration.inSeconds.remainder(60).toString().padLeft(2, '0');
-    final text = hours > 0
-        ? '${hours.toString().padLeft(2, '0')}:$minutes:$seconds'
-        : '$minutes:$seconds';
-    return Text(
-      text,
-      style: const TextStyle(
-        color: Colors.white,
-        fontWeight: FontWeight.w800,
-        fontSize: 13,
-      ),
-    );
-  }
 }
