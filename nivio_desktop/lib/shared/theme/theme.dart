@@ -33,6 +33,7 @@ ThemeData buildNivioDesktopTheme({Color accentColor = AppColors.primary}) {
     brightness: Brightness.dark,
     fontFamily: AppTypography.fontFamily,
     colorScheme: colorScheme,
+    splashFactory: InkRipple.splashFactory,
     scaffoldBackgroundColor: AppColors.background,
     textTheme: AppTypography.textTheme,
     cardTheme: CardThemeData(

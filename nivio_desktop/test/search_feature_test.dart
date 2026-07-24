@@ -39,7 +39,10 @@ void main() {
     WidgetTester tester,
   ) async {
     await tester.pumpWidget(
-      NivioDesktopApp(searchRepository: MockSearchRepository()),
+      NivioDesktopApp(
+        requireAuthentication: false,
+        searchRepository: MockSearchRepository(),
+      ),
     );
 
     await tester.tap(find.byKey(const ValueKey('desktop_sidebar_1')));
@@ -91,6 +94,7 @@ void main() {
 
     await tester.pumpWidget(
       NivioDesktopApp(
+        requireAuthentication: false,
         searchRepository: MockSearchRepository(items: const [item]),
         detailsRepository: detailsRepository,
       ),

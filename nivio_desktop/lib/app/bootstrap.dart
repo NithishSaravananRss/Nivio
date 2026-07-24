@@ -5,6 +5,8 @@ import 'package:flutter/widgets.dart';
 import '../core/config/app_environment.dart';
 import '../core/services/deep_link_service.dart';
 import '../core/services/desktop_cache_service.dart';
+import '../features/auth/desktop_cloud_sync_service.dart';
+import '../features/auth/firebase_auth_rest_service.dart';
 import '../features/library/services/desktop_download_service.dart';
 import '../features/library/services/episode_tracking_service.dart';
 import '../features/library/services/library_persistence.dart';
@@ -24,6 +26,11 @@ Future<void> bootstrap() async {
   await AppEnvironment.load();
   PlaybackRuntimeDiagnostics.lifecycleLog(
     'Environment loaded',
+    clock: startupClock,
+  );
+  await FirebaseAuthRestService.instance.initialize();
+  PlaybackRuntimeDiagnostics.lifecycleLog(
+    'Firebase auth restored',
     clock: startupClock,
   );
   await WatchPartySupabaseConfig.initializeIfConfigured();
@@ -50,6 +57,11 @@ Future<void> bootstrap() async {
   await DesktopWatchHistoryRepository.instance.initialize();
   PlaybackRuntimeDiagnostics.lifecycleLog(
     'Watch history initialized',
+    clock: startupClock,
+  );
+  await DesktopCloudSyncService.instance.initialize();
+  PlaybackRuntimeDiagnostics.lifecycleLog(
+    'Cloud sync initialized',
     clock: startupClock,
   );
   unawaited(DeepLinkService.instance.initialize());

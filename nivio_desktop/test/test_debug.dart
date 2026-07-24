@@ -5,8 +5,13 @@ import 'package:nivio_desktop/features/search/controllers/mock_search_repository
 
 void main() {
   testWidgets('debug search page', (WidgetTester tester) async {
-    await tester.pumpWidget(NivioDesktopApp(searchRepository: MockSearchRepository()));
-    
+    await tester.pumpWidget(
+      NivioDesktopApp(
+        requireAuthentication: false,
+        searchRepository: MockSearchRepository(),
+      ),
+    );
+
     final searchField = find.byType(TextField).first;
     await tester.enterText(searchField, 'signal');
     await tester.testTextInput.receiveAction(TextInputAction.search);

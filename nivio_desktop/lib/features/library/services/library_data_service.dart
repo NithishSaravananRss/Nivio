@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:dio/dio.dart';
@@ -6,6 +7,7 @@ import 'package:hive_flutter/hive_flutter.dart';
 
 import '../../../core/config/app_environment.dart';
 import '../../../core/constants/constants.dart';
+import '../../auth/desktop_cloud_sync_service.dart';
 import '../models/library_models.dart';
 import 'desktop_download_service.dart';
 import 'library_persistence.dart';
@@ -43,12 +45,16 @@ class LibraryWatchlistService {
 
   Future<void> remove(int mediaId) {
     if (!LibraryPersistence.isReady) return Future<void>.value();
-    return _box.delete(mediaId);
+    return _box.delete(mediaId).then((_) {
+      unawaited(DesktopCloudSyncService.instance.removeWatchlistItem(mediaId));
+    });
   }
 
   Future<void> add(LibraryWatchlistItem item) {
     if (!LibraryPersistence.isReady) return Future<void>.value();
-    return _box.put(item.id, item);
+    return _box.put(item.id, item).then((_) {
+      unawaited(DesktopCloudSyncService.instance.syncWatchlistItem(item));
+    });
   }
 
   Future<void> toggle(LibraryWatchlistItem item) async {

@@ -1,8 +1,10 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 
 import '../../core/interfaces/watch_history_repository.dart';
+import '../auth/desktop_cloud_sync_service.dart';
 import 'watch_history_storage.dart';
 
 /// Android-compatible, local-first watch history backed by Hive.
@@ -158,6 +160,7 @@ class DesktopWatchHistoryRepository extends ChangeNotifier
       ..._resolvedPreferences(progress, existing),
     };
     await _storage!.write(key, jsonEncode(record));
+    unawaited(DesktopCloudSyncService.instance.syncHistoryEntry(record));
   }
 
   @override
@@ -167,12 +170,14 @@ class DesktopWatchHistoryRepository extends ChangeNotifier
   }) async {
     await _ensureStorage();
     await _storage!.delete(_key(mediaId));
+    unawaited(DesktopCloudSyncService.instance.removeHistoryEntry(mediaId));
   }
 
   @override
   Future<void> clearWatchHistory() async {
     await _ensureStorage();
     await _storage!.clear();
+    unawaited(DesktopCloudSyncService.instance.clearCloudHistory());
   }
 
   static String _key(int mediaId) => 'null_$mediaId';

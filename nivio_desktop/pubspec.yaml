@@ -47,6 +47,7 @@ dependencies:
 
   # UI
   cached_network_image: ^3.4.1
+  crypto: ^3.0.7
   flutter_cache_manager: ^3.4.1
   flutter_svg: ^2.2.1
   image: ^4.9.1

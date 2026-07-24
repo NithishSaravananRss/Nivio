@@ -4,6 +4,8 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../core/services/desktop_update_service.dart';
+import '../features/auth/auth_view.dart';
+import '../features/auth/firebase_auth_rest_service.dart';
 import '../shared/layout/desktop_scaffold.dart';
 import '../shared/theme/index.dart';
 import '../shared/widgets/dialogs/update_dialog.dart';
@@ -22,6 +24,7 @@ class NivioDesktopApp extends StatefulWidget {
   final StreamResolver? streamResolver;
   final PlaybackEngineFactory? playbackEngineFactory;
   final WatchHistoryRepository? watchHistoryRepository;
+  final bool requireAuthentication;
 
   const NivioDesktopApp({
     super.key,
@@ -31,6 +34,7 @@ class NivioDesktopApp extends StatefulWidget {
     this.streamResolver,
     this.playbackEngineFactory,
     this.watchHistoryRepository,
+    this.requireAuthentication = true,
   });
 
   @override
@@ -39,17 +43,21 @@ class NivioDesktopApp extends StatefulWidget {
 
 class _NivioDesktopAppState extends State<NivioDesktopApp> {
   final AppAccentController _accentController = AppAccentController.instance;
+  final FirebaseAuthRestService _auth = FirebaseAuthRestService.instance;
 
   @override
   void initState() {
     super.initState();
     _accentController.addListener(_onAccentChanged);
+    _auth.addListener(_onAuthChanged);
     unawaited(_accentController.load());
+    unawaited(_auth.initialize());
   }
 
   @override
   void dispose() {
     _accentController.removeListener(_onAccentChanged);
+    _auth.removeListener(_onAuthChanged);
     super.dispose();
   }
 
@@ -57,22 +65,30 @@ class _NivioDesktopAppState extends State<NivioDesktopApp> {
     if (mounted) setState(() {});
   }
 
+  void _onAuthChanged() {
+    if (mounted) setState(() {});
+  }
+
   @override
   Widget build(BuildContext context) {
+    final home = _StartupUpdateGate(
+      child: DesktopScaffold(
+        searchRepository: widget.searchRepository,
+        homeRepository: widget.homeRepository,
+        detailsRepository: widget.detailsRepository,
+        streamResolver: widget.streamResolver,
+        playbackEngineFactory: widget.playbackEngineFactory,
+        watchHistoryRepository: widget.watchHistoryRepository,
+      ),
+    );
+
     return MaterialApp(
       title: 'Nivio Desktop',
       debugShowCheckedModeBanner: false,
       theme: buildNivioDesktopTheme(accentColor: _accentController.color),
-      home: _StartupUpdateGate(
-        child: DesktopScaffold(
-          searchRepository: widget.searchRepository,
-          homeRepository: widget.homeRepository,
-          detailsRepository: widget.detailsRepository,
-          streamResolver: widget.streamResolver,
-          playbackEngineFactory: widget.playbackEngineFactory,
-          watchHistoryRepository: widget.watchHistoryRepository,
-        ),
-      ),
+      home: widget.requireAuthentication && !_auth.isSignedIn
+          ? const AuthView()
+          : home,
     );
   }
 }

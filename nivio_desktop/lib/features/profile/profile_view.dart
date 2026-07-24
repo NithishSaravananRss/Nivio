@@ -11,6 +11,8 @@ import 'package:lucide_flutter/lucide_flutter.dart';
 import '../../shared/theme/index.dart';
 import '../../shared/widgets/feedback/error_view.dart';
 import '../../shared/widgets/feedback/loading_view.dart';
+import '../auth/desktop_cloud_sync_service.dart';
+import '../auth/firebase_auth_rest_service.dart';
 import '../library/models/library_models.dart';
 import '../library/services/library_data_service.dart';
 import '../library/services/library_persistence.dart';
@@ -98,8 +100,27 @@ class _ProfileViewState extends State<ProfileView> {
         onOpenDetail: widget.onOpenDetail,
         onBack: widget.onBack,
         onHomeLayoutChanged: widget.onHomeLayoutChanged,
+        onGoogleSignIn: () => _runAccountAction(_controller.signInWithGoogle),
+        onGuestSignIn: () => _runAccountAction(_controller.signInAsGuest),
+        onSignOut: () => _runAccountAction(_controller.signOut),
+        onSyncNow: () => _runAccountAction(_controller.syncNow),
       ),
     };
+  }
+
+  Future<void> _runAccountAction(Future<String> Function() action) async {
+    try {
+      final message = await action();
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(message)));
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(error.toString())));
+    }
   }
 }
 
@@ -113,6 +134,10 @@ class _ProfileContent extends StatelessWidget {
     required this.onCategorySelected,
     required this.onQueryChanged,
     required this.onOpenDetail,
+    required this.onGoogleSignIn,
+    required this.onGuestSignIn,
+    required this.onSignOut,
+    required this.onSyncNow,
     this.onBack,
     this.onHomeLayoutChanged,
   });
@@ -125,6 +150,10 @@ class _ProfileContent extends StatelessWidget {
   final ValueChanged<int> onCategorySelected;
   final ValueChanged<String> onQueryChanged;
   final ValueChanged<String> onOpenDetail;
+  final Future<void> Function() onGoogleSignIn;
+  final Future<void> Function() onGuestSignIn;
+  final Future<void> Function() onSignOut;
+  final Future<void> Function() onSyncNow;
   final VoidCallback? onBack;
   final VoidCallback? onHomeLayoutChanged;
 
@@ -178,9 +207,17 @@ class _ProfileContent extends StatelessWidget {
                           ),
                           const SizedBox(height: AppSpacing.sm),
                           _ProfileHeader(
+                            user: state.authUser,
+                            authBusy: state.authBusy,
+                            authConfigured: state.authConfigured,
+                            googleConfigured: state.googleConfigured,
                             watchlistCount: state.watchlist.length,
                             historyCount: state.history.length,
                             completedCount: state.completedCount,
+                            onGoogleSignIn: onGoogleSignIn,
+                            onGuestSignIn: onGuestSignIn,
+                            onSignOut: onSignOut,
+                            onSyncNow: onSyncNow,
                           ),
                           const SizedBox(height: AppSpacing.xl),
                           _ProfileSearchField(
@@ -465,14 +502,30 @@ class _ProfileDesktopContentCard extends StatelessWidget {
 
 class _ProfileHeader extends StatelessWidget {
   const _ProfileHeader({
+    required this.user,
+    required this.authBusy,
+    required this.authConfigured,
+    required this.googleConfigured,
     required this.watchlistCount,
     required this.historyCount,
     required this.completedCount,
+    required this.onGoogleSignIn,
+    required this.onGuestSignIn,
+    required this.onSignOut,
+    required this.onSyncNow,
   });
 
+  final DesktopAuthUser? user;
+  final bool authBusy;
+  final bool authConfigured;
+  final bool googleConfigured;
   final int watchlistCount;
   final int historyCount;
   final int completedCount;
+  final Future<void> Function() onGoogleSignIn;
+  final Future<void> Function() onGuestSignIn;
+  final Future<void> Function() onSignOut;
+  final Future<void> Function() onSyncNow;
 
   @override
   Widget build(BuildContext context) {
@@ -503,15 +556,36 @@ class _ProfileHeader extends StatelessWidget {
               runSpacing: AppSpacing.xl,
               crossAxisAlignment: WrapCrossAlignment.center,
               children: [
-                const _Avatar(),
+                _Avatar(photoUrl: user?.photoUrl),
                 SizedBox(
                   width: compactLayout ? constraints.maxWidth : 360,
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text('Nivio Guest', style: AppTypography.display),
+                      Text(
+                        user?.title ?? 'Nivio Guest',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: AppTypography.display,
+                      ),
                       const SizedBox(height: AppSpacing.sm),
-                      Text('Guest account', style: AppTypography.body),
+                      Text(
+                        _accountSubtitle,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: AppTypography.body,
+                      ),
+                      const SizedBox(height: AppSpacing.md),
+                      _AccountActions(
+                        user: user,
+                        busy: authBusy,
+                        authConfigured: authConfigured,
+                        googleConfigured: googleConfigured,
+                        onGoogleSignIn: onGoogleSignIn,
+                        onGuestSignIn: onGuestSignIn,
+                        onSignOut: onSignOut,
+                        onSyncNow: onSyncNow,
+                      ),
                     ],
                   ),
                 ),
@@ -529,6 +603,84 @@ class _ProfileHeader extends StatelessWidget {
           ],
         );
       },
+    );
+  }
+
+  String get _accountSubtitle {
+    if (!authConfigured) return 'Firebase auth is not configured';
+    final current = user;
+    if (current == null) return 'Sign in to sync watchlist and history';
+    if (current.isAnonymous) return 'Guest account | Local only';
+    return '${current.subtitle} | Cloud sync enabled';
+  }
+}
+
+class _AccountActions extends StatelessWidget {
+  const _AccountActions({
+    required this.user,
+    required this.busy,
+    required this.authConfigured,
+    required this.googleConfigured,
+    required this.onGoogleSignIn,
+    required this.onGuestSignIn,
+    required this.onSignOut,
+    required this.onSyncNow,
+  });
+
+  final DesktopAuthUser? user;
+  final bool busy;
+  final bool authConfigured;
+  final bool googleConfigured;
+  final Future<void> Function() onGoogleSignIn;
+  final Future<void> Function() onGuestSignIn;
+  final Future<void> Function() onSignOut;
+  final Future<void> Function() onSyncNow;
+
+  @override
+  Widget build(BuildContext context) {
+    if (!authConfigured) {
+      return const _StatusChip(icon: LucideIcons.cloudOff, label: 'Local only');
+    }
+    final current = user;
+    if (current != null && !current.isAnonymous) {
+      return Wrap(
+        spacing: AppSpacing.sm,
+        runSpacing: AppSpacing.sm,
+        children: [
+          FilledButton.icon(
+            onPressed: busy ? null : onSyncNow,
+            icon: const Icon(LucideIcons.refreshCw, size: 17),
+            label: Text(busy ? 'Syncing...' : 'Sync now'),
+          ),
+          OutlinedButton.icon(
+            onPressed: busy ? null : onSignOut,
+            icon: const Icon(LucideIcons.logOut, size: 17),
+            label: const Text('Sign out'),
+          ),
+        ],
+      );
+    }
+    return Wrap(
+      spacing: AppSpacing.sm,
+      runSpacing: AppSpacing.sm,
+      children: [
+        FilledButton.icon(
+          onPressed: busy || !googleConfigured ? null : onGoogleSignIn,
+          icon: const Icon(LucideIcons.logIn, size: 17),
+          label: Text(busy ? 'Signing in...' : 'Google'),
+        ),
+        OutlinedButton.icon(
+          onPressed: busy ? null : onGuestSignIn,
+          icon: const Icon(LucideIcons.userRound, size: 17),
+          label: const Text('Guest'),
+        ),
+        if (current != null)
+          TextButton.icon(
+            onPressed: busy ? null : onSignOut,
+            icon: const Icon(LucideIcons.x, size: 17),
+            label: const Text('Exit guest'),
+          ),
+      ],
     );
   }
 }
@@ -992,7 +1144,9 @@ class _PosterImage extends StatelessWidget {
 }
 
 class _Avatar extends StatelessWidget {
-  const _Avatar();
+  const _Avatar({this.photoUrl});
+
+  final String? photoUrl;
 
   @override
   Widget build(BuildContext context) {
@@ -1004,10 +1158,22 @@ class _Avatar extends StatelessWidget {
         shape: BoxShape.circle,
         border: Border.all(color: AppColors.borderStrong),
       ),
-      child: Icon(
-        LucideIcons.userRound,
-        color: AppColors.textPrimary,
-        size: 46,
+      child: ClipOval(
+        child: photoUrl == null
+            ? const Icon(
+                LucideIcons.userRound,
+                color: AppColors.textPrimary,
+                size: 46,
+              )
+            : CachedNetworkImage(
+                imageUrl: photoUrl!,
+                fit: BoxFit.cover,
+                errorWidget: (_, _, _) => const Icon(
+                  LucideIcons.userRound,
+                  color: AppColors.textPrimary,
+                  size: 46,
+                ),
+              ),
       ),
     );
   }
@@ -1199,8 +1365,13 @@ class _InfoRow extends StatelessWidget {
 }
 
 class _ProfileController extends ChangeNotifier {
+  _ProfileController() {
+    _auth.addListener(_reloadFromBoxes);
+  }
+
   _ProfileState state = const _ProfileState.loading();
 
+  final _auth = FirebaseAuthRestService.instance;
   final _watchlistService = LibraryWatchlistService();
   final _downloadsService = LibraryDownloadsService();
   final List<ValueListenable<dynamic>> _listenables = [];
@@ -1212,9 +1383,14 @@ class _ProfileController extends ChangeNotifier {
 
     try {
       await LibraryPersistence.init();
+      await _auth.initialize();
       _historyBox ??= await Hive.openBox<String>('watch_history');
       _attachBoxListeners();
       state = _ProfileState.ready(
+        authUser: _auth.currentUser,
+        authBusy: _auth.isBusy,
+        authConfigured: _auth.isConfigured,
+        googleConfigured: _auth.isGoogleConfigured,
         watchlist: await _loadWatchlist(),
         downloads: await _loadDownloads(),
         history: _loadHistory(),
@@ -1223,6 +1399,31 @@ class _ProfileController extends ChangeNotifier {
       state = _ProfileState.error(error.toString());
     }
     notifyListeners();
+  }
+
+  Future<String> signInWithGoogle() async {
+    await _auth.signInWithGoogle();
+    await DesktopCloudSyncService.instance.syncEverything();
+    await load();
+    return 'Signed in with Google';
+  }
+
+  Future<String> signInAsGuest() async {
+    await _auth.signInAnonymously();
+    await load();
+    return 'Guest mode enabled';
+  }
+
+  Future<String> signOut() async {
+    await _auth.signOut();
+    await load();
+    return 'Signed out';
+  }
+
+  Future<String> syncNow() async {
+    await DesktopCloudSyncService.instance.syncEverything();
+    await load();
+    return 'Cloud sync complete';
   }
 
   Future<List<LibraryWatchlistItem>> _loadWatchlist() async {
@@ -1280,6 +1481,10 @@ class _ProfileController extends ChangeNotifier {
             ..sort((a, b) => b.createdAt.compareTo(a.createdAt)))
         : <LibraryDownloadItem>[];
     state = _ProfileState.ready(
+      authUser: _auth.currentUser,
+      authBusy: _auth.isBusy,
+      authConfigured: _auth.isConfigured,
+      googleConfigured: _auth.isGoogleConfigured,
       watchlist: watchlist,
       downloads: downloads
           .map(
@@ -1296,6 +1501,7 @@ class _ProfileController extends ChangeNotifier {
 
   @override
   void dispose() {
+    _auth.removeListener(_reloadFromBoxes);
     for (final listenable in _listenables) {
       listenable.removeListener(_reloadFromBoxes);
     }
@@ -1308,6 +1514,10 @@ enum _ProfileStatus { loading, ready, error }
 class _ProfileState {
   const _ProfileState._({
     required this.status,
+    this.authUser,
+    this.authBusy = false,
+    this.authConfigured = false,
+    this.googleConfigured = false,
     this.watchlist = const [],
     this.downloads = const [],
     this.history = const [],
@@ -1320,17 +1530,29 @@ class _ProfileState {
     : this._(status: _ProfileStatus.error, error: error);
 
   const _ProfileState.ready({
+    required DesktopAuthUser? authUser,
+    required bool authBusy,
+    required bool authConfigured,
+    required bool googleConfigured,
     required List<LibraryWatchlistItem> watchlist,
     required List<_DownloadSummaryItem> downloads,
     required List<_HistoryEntry> history,
   }) : this._(
          status: _ProfileStatus.ready,
+         authUser: authUser,
+         authBusy: authBusy,
+         authConfigured: authConfigured,
+         googleConfigured: googleConfigured,
          watchlist: watchlist,
          downloads: downloads,
          history: history,
        );
 
   final _ProfileStatus status;
+  final DesktopAuthUser? authUser;
+  final bool authBusy;
+  final bool authConfigured;
+  final bool googleConfigured;
   final List<LibraryWatchlistItem> watchlist;
   final List<_DownloadSummaryItem> downloads;
   final List<_HistoryEntry> history;

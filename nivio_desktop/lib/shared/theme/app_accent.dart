@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../../features/auth/desktop_cloud_sync_service.dart';
 import 'app_colors.dart';
 
 const String appAccentColorPreferenceKey = 'app_accent_color';
@@ -78,6 +79,9 @@ class AppAccentController extends ChangeNotifier {
     _setKey(normalized);
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(appAccentColorPreferenceKey, normalized);
+    await DesktopCloudSyncService.instance.syncSettings({
+      appAccentColorPreferenceKey: normalized,
+    });
   }
 
   void _setKey(String key) {

@@ -17,6 +17,7 @@ import '../../shared/widgets/dialogs/changelog_dialog.dart';
 import '../../shared/widgets/dialogs/update_dialog.dart';
 import '../../shared/widgets/feedback/error_view.dart';
 import '../../shared/widgets/feedback/loading_view.dart';
+import '../auth/desktop_cloud_sync_service.dart';
 import '../home/controllers/home_controller.dart';
 import '../library/services/episode_tracking_service.dart';
 import '../library/services/library_persistence.dart';
@@ -1076,6 +1077,7 @@ class SettingsController extends ChangeNotifier {
   Future<void> updateStringList(String key, List<String> value) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setStringList(key, value);
+    unawaited(DesktopCloudSyncService.instance.syncSettings({key: value}));
     await load();
   }
 
@@ -1091,6 +1093,7 @@ class SettingsController extends ChangeNotifier {
       case double():
         await prefs.setDouble(key, value);
     }
+    unawaited(DesktopCloudSyncService.instance.syncSettings({key: value}));
     await load();
   }
 

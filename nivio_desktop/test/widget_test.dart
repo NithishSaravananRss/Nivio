@@ -62,6 +62,7 @@ void main() {
   testWidgets('shows the desktop home surface', (WidgetTester tester) async {
     await tester.pumpWidget(
       NivioDesktopApp(
+        requireAuthentication: false,
         searchRepository: MockSearchRepository(),
         homeRepository: MockHomeRepository(),
       ),

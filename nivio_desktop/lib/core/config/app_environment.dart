@@ -45,6 +45,10 @@ class AppEnvironment {
   static String get iptvEpgUrl => _optional('IPTV_EPG_URL');
   static String get firebaseWebApiKey => _optional('FIREBASE_WEB_API_KEY');
   static String get firebaseProjectId => _optional('FIREBASE_PROJECT_ID');
+  static String get firebaseGoogleClientId =>
+      _optional('FIREBASE_GOOGLE_CLIENT_ID');
+  static String get firebaseGoogleClientSecret =>
+      _optional('FIREBASE_GOOGLE_CLIENT_SECRET');
   static String get firebaseAppId => _optional('FIREBASE_APP_ID');
   static String get firebaseMessagingSenderId =>
       _optional('FIREBASE_MESSAGING_SENDER_ID');

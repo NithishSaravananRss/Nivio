@@ -22,6 +22,12 @@ import 'package:nivio_desktop/features/library/models/library_models.dart';
 import 'package:nivio_desktop/shared/models/iptv_channel.dart';
 import 'package:nivio_desktop/shared/models/stream_result.dart';
 
+final ThemeData _testTheme = ThemeData(
+  useMaterial3: true,
+  brightness: Brightness.dark,
+  splashFactory: InkRipple.splashFactory,
+);
+
 class FakeHealthChecker implements StreamHealthChecker {
   FakeHealthChecker(this.check, {this.contentKind = StreamContentKind.hls});
 
@@ -866,6 +872,7 @@ void main() {
 
       await tester.pumpWidget(
         MaterialApp(
+          theme: _testTheme,
           home: ResolvingPlayerScreen(
             request: initial,
             resolver: resolver,
@@ -881,6 +888,7 @@ void main() {
 
       await tester.pumpWidget(
         MaterialApp(
+          theme: _testTheme,
           home: ResolvingPlayerScreen(
             request: initial.copyWith(
               providerIndex: 12000,
@@ -920,6 +928,7 @@ void main() {
 
         await tester.pumpWidget(
           MaterialApp(
+            theme: _testTheme,
             home: ResolvingPlayerScreen(
               request: initial,
               resolver: resolver,
@@ -946,6 +955,7 @@ void main() {
 
         await tester.pumpWidget(
           MaterialApp(
+            theme: _testTheme,
             home: ResolvingPlayerScreen(
               request: initial.copyWith(
                 providerIndex: 1,
@@ -999,6 +1009,7 @@ void main() {
 
         await tester.pumpWidget(
           MaterialApp(
+            theme: _testTheme,
             home: ResolvingPlayerScreen(
               request: initial,
               resolver: resolver,
@@ -1015,6 +1026,7 @@ void main() {
 
         await tester.pumpWidget(
           MaterialApp(
+            theme: _testTheme,
             home: ResolvingPlayerScreen(
               request: initial.copyWith(
                 providerIndex: 12000,
@@ -1081,6 +1093,7 @@ void main() {
 
       await tester.pumpWidget(
         MaterialApp(
+          theme: _testTheme,
           home: ResolvingPlayerScreen(
             request: initial,
             resolver: resolver,
@@ -1127,6 +1140,7 @@ void main() {
 
         await tester.pumpWidget(
           MaterialApp(
+            theme: _testTheme,
             home: ResolvingPlayerScreen(
               request: initial,
               resolver: resolver,
@@ -1169,6 +1183,7 @@ void main() {
 
     await tester.pumpWidget(
       NivioDesktopApp(
+        requireAuthentication: false,
         homeRepository: PlaybackHomeRepository(),
         watchHistoryRepository: EmptyWatchHistoryRepository(),
         streamResolver: resolver,
