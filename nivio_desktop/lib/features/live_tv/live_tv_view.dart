@@ -58,41 +58,36 @@ class _LiveTvViewState extends State<LiveTvView> {
       return _buildLoadedView();
     }
 
-    return DesktopScrollbar(
-      controller: _scrollController,
-      child: SingleChildScrollView(
+    return NivioPageBackdrop(
+      child: DesktopScrollbar(
         controller: _scrollController,
-        physics: const BouncingScrollPhysics(),
-        child: PageContainer(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              const SizedBox(height: AppSpacing.xxl),
-              const SectionHeader(
-                title: 'Live TV',
-                subtitle: 'Load IPTV playlists and stream live channels',
-              ),
-              const SizedBox(height: AppSpacing.xxl),
-              if (_isLoading)
-                const LoadingView(message: 'Loading channels...')
-              else if (_hasLoadError)
-                _LiveTvErrorState(
-                  message: _error ?? 'Live TV failed to load.',
-                  onRetry: _loadSavedPlaylist,
-                  onAddNew: _showAddPlaylistForm,
-                )
-              else if (_channels.isEmpty)
-                _EmptyPlaylistState(
-                  controller: _urlController,
-                  error: _error,
-                  onLoad: () => _fetchPlaylist(_urlController.text.trim()),
-                  onLoadPublic: () {
-                    _urlController.text = AppEnvironment.iptvPlaylistUrl;
-                    _fetchPlaylist(_urlController.text);
-                  },
-                ),
-              const SizedBox(height: AppSpacing.massive),
-            ],
+        child: SingleChildScrollView(
+          controller: _scrollController,
+          physics: const BouncingScrollPhysics(),
+          padding: const EdgeInsets.fromLTRB(
+            AppSpacing.xxl,
+            AppSpacing.huge,
+            AppSpacing.xxl,
+            AppSpacing.massive,
+          ),
+          child: PageContainer(
+            child: _isLoading
+                ? const LoadingView(message: 'Loading channels...')
+                : _hasLoadError
+                ? _LiveTvErrorState(
+                    message: _error ?? 'Live TV failed to load.',
+                    onRetry: _loadSavedPlaylist,
+                    onAddNew: _showAddPlaylistForm,
+                  )
+                : _EmptyPlaylistState(
+                    controller: _urlController,
+                    error: _error,
+                    onLoad: () => _fetchPlaylist(_urlController.text.trim()),
+                    onLoadPublic: () {
+                      _urlController.text = AppEnvironment.iptvPlaylistUrl;
+                      _fetchPlaylist(_urlController.text);
+                    },
+                  ),
           ),
         ),
       ),
@@ -101,20 +96,19 @@ class _LiveTvViewState extends State<LiveTvView> {
 
   Widget _buildLoadedView() {
     final groups = ['All', 'Favorites', ..._groupedChannels.keys];
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        PageContainer(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              const SizedBox(height: AppSpacing.xxl),
-              const SectionHeader(
-                title: 'Live TV',
-                subtitle: 'Load IPTV playlists and stream live channels',
+    return NivioPageBackdrop(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          PageContainer(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(
+                AppSpacing.xxl,
+                AppSpacing.lg,
+                AppSpacing.xxl,
+                AppSpacing.sm,
               ),
-              const SizedBox(height: AppSpacing.xxl),
-              _LiveTvToolbar(
+              child: _LiveTvToolbar(
                 searchController: _searchController,
                 selectedGroup: _selectedGroup ?? 'All',
                 groups: groups,
@@ -131,28 +125,29 @@ class _LiveTvViewState extends State<LiveTvView> {
                 },
                 onManagePlaylists: _showPlaylistManager,
               ),
-              const SizedBox(height: AppSpacing.lg),
-            ],
+            ),
           ),
-        ),
-        Expanded(
-          child: PageContainer(
-            child: _filteredChannels.isEmpty
-                ? const Center(
-                    child: EmptyState(
-                      title: 'No channels found',
-                      message: 'Try a different search term or category.',
+          Expanded(
+            child: PageContainer(
+              child: _filteredChannels.isEmpty
+                  ? Center(
+                      child: Text(
+                        'No channels found',
+                        style: AppTypography.body.copyWith(
+                          color: AppColors.textMuted,
+                        ),
+                      ),
+                    )
+                  : _ChannelList(
+                      controller: _scrollController,
+                      channels: _filteredChannels,
+                      onToggleFavorite: _toggleFavorite,
+                      onPlay: _playChannel,
                     ),
-                  )
-                : _ChannelList(
-                    controller: _scrollController,
-                    channels: _filteredChannels,
-                    onToggleFavorite: _toggleFavorite,
-                    onPlay: _playChannel,
-                  ),
+            ),
           ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 
@@ -371,67 +366,124 @@ class _EmptyPlaylistState extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ConstrainedBox(
-      constraints: const BoxConstraints(maxWidth: 680),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Icon(
-            LucideIcons.tv,
-            size: 80,
-            color: AppColors.textMuted.withValues(alpha: 0.5),
-          ),
-          const SizedBox(height: AppSpacing.xl),
-          Text(
-            'Add your IPTV Playlist',
-            textAlign: TextAlign.center,
-            style: AppTypography.sectionTitle,
-          ),
-          const SizedBox(height: AppSpacing.sm),
-          Text(
-            'Enter an M3U URL to stream live TV channels directly in the app.',
-            textAlign: TextAlign.center,
-            style: AppTypography.body.copyWith(color: AppColors.textSecondary),
-          ),
-          const SizedBox(height: AppSpacing.xxl),
-          TextField(
-            controller: controller,
-            decoration: const InputDecoration(
-              hintText: 'https://example.com/playlist.m3u',
-              prefixIcon: Icon(Icons.link),
+    return Center(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 680),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Icon(
+              LucideIcons.tv,
+              size: 80,
+              color: AppColors.textMuted.withValues(alpha: 0.35),
             ),
-            onSubmitted: (_) => onLoad(),
-          ),
-          if (error != null) ...[
+            const SizedBox(height: AppSpacing.xl),
+            Text(
+              'Add your IPTV Playlist',
+              textAlign: TextAlign.center,
+              style: AppTypography.sectionTitle.copyWith(
+                fontSize: 22,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
             const SizedBox(height: AppSpacing.md),
             Text(
-              error!,
+              'Enter an M3U URL to stream live TV channels directly in the app.',
               textAlign: TextAlign.center,
-              style: AppTypography.caption.copyWith(color: AppColors.danger),
+              style: AppTypography.body.copyWith(
+                color: AppColors.textSecondary,
+              ),
+            ),
+            const SizedBox(height: AppSpacing.huge),
+            TextField(
+              controller: controller,
+              style: AppTypography.body.copyWith(color: AppColors.textPrimary),
+              decoration: _referenceInputDecoration(
+                hintText: 'https://example.com/playlist.m3u',
+                prefixIcon: LucideIcons.link,
+              ),
+              onSubmitted: (_) => onLoad(),
+            ),
+            if (error != null) ...[
+              const SizedBox(height: AppSpacing.md),
+              Text(
+                error!,
+                textAlign: TextAlign.center,
+                style: AppTypography.caption.copyWith(color: AppColors.danger),
+              ),
+            ],
+            const SizedBox(height: AppSpacing.xxl),
+            SizedBox(
+              width: double.infinity,
+              child: PrimaryButton(
+                label: 'Load Playlist',
+                onPressed: onLoad,
+                minimumSize: const Size(0, 50),
+              ),
+            ),
+            const SizedBox(height: AppSpacing.huge),
+            Row(
+              children: [
+                Expanded(child: Divider(color: AppColors.borderSubtle)),
+                Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: AppSpacing.lg,
+                  ),
+                  child: Text('OR', style: AppTypography.caption),
+                ),
+                Expanded(child: Divider(color: AppColors.borderSubtle)),
+              ],
+            ),
+            const SizedBox(height: AppSpacing.huge),
+            SizedBox(
+              width: double.infinity,
+              child: SecondaryButton(
+                label: 'Load Free Public Channels (iptv-org)',
+                icon: const Icon(LucideIcons.globe),
+                onPressed: onLoadPublic,
+                minimumSize: const Size(0, 50),
+              ),
             ),
           ],
-          const SizedBox(height: AppSpacing.lg),
-          PrimaryButton(label: 'Load Playlist', onPressed: onLoad),
-          const SizedBox(height: AppSpacing.xxl),
-          Row(
-            children: [
-              Expanded(child: Divider(color: AppColors.borderSubtle)),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md),
-                child: Text('OR', style: AppTypography.caption),
-              ),
-              Expanded(child: Divider(color: AppColors.borderSubtle)),
-            ],
-          ),
-          const SizedBox(height: AppSpacing.xxl),
-          SecondaryButton(
-            label: 'Load Free Public Channels (iptv-org)',
-            onPressed: onLoadPublic,
-          ),
-        ],
+        ),
       ),
     );
   }
+}
+
+InputDecoration _referenceInputDecoration({
+  required String hintText,
+  required IconData prefixIcon,
+}) {
+  return InputDecoration(
+    hintText: hintText,
+    hintStyle: AppTypography.body.copyWith(
+      color: AppColors.textPrimary.withValues(alpha: 0.3),
+    ),
+    filled: true,
+    fillColor: AppColors.textPrimary.withValues(alpha: 0.1),
+    contentPadding: const EdgeInsets.symmetric(
+      horizontal: AppSpacing.lg,
+      vertical: AppSpacing.md,
+    ),
+    border: OutlineInputBorder(
+      borderRadius: BorderRadius.circular(AppRadius.large),
+      borderSide: BorderSide.none,
+    ),
+    enabledBorder: OutlineInputBorder(
+      borderRadius: BorderRadius.circular(AppRadius.large),
+      borderSide: BorderSide.none,
+    ),
+    focusedBorder: OutlineInputBorder(
+      borderRadius: BorderRadius.circular(AppRadius.large),
+      borderSide: const BorderSide(color: AppColors.primary),
+    ),
+    prefixIcon: Icon(
+      prefixIcon,
+      color: AppColors.textPrimary.withValues(alpha: 0.5),
+      size: 20,
+    ),
+  );
 }
 
 class _LiveTvToolbar extends StatelessWidget {
@@ -459,34 +511,154 @@ class _LiveTvToolbar extends StatelessWidget {
           flex: 2,
           child: TextField(
             controller: searchController,
-            decoration: const InputDecoration(
+            style: AppTypography.body.copyWith(color: AppColors.textPrimary),
+            decoration: _referenceInputDecoration(
               hintText: 'Search channels...',
-              prefixIcon: Icon(Icons.search),
+              prefixIcon: LucideIcons.search,
             ),
             onChanged: onSearchChanged,
           ),
         ),
-        const SizedBox(width: AppSpacing.md),
+        const SizedBox(width: AppSpacing.sm),
         Expanded(
-          child: DropdownButtonFormField<String>(
-            initialValue: selectedGroup,
-            items: groups
-                .map(
-                  (group) => DropdownMenuItem(value: group, child: Text(group)),
-                )
-                .toList(),
-            onChanged: (value) {
-              if (value != null) onGroupSelected(value);
-            },
+          child: _CategoryButton(
+            selectedGroup: selectedGroup,
+            groups: groups,
+            onGroupSelected: onGroupSelected,
           ),
         ),
-        const SizedBox(width: AppSpacing.md),
-        IconButton(
-          tooltip: 'Manage Playlists',
-          onPressed: onManagePlaylists,
-          icon: const Icon(Icons.list),
+        const SizedBox(width: AppSpacing.sm),
+        DecoratedBox(
+          decoration: BoxDecoration(
+            color: AppColors.textPrimary.withValues(alpha: 0.1),
+            borderRadius: BorderRadius.circular(AppRadius.medium),
+          ),
+          child: IconButton(
+            tooltip: 'Manage Playlists',
+            onPressed: onManagePlaylists,
+            icon: const Icon(
+              LucideIcons.list,
+              color: AppColors.textSecondary,
+              size: 20,
+            ),
+          ),
         ),
       ],
+    );
+  }
+}
+
+class _CategoryButton extends StatelessWidget {
+  const _CategoryButton({
+    required this.selectedGroup,
+    required this.groups,
+    required this.onGroupSelected,
+  });
+
+  final String selectedGroup;
+  final List<String> groups;
+  final ValueChanged<String> onGroupSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(AppRadius.medium),
+        onTap: () => _showCategoryPicker(context),
+        child: Container(
+          height: 48,
+          padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md),
+          decoration: BoxDecoration(
+            color: AppColors.textPrimary.withValues(alpha: 0.1),
+            borderRadius: BorderRadius.circular(AppRadius.medium),
+          ),
+          child: Row(
+            children: [
+              Expanded(
+                child: Text(
+                  selectedGroup,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: AppTypography.body.copyWith(
+                    color: AppColors.textPrimary,
+                  ),
+                ),
+              ),
+              Icon(
+                LucideIcons.chevronDown,
+                color: AppColors.textPrimary.withValues(alpha: 0.5),
+                size: 16,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _showCategoryPicker(BuildContext context) {
+    return showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: AppColors.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(
+          top: Radius.circular(AppRadius.panel),
+        ),
+      ),
+      builder: (context) {
+        return SafeArea(
+          top: false,
+          child: Column(
+            children: [
+              Padding(
+                padding: const EdgeInsets.all(AppSpacing.lg),
+                child: Text(
+                  'Select Category',
+                  style: AppTypography.sectionTitle.copyWith(
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+              Expanded(
+                child: ListView.builder(
+                  itemCount: groups.length,
+                  itemBuilder: (context, index) {
+                    final group = groups[index];
+                    final isSelected = group == selectedGroup;
+                    return ListTile(
+                      title: Text(
+                        group,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: AppTypography.body.copyWith(
+                          color: isSelected
+                              ? AppColors.primary
+                              : AppColors.textPrimary,
+                          fontWeight: isSelected
+                              ? FontWeight.w700
+                              : FontWeight.w400,
+                        ),
+                      ),
+                      trailing: isSelected
+                          ? const Icon(
+                              LucideIcons.check,
+                              color: AppColors.primary,
+                              size: 20,
+                            )
+                          : null,
+                      onTap: () {
+                        onGroupSelected(group);
+                        Navigator.of(context).pop();
+                      },
+                    );
+                  },
+                ),
+              ),
+            ],
+          ),
+        );
+      },
     );
   }
 }
@@ -515,12 +687,18 @@ class _ChannelList extends StatelessWidget {
         itemCount: channels.length,
         itemBuilder: (context, index) {
           final channel = channels[index];
-          return Padding(
-            padding: const EdgeInsets.only(bottom: AppSpacing.sm),
-            child: Material(
-              color: AppColors.surface,
-              shape: RoundedRectangleBorder(
-                side: const BorderSide(color: AppColors.borderSubtle),
+          return RepaintBoundary(
+            child: Container(
+              margin: const EdgeInsets.only(
+                left: AppSpacing.xxl,
+                right: AppSpacing.xxl,
+                bottom: AppSpacing.md,
+              ),
+              decoration: BoxDecoration(
+                color: AppColors.textPrimary.withValues(alpha: 0.05),
+                border: Border.all(
+                  color: AppColors.textPrimary.withValues(alpha: 0.1),
+                ),
                 borderRadius: BorderRadius.circular(AppRadius.large),
               ),
               child: ListTile(
@@ -533,14 +711,21 @@ class _ChannelList extends StatelessWidget {
                   channel.name,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
+                  style: AppTypography.body.copyWith(
+                    color: AppColors.textPrimary,
+                    fontWeight: FontWeight.w500,
+                  ),
                 ),
                 subtitle: Text(
                   channel.group,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
+                  style: AppTypography.caption.copyWith(
+                    color: AppColors.textPrimary.withValues(alpha: 0.5),
+                  ),
                 ),
-                trailing: Wrap(
-                  spacing: AppSpacing.sm,
+                trailing: Row(
+                  mainAxisSize: MainAxisSize.min,
                   children: [
                     IconButton(
                       tooltip: channel.isFavorite
@@ -553,13 +738,14 @@ class _ChannelList extends StatelessWidget {
                             : Icons.favorite_border,
                         color: channel.isFavorite
                             ? AppColors.danger
-                            : AppColors.textSecondary,
+                            : AppColors.textSecondary.withValues(alpha: 0.65),
                       ),
                     ),
-                    IconButton(
-                      tooltip: 'Play channel',
-                      onPressed: () => onPlay(channel),
-                      icon: const Icon(Icons.play_circle_outline),
+                    const SizedBox(width: AppSpacing.sm),
+                    Icon(
+                      LucideIcons.circlePlay,
+                      color: AppColors.primary,
+                      size: 24,
                     ),
                   ],
                 ),
@@ -585,14 +771,22 @@ class _ChannelLogo extends StatelessWidget {
       child: SizedBox.square(
         dimension: 48,
         child: DecoratedBox(
-          decoration: const BoxDecoration(color: AppColors.surfaceVariant),
+          decoration: BoxDecoration(
+            color: Colors.black.withValues(alpha: 0.26),
+            borderRadius: BorderRadius.circular(AppRadius.medium),
+          ),
           child: channel.logo.isEmpty
-              ? const Icon(LucideIcons.tv)
+              ? Icon(
+                  LucideIcons.tv,
+                  color: AppColors.textPrimary.withValues(alpha: 0.3),
+                )
               : CachedNetworkImage(
                   imageUrl: channel.logo,
                   fit: BoxFit.contain,
-                  errorWidget: (context, url, error) =>
-                      const Icon(LucideIcons.tv),
+                  errorWidget: (context, url, error) => Icon(
+                    LucideIcons.tv,
+                    color: AppColors.textPrimary.withValues(alpha: 0.3),
+                  ),
                 ),
         ),
       ),

@@ -6,11 +6,14 @@ import 'app_spacing.dart';
 import 'app_typography.dart';
 
 /// Builds the dark Material 3 desktop theme for Nivio.
-ThemeData buildNivioDesktopTheme() {
-  final colorScheme = const ColorScheme.dark(
-    primary: AppColors.primary,
+ThemeData buildNivioDesktopTheme({Color accentColor = AppColors.primary}) {
+  final secondaryColor = Color.lerp(accentColor, Colors.white, 0.22)!;
+  final selectionFill = accentColor.withValues(alpha: 0.2);
+
+  final colorScheme = ColorScheme.dark(
+    primary: accentColor,
     onPrimary: AppColors.textPrimary,
-    secondary: AppColors.secondary,
+    secondary: secondaryColor,
     onSecondary: AppColors.textPrimary,
     error: AppColors.danger,
     onError: AppColors.textPrimary,
@@ -43,7 +46,7 @@ ThemeData buildNivioDesktopTheme() {
     ),
     filledButtonTheme: FilledButtonThemeData(
       style: FilledButton.styleFrom(
-        backgroundColor: AppColors.primary,
+        backgroundColor: accentColor,
         foregroundColor: AppColors.textPrimary,
         disabledBackgroundColor: AppColors.disabledFill,
         disabledForegroundColor: AppColors.disabledText,
@@ -90,7 +93,7 @@ ThemeData buildNivioDesktopTheme() {
       ),
       focusedBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(AppRadius.pill),
-        borderSide: const BorderSide(color: AppColors.primary),
+        borderSide: BorderSide(color: accentColor),
       ),
     ),
     scrollbarTheme: ScrollbarThemeData(
@@ -123,8 +126,8 @@ ThemeData buildNivioDesktopTheme() {
       titleTextStyle: AppTypography.pageTitle,
       contentTextStyle: AppTypography.body,
     ),
-    progressIndicatorTheme: const ProgressIndicatorThemeData(
-      color: AppColors.primary,
+    progressIndicatorTheme: ProgressIndicatorThemeData(
+      color: accentColor,
       linearTrackColor: AppColors.surfaceVariant,
     ),
     dividerTheme: const DividerThemeData(
@@ -134,7 +137,7 @@ ThemeData buildNivioDesktopTheme() {
     ),
     navigationRailTheme: NavigationRailThemeData(
       backgroundColor: AppColors.sidebarBackground,
-      selectedIconTheme: const IconThemeData(color: AppColors.primary),
+      selectedIconTheme: IconThemeData(color: accentColor),
       unselectedIconTheme: const IconThemeData(color: AppColors.textMuted),
       selectedLabelTextStyle: AppTypography.metadata.copyWith(
         color: AppColors.textPrimary,
@@ -142,14 +145,14 @@ ThemeData buildNivioDesktopTheme() {
       unselectedLabelTextStyle: AppTypography.metadata,
       indicatorColor: AppColors.sidebarSelected,
     ),
-    textSelectionTheme: const TextSelectionThemeData(
-      cursorColor: AppColors.primary,
-      selectionColor: AppColors.selectionFill,
-      selectionHandleColor: AppColors.primary,
+    textSelectionTheme: TextSelectionThemeData(
+      cursorColor: accentColor,
+      selectionColor: selectionFill,
+      selectionHandleColor: accentColor,
     ),
-    focusColor: AppColors.selectionFill,
+    focusColor: selectionFill,
     hoverColor: AppColors.hover,
-    splashColor: AppColors.selectionFill,
+    splashColor: selectionFill,
     highlightColor: AppColors.hover,
   );
 }

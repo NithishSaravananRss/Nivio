@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:lucide_flutter/lucide_flutter.dart';
 
 import '../../shared/models/watch_party_models.dart';
 import '../../shared/theme/index.dart';
@@ -12,10 +13,25 @@ import 'services/watch_party_service_supabase.dart';
 import 'services/watch_party_session_manager.dart';
 import 'services/watch_party_supabase_config.dart';
 
+class PartyPreselection {
+  const PartyPreselection({
+    required this.mediaId,
+    required this.mediaType,
+    required this.season,
+    required this.title,
+  });
+
+  final int mediaId;
+  final String mediaType;
+  final int season;
+  final String title;
+}
+
 class PartyView extends StatefulWidget {
-  const PartyView({super.key, this.onPlay});
+  const PartyView({super.key, this.onPlay, this.preselection});
 
   final ValueChanged<PlaybackRequest>? onPlay;
+  final PartyPreselection? preselection;
 
   @override
   State<PartyView> createState() => _PartyViewState();
@@ -29,6 +45,7 @@ class _PartyViewState extends State<PartyView> {
 
   WatchPartyServiceSupabase? _service;
   WatchPartySession? _session;
+  StreamSubscription<WatchPartyPlaybackState>? _playbackSub;
   StreamSubscription<WatchPartySession?>? _sessionSub;
   StreamSubscription<WatchPartyChatMessage>? _chatSub;
   StreamSubscription<WatchPartyReaction>? _reactionSub;
@@ -37,16 +54,28 @@ class _PartyViewState extends State<PartyView> {
   bool _isInitializing = true;
   bool _isLoading = false;
   bool _isControllerUpdating = false;
+  bool _hasNavigatedToPlayer = false;
+  PartyPreselection? _selection;
   String? _error;
 
   @override
   void initState() {
     super.initState();
+    _selection = widget.preselection;
     unawaited(_initialize());
   }
 
   @override
+  void didUpdateWidget(covariant PartyView oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    final incoming = widget.preselection;
+    if (incoming == null || incoming == oldWidget.preselection) return;
+    setState(() => _selection = incoming);
+  }
+
+  @override
   void dispose() {
+    _playbackSub?.cancel();
     _sessionSub?.cancel();
     _chatSub?.cancel();
     _reactionSub?.cancel();
@@ -59,43 +88,61 @@ class _PartyViewState extends State<PartyView> {
   @override
   Widget build(BuildContext context) {
     if (_isInitializing) {
-      return const Center(child: LoadingView(message: 'Loading party...'));
+      return const NivioPageBackdrop(
+        child: Center(child: LoadingView(message: 'Loading party...')),
+      );
     }
 
     if (!WatchPartySupabaseConfig.isAvailable || _service == null) {
-      return PageContainer(
-        child: Center(
-          child: EmptyState(
-            title: 'Watch Party unavailable',
-            message:
-                'Add SUPABASE_URL and SUPABASE_ANON_KEY to .env, then restart the desktop app.',
-            actionLabel: 'Retry',
-            onAction: _initialize,
+      return NivioPageBackdrop(
+        child: PageContainer(
+          child: Center(
+            child: EmptyState(
+              title: 'Watch Party unavailable',
+              message:
+                  'Add SUPABASE_URL and SUPABASE_ANON_KEY to .env, then restart the desktop app.',
+              actionLabel: 'Retry',
+              onAction: _initialize,
+            ),
           ),
         ),
       );
     }
 
-    return DesktopScrollbar(
-      child: SingleChildScrollView(
-        physics: const BouncingScrollPhysics(),
-        child: PageContainer(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              const SizedBox(height: AppSpacing.xxl),
-              const SectionHeader(
-                title: 'Party',
-                subtitle: 'Create or join a synchronized watch party',
-              ),
-              const SizedBox(height: AppSpacing.xxl),
-              if (_error != null) ...[
-                _ErrorBanner(message: _error!, onDismiss: _clearError),
-                const SizedBox(height: AppSpacing.lg),
+    return NivioPageBackdrop(
+      child: DesktopScrollbar(
+        child: SingleChildScrollView(
+          physics: const BouncingScrollPhysics(),
+          padding: const EdgeInsets.fromLTRB(
+            AppSpacing.xxl,
+            AppSpacing.lg,
+            AppSpacing.xxl,
+            AppSpacing.massive,
+          ),
+          child: PageContainer(
+            maxWidth: 1040,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Center(
+                  child: Text(
+                    'Watch Party',
+                    style: AppTypography.pageTitle.copyWith(
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: AppSpacing.xxl),
+                if (_error != null) ...[
+                  _ErrorBanner(message: _error!, onDismiss: _clearError),
+                  const SizedBox(height: AppSpacing.lg),
+                ],
+                if (_session == null)
+                  _buildLobby()
+                else
+                  _buildSession(_session!),
               ],
-              if (_session == null) _buildLobby() else _buildSession(_session!),
-              const SizedBox(height: AppSpacing.massive),
-            ],
+            ),
           ),
         ),
       ),
@@ -103,25 +150,30 @@ class _PartyViewState extends State<PartyView> {
   }
 
   Widget _buildLobby() {
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final isWide = constraints.maxWidth >= AppBreakpoints.standard;
-        final create = _LobbyPanel(
+    return Center(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 500),
+        child: _LobbyPanel(
           title: 'Start Watch Party',
-          message: 'Create a room and share the party code with friends.',
-          child: PrimaryButton(
-            label: 'Start Watch Party',
-            icon: const Icon(Icons.add),
-            isLoading: _isLoading,
-            onPressed: _isLoading ? null : _startParty,
-          ),
-        );
-        final join = _LobbyPanel(
-          title: 'Join Party',
-          message: 'Enter the 6-character invite code from the host.',
+          message: 'Create a room or join one with a 6-character invite code.',
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
+              if (_selection != null) ...[
+                _SelectedTitleBanner(
+                  selection: _selection!,
+                  onClear: _clearSelectedTitle,
+                ),
+                const SizedBox(height: AppSpacing.md),
+              ],
+              PrimaryButton(
+                label: 'Start Watch Party',
+                icon: const Icon(Icons.add),
+                isLoading: _isLoading,
+                onPressed: _isLoading ? null : _startParty,
+                minimumSize: const Size(0, 50),
+              ),
+              const SizedBox(height: AppSpacing.md),
               TextField(
                 controller: _codeController,
                 maxLength: 6,
@@ -129,42 +181,30 @@ class _PartyViewState extends State<PartyView> {
                 inputFormatters: [
                   FilteringTextInputFormatter.allow(RegExp(r'[a-zA-Z0-9]')),
                 ],
-                decoration: const InputDecoration(
-                  hintText: 'Party code',
-                  counterText: '',
+                style: AppTypography.body.copyWith(
+                  color: AppColors.textPrimary,
                 ),
+                decoration: _partyInputDecoration(hintText: 'Join with code'),
                 onSubmitted: (_) => _joinParty(),
               ),
-              const SizedBox(height: AppSpacing.md),
+              const SizedBox(height: AppSpacing.sm),
               SecondaryButton(
                 label: 'Join Party',
                 isLoading: _isLoading,
                 onPressed: _isLoading ? null : _joinParty,
+                minimumSize: const Size(0, 44),
+              ),
+              const SizedBox(height: AppSpacing.sm),
+              Text(
+                'Open playback from a room once the host starts a title.',
+                style: AppTypography.caption.copyWith(
+                  color: AppColors.textSecondary,
+                ),
               ),
             ],
           ),
-        );
-
-        if (isWide) {
-          return Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Expanded(child: create),
-              const SizedBox(width: AppSpacing.xl),
-              Expanded(child: join),
-            ],
-          );
-        }
-
-        return Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            create,
-            const SizedBox(height: AppSpacing.xl),
-            join,
-          ],
-        );
-      },
+        ),
+      ),
     );
   }
 
@@ -228,12 +268,14 @@ class _PartyViewState extends State<PartyView> {
       if (service == null) return;
 
       await _sessionSub?.cancel();
+      await _playbackSub?.cancel();
       await _chatSub?.cancel();
       await _reactionSub?.cancel();
       await _errorSub?.cancel();
 
       _service = service;
       _session = service.currentSession;
+      _playbackSub = service.playbackStream.listen(_handlePlaybackSync);
       _sessionSub = service.sessionStream.listen((session) {
         if (!mounted) return;
         setState(() => _session = session);
@@ -279,7 +321,39 @@ class _PartyViewState extends State<PartyView> {
       return;
     }
 
-    _showMessage('Party started. Share code $code.');
+    final selection = _selection;
+    if (selection == null) {
+      _showMessage('Party started. Pick a title to begin playback.');
+      return;
+    }
+
+    _hasNavigatedToPlayer = true;
+    widget.onPlay?.call(
+      PlaybackRequestFactory.fromCompositeId(
+        '${selection.mediaType}:${selection.mediaId}',
+        selection.title,
+      ).copyWith(
+        season: selection.mediaType == 'movie' ? null : selection.season,
+        episode: selection.mediaType == 'movie' ? null : 1,
+        watchPartyCode: code,
+        watchPartyRole: 'host',
+      ),
+    );
+  }
+
+  void _clearSelectedTitle() {
+    setState(() => _selection = null);
+    _showMessage('Title unselected');
+  }
+
+  void _handlePlaybackSync(WatchPartyPlaybackState playback) {
+    final service = _service;
+    if (!mounted || service == null || _hasNavigatedToPlayer) return;
+    if (!service.isInSession || service.sessionCode == null) return;
+    if (service.isHost) return;
+
+    _hasNavigatedToPlayer = true;
+    _openPlayback(playback);
   }
 
   Future<void> _joinParty() async {
@@ -303,6 +377,13 @@ class _PartyViewState extends State<PartyView> {
 
     if (!joined) {
       setState(() => _error = 'No watch party found for this code.');
+      return;
+    }
+
+    final playback = service.currentSession?.playbackState;
+    if (playback != null) {
+      _hasNavigatedToPlayer = true;
+      _openPlayback(playback);
       return;
     }
 
@@ -334,6 +415,7 @@ class _PartyViewState extends State<PartyView> {
     }
     if (!mounted) return;
     setState(() {
+      _hasNavigatedToPlayer = false;
       _messages.clear();
       _reactions.clear();
     });
@@ -369,7 +451,7 @@ class _PartyViewState extends State<PartyView> {
     widget.onPlay?.call(
       PlaybackRequestFactory.fromParty(
         playback,
-        partyCode: _session?.sessionCode,
+        partyCode: _session?.sessionCode ?? _service?.sessionCode,
         partyRole: _service?.isHost == true ? 'host' : 'participant',
       ),
     );
@@ -384,6 +466,56 @@ class _PartyViewState extends State<PartyView> {
     ScaffoldMessenger.of(context)
       ..hideCurrentSnackBar()
       ..showSnackBar(SnackBar(content: Text(message)));
+  }
+}
+
+class _SelectedTitleBanner extends StatelessWidget {
+  const _SelectedTitleBanner({required this.selection, required this.onClear});
+
+  final PartyPreselection selection;
+  final VoidCallback onClear;
+
+  @override
+  Widget build(BuildContext context) {
+    final meta = selection.mediaType == 'movie'
+        ? 'Movie'
+        : '${selection.mediaType.toUpperCase()} | Season ${selection.season}';
+
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.06),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.1)),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(AppSpacing.md),
+        child: Row(
+          children: [
+            const Icon(LucideIcons.circlePlay, color: AppColors.textPrimary),
+            const SizedBox(width: AppSpacing.md),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Selected: ${selection.title}',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: AppTypography.body.copyWith(
+                      color: AppColors.textPrimary,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  const SizedBox(height: AppSpacing.xxs),
+                  Text(meta, style: AppTypography.caption),
+                ],
+              ),
+            ),
+            TextButton(onPressed: onClear, child: const Text('Unselect')),
+          ],
+        ),
+      ),
+    );
   }
 }
 
@@ -402,18 +534,28 @@ class _LobbyPanel extends StatelessWidget {
   Widget build(BuildContext context) {
     return DecoratedBox(
       decoration: BoxDecoration(
-        color: AppColors.surface,
-        border: Border.all(color: AppColors.borderSubtle),
-        borderRadius: BorderRadius.circular(AppRadius.large),
+        color: AppColors.textPrimary.withValues(alpha: 0.06),
+        border: Border.all(color: AppColors.textPrimary.withValues(alpha: 0.1)),
+        borderRadius: BorderRadius.circular(14),
       ),
       child: Padding(
-        padding: const EdgeInsets.all(AppSpacing.xl),
+        padding: const EdgeInsets.all(AppSpacing.lg),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Text(title, style: AppTypography.sectionTitle),
+            Text(
+              title,
+              style: AppTypography.sectionTitle.copyWith(
+                fontWeight: FontWeight.w700,
+              ),
+            ),
             const SizedBox(height: AppSpacing.sm),
-            Text(message, style: AppTypography.body),
+            Text(
+              message,
+              style: AppTypography.body.copyWith(
+                color: AppColors.textSecondary,
+              ),
+            ),
             const SizedBox(height: AppSpacing.xl),
             child,
           ],
@@ -421,6 +563,34 @@ class _LobbyPanel extends StatelessWidget {
       ),
     );
   }
+}
+
+InputDecoration _partyInputDecoration({required String hintText}) {
+  return InputDecoration(
+    hintText: hintText,
+    counterText: '',
+    hintStyle: AppTypography.body.copyWith(
+      color: AppColors.textPrimary.withValues(alpha: 0.35),
+    ),
+    filled: true,
+    fillColor: AppColors.textPrimary.withValues(alpha: 0.06),
+    contentPadding: const EdgeInsets.symmetric(
+      horizontal: AppSpacing.lg,
+      vertical: AppSpacing.md,
+    ),
+    border: OutlineInputBorder(
+      borderRadius: BorderRadius.circular(AppRadius.large),
+      borderSide: BorderSide.none,
+    ),
+    enabledBorder: OutlineInputBorder(
+      borderRadius: BorderRadius.circular(AppRadius.large),
+      borderSide: BorderSide.none,
+    ),
+    focusedBorder: OutlineInputBorder(
+      borderRadius: BorderRadius.circular(AppRadius.large),
+      borderSide: const BorderSide(color: AppColors.primary),
+    ),
+  );
 }
 
 class _SessionInfoPanel extends StatelessWidget {
@@ -453,12 +623,12 @@ class _SessionInfoPanel extends StatelessWidget {
 
     return DecoratedBox(
       decoration: BoxDecoration(
-        color: AppColors.surface,
-        border: Border.all(color: AppColors.borderSubtle),
-        borderRadius: BorderRadius.circular(AppRadius.large),
+        color: AppColors.textPrimary.withValues(alpha: 0.06),
+        border: Border.all(color: AppColors.textPrimary.withValues(alpha: 0.1)),
+        borderRadius: BorderRadius.circular(AppRadius.extraLarge),
       ),
       child: Padding(
-        padding: const EdgeInsets.all(AppSpacing.xl),
+        padding: const EdgeInsets.all(14),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
@@ -467,18 +637,26 @@ class _SessionInfoPanel extends StatelessWidget {
                 Expanded(
                   child: Text(
                     'Room ${session.sessionCode}',
-                    style: AppTypography.sectionTitle,
+                    style: AppTypography.sectionTitle.copyWith(
+                      fontSize: 18,
+                      fontWeight: FontWeight.w700,
+                    ),
                   ),
                 ),
-                SecondaryButton(label: 'Copy Code', onPressed: onCopyCode),
+                TextButton(
+                  onPressed: onCopyCode,
+                  child: const Text('Copy Code'),
+                ),
               ],
             ),
-            const SizedBox(height: AppSpacing.sm),
+            const SizedBox(height: AppSpacing.xs),
             Text(
               '${session.participantCount} participants',
-              style: AppTypography.caption,
+              style: AppTypography.body.copyWith(
+                color: AppColors.textSecondary,
+              ),
             ),
-            const SizedBox(height: AppSpacing.lg),
+            const SizedBox(height: AppSpacing.md),
             Wrap(
               spacing: AppSpacing.sm,
               runSpacing: AppSpacing.sm,
@@ -490,12 +668,14 @@ class _SessionInfoPanel extends StatelessWidget {
                   ),
               ],
             ),
-            const SizedBox(height: AppSpacing.lg),
+            const SizedBox(height: AppSpacing.md),
             Text(
               controller == null
                   ? 'Delegated controller: None (host controls)'
                   : 'Delegated controller: ${controller.name} (host also controls)',
-              style: AppTypography.caption,
+              style: AppTypography.caption.copyWith(
+                color: AppColors.textSecondary,
+              ),
             ),
             if (service.isHost) ...[
               const SizedBox(height: AppSpacing.md),
@@ -505,6 +685,7 @@ class _SessionInfoPanel extends StatelessWidget {
                 children: [
                   SecondaryButton(
                     label: 'Host Controls',
+                    minimumSize: const Size(0, 36),
                     onPressed:
                         isControllerUpdating || session.controllerId == null
                         ? null
@@ -515,6 +696,7 @@ class _SessionInfoPanel extends StatelessWidget {
                   ))
                     SecondaryButton(
                       label: 'Give ${participant.name} Control',
+                      minimumSize: const Size(0, 36),
                       onPressed:
                           isControllerUpdating ||
                               session.controllerId == participant.id
@@ -524,14 +706,15 @@ class _SessionInfoPanel extends StatelessWidget {
                 ],
               ),
             ],
-            const SizedBox(height: AppSpacing.xl),
+            const SizedBox(height: AppSpacing.md),
             _PlaybackPanel(playback: playback, onOpenPlayback: onOpenPlayback),
-            const SizedBox(height: AppSpacing.xl),
+            const SizedBox(height: AppSpacing.sm),
             Align(
               alignment: Alignment.centerLeft,
               child: SecondaryButton(
                 label: service.isHost ? 'End Party' : 'Leave Party',
                 onPressed: onLeaveOrEnd,
+                minimumSize: const Size(0, 36),
               ),
             ),
           ],
@@ -552,21 +735,82 @@ class _ParticipantChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Chip(
-      avatar: CircleAvatar(child: Text(_initials(participant.name))),
-      label: Text(
-        participant.isHost ? '${participant.name} (Host)' : participant.name,
+    return Container(
+      padding: const EdgeInsets.symmetric(
+        horizontal: AppSpacing.md,
+        vertical: 5,
       ),
-      side: BorderSide(
-        color: isController ? AppColors.primary : AppColors.borderSubtle,
+      decoration: BoxDecoration(
+        color: isController
+            ? AppColors.primary.withValues(alpha: 0.3)
+            : participant.isHost
+            ? AppColors.primary.withValues(alpha: 0.2)
+            : AppColors.textPrimary.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(AppRadius.pill),
+        border: isController ? Border.all(color: AppColors.primary) : null,
       ),
-      labelStyle: TextStyle(
-        color: isController ? AppColors.primary : AppColors.textPrimary,
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          _ParticipantAvatar(participant: participant),
+          const SizedBox(width: 7),
+          Text(
+            participant.isHost
+                ? '${participant.name} (Host)'
+                : participant.name,
+            style: AppTypography.caption.copyWith(
+              color: AppColors.textPrimary,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+          if (isController) ...[
+            const SizedBox(width: AppSpacing.xs),
+            const Icon(
+              Icons.sports_esports,
+              size: 14,
+              color: AppColors.textPrimary,
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _ParticipantAvatar extends StatelessWidget {
+  const _ParticipantAvatar({required this.participant});
+
+  final WatchPartyParticipant participant;
+
+  @override
+  Widget build(BuildContext context) {
+    const radius = 12.0;
+    final photoUrl = (participant.photoUrl ?? '').trim();
+    if (photoUrl.isNotEmpty) {
+      return CircleAvatar(
+        radius: radius,
+        backgroundColor: AppColors.textPrimary.withValues(alpha: 0.12),
+        backgroundImage: NetworkImage(photoUrl),
+      );
+    }
+
+    return CircleAvatar(
+      radius: radius,
+      backgroundColor: participant.isHost
+          ? AppColors.primary.withValues(alpha: 0.35)
+          : AppColors.textPrimary.withValues(alpha: 0.12),
+      child: Text(
+        _initials(participant.name),
+        style: TextStyle(
+          color: AppColors.textPrimary,
+          fontSize: radius * 0.75,
+          fontWeight: FontWeight.w700,
+        ),
       ),
     );
   }
 
-  String _initials(String name) {
+  static String _initials(String name) {
     final parts = name
         .trim()
         .split(RegExp(r'\s+'))
@@ -588,32 +832,44 @@ class _PlaybackPanel extends StatelessWidget {
   Widget build(BuildContext context) {
     final state = playback;
     if (state == null) {
-      return const EmptyState(
-        title: 'Waiting for playback',
-        message: 'The host has not started shared playback yet.',
+      return Text(
+        'Waiting for host to start playback.',
+        style: AppTypography.body.copyWith(color: AppColors.textSecondary),
       );
     }
 
     return DecoratedBox(
       decoration: BoxDecoration(
-        color: AppColors.surfaceVariant,
-        borderRadius: BorderRadius.circular(AppRadius.medium),
+        color: AppColors.textPrimary.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(AppRadius.large),
+        border: Border.all(
+          color: AppColors.textPrimary.withValues(alpha: 0.08),
+        ),
       ),
       child: Padding(
         padding: const EdgeInsets.all(AppSpacing.lg),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Current media ${state.mediaId}', style: AppTypography.title),
+            Text(
+              'Current media ${state.mediaId}',
+              style: AppTypography.title.copyWith(
+                color: AppColors.textPrimary,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
             const SizedBox(height: AppSpacing.sm),
             Text(
               '${state.mediaType.isEmpty ? 'movie' : state.mediaType} • S${state.season} E${state.episode} • ${state.isPlaying ? 'Playing' : 'Paused'} • ${state.expectedPositionMs ~/ 1000}s',
-              style: AppTypography.caption,
+              style: AppTypography.caption.copyWith(
+                color: AppColors.textSecondary,
+              ),
             ),
             const SizedBox(height: AppSpacing.md),
             PrimaryButton(
               label: 'Go To Playback',
               onPressed: () => onOpenPlayback(state),
+              minimumSize: const Size(0, 40),
             ),
           ],
         ),
@@ -641,9 +897,9 @@ class _ChatPanel extends StatelessWidget {
   Widget build(BuildContext context) {
     return DecoratedBox(
       decoration: BoxDecoration(
-        color: AppColors.surface,
-        border: Border.all(color: AppColors.borderSubtle),
-        borderRadius: BorderRadius.circular(AppRadius.large),
+        color: AppColors.textPrimary.withValues(alpha: 0.06),
+        border: Border.all(color: AppColors.textPrimary.withValues(alpha: 0.1)),
+        borderRadius: BorderRadius.circular(AppRadius.extraLarge),
       ),
       child: Padding(
         padding: const EdgeInsets.all(AppSpacing.lg),
@@ -655,15 +911,34 @@ class _ChatPanel extends StatelessWidget {
             SizedBox(
               height: 260,
               child: messages.isEmpty
-                  ? const Center(child: Text('No messages yet.'))
+                  ? Center(
+                      child: Text(
+                        'No messages yet.',
+                        style: AppTypography.body.copyWith(
+                          color: AppColors.textPrimary.withValues(alpha: 0.5),
+                        ),
+                      ),
+                    )
                   : ListView.builder(
                       itemCount: messages.length,
                       itemBuilder: (context, index) {
                         final message = messages[index];
                         return ListTile(
                           dense: true,
-                          title: Text(message.senderName),
-                          subtitle: Text(message.text),
+                          contentPadding: EdgeInsets.zero,
+                          title: Text(
+                            message.senderName,
+                            style: AppTypography.caption.copyWith(
+                              color: AppColors.textSecondary,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                          subtitle: Text(
+                            message.text,
+                            style: AppTypography.body.copyWith(
+                              color: AppColors.textPrimary,
+                            ),
+                          ),
                         );
                       },
                     ),
@@ -671,7 +946,8 @@ class _ChatPanel extends StatelessWidget {
             const SizedBox(height: AppSpacing.md),
             TextField(
               controller: controller,
-              decoration: const InputDecoration(hintText: 'Send a message'),
+              style: AppTypography.body.copyWith(color: AppColors.textPrimary),
+              decoration: _partyInputDecoration(hintText: 'Send a message'),
               onSubmitted: (_) => onSendMessage(),
             ),
             const SizedBox(height: AppSpacing.sm),
@@ -681,7 +957,7 @@ class _ChatPanel extends StatelessWidget {
                   child: PrimaryButton(
                     label: 'Send',
                     onPressed: onSendMessage,
-                    minimumSize: const Size(0, 36),
+                    minimumSize: const Size(0, 40),
                   ),
                 ),
               ],
@@ -693,6 +969,12 @@ class _ChatPanel extends StatelessWidget {
                 for (final emoji in const ['👍', '😂', '🔥', '😮', '❤️'])
                   ActionChip(
                     label: Text(emoji),
+                    backgroundColor: AppColors.textPrimary.withValues(
+                      alpha: 0.08,
+                    ),
+                    side: BorderSide(
+                      color: AppColors.textPrimary.withValues(alpha: 0.1),
+                    ),
                     onPressed: () => onSendReaction(emoji),
                   ),
               ],

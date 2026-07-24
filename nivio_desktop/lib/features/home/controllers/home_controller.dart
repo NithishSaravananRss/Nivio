@@ -138,7 +138,7 @@ class HomeController extends ChangeNotifier {
   }
 
   Future<void> loadAll() async {
-    unawaited(reloadHomeLayoutOrder());
+    unawaited(reloadHomeLayoutOrder(loadMissing: false));
     _loadHistory();
     _loadFeatured();
     for (final sectionId in _sectionOrder) {
@@ -146,19 +146,33 @@ class HomeController extends ChangeNotifier {
     }
   }
 
-  Future<void> reloadHomeLayoutOrder({bool notify = true}) async {
+  Future<void> reloadHomeLayoutOrder({
+    bool notify = true,
+    bool loadMissing = true,
+  }) async {
     List<String>? savedOrder;
+    SharedPreferences? prefs;
     try {
-      final prefs = await SharedPreferences.getInstance();
+      prefs = await SharedPreferences.getInstance();
       savedOrder = prefs.getStringList(homeSectionOrderKey);
     } catch (_) {
       savedOrder = null;
     }
     final nextOrder = normalizeSectionOrder(savedOrder);
+    final visibleOrder = _filterEnabledSections(nextOrder, prefs);
     for (final sectionId in nextOrder) {
       _sections.putIfAbsent(sectionId, () => const HomeSectionState());
     }
-    _sectionOrder = nextOrder;
+    _sectionOrder = visibleOrder;
+    if (loadMissing) {
+      for (final sectionId in visibleOrder) {
+        final section = _sections[sectionId];
+        if ((section == null || section.items.isEmpty) &&
+            !_fetchingSections.contains(sectionId)) {
+          unawaited(_loadSection(sectionId));
+        }
+      }
+    }
     if (!_isDisposed && notify) notifyListeners();
   }
 
@@ -166,15 +180,39 @@ class HomeController extends ChangeNotifier {
     final normalized = normalizeSectionOrder(nextOrder);
     final prefs = await SharedPreferences.getInstance();
     await prefs.setStringList(homeSectionOrderKey, normalized);
-    _sectionOrder = normalized;
+    _sectionOrder = _filterEnabledSections(normalized, prefs);
     for (final sectionId in normalized) {
       _sections.putIfAbsent(sectionId, () => const HomeSectionState());
       final section = _sections[sectionId];
-      if (section == null || section.items.isEmpty && !section.isLoading) {
+      if (_sectionEnabled(sectionId, prefs) &&
+          (section == null || section.items.isEmpty && !section.isLoading)) {
         unawaited(_loadSection(sectionId));
       }
     }
     if (!_isDisposed) notifyListeners();
+  }
+
+  static List<String> _filterEnabledSections(
+    List<String> order,
+    SharedPreferences? prefs,
+  ) {
+    return order
+        .where((sectionId) => _sectionEnabled(sectionId, prefs))
+        .toList(growable: false);
+  }
+
+  static bool _sectionEnabled(String sectionId, SharedPreferences? prefs) {
+    if (sectionId == 'popular_anime' || sectionId == 'trending_anime') {
+      return prefs?.getBool('showAnime') ?? true;
+    }
+    return switch (sectionId) {
+      'tamil' => prefs?.getBool('showTamil') ?? true,
+      'telugu' => prefs?.getBool('showTelugu') ?? true,
+      'hindi' => prefs?.getBool('showHindi') ?? true,
+      'malayalam' => prefs?.getBool('showMalayalam') ?? true,
+      'korean' => prefs?.getBool('showKorean') ?? true,
+      _ => true,
+    };
   }
 
   static List<String> normalizeSectionOrder(List<String>? savedOrder) {

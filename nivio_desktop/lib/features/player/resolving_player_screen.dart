@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../shared/theme/index.dart';
 import '../../core/interfaces/watch_history_repository.dart';
@@ -229,32 +230,82 @@ class _ResolvingPlayerScreenState extends State<ResolvingPlayerScreen> {
   Future<PlaybackRequest> _requestWithHistoryPreferences(
     PlaybackRequest request,
   ) async {
+    final defaultedRequest = widget.resolver == null
+        ? await _requestWithDefaultPreferences(request)
+        : request;
     final repository = widget.watchHistoryRepository;
-    final mediaId = request.numericMediaId;
-    if (repository == null || mediaId == null || request.hasPlayableSource) {
-      return request;
+    final mediaId = defaultedRequest.numericMediaId;
+    if (repository == null ||
+        mediaId == null ||
+        defaultedRequest.hasPlayableSource) {
+      return defaultedRequest;
     }
 
     final progress = await repository.getWatchProgress(
       mediaId: mediaId,
-      mediaType: request.mediaTypeName,
-      seasonNumber: request.season,
-      episodeNumber: request.episode,
+      mediaType: defaultedRequest.mediaTypeName,
+      seasonNumber: defaultedRequest.season,
+      episodeNumber: defaultedRequest.episode,
     );
-    if (progress == null) return request;
+    if (progress == null) return defaultedRequest;
 
-    return request.copyWith(
+    return defaultedRequest.copyWith(
       providerIndex:
-          request.providerIndex ?? _integer(progress['preferredProviderIndex']),
+          request.providerIndex ??
+          _integer(progress['preferredProviderIndex']) ??
+          defaultedRequest.providerIndex,
       preferredAudioTrack:
           request.preferredAudioTrack ??
-          _string(progress['preferredAudioTrack']),
+          _string(progress['preferredAudioTrack']) ??
+          defaultedRequest.preferredAudioTrack,
       preferredSubtitleTrack:
           request.preferredSubtitleTrack ??
-          _string(progress['preferredSubtitleTrack']),
+          _string(progress['preferredSubtitleTrack']) ??
+          defaultedRequest.preferredSubtitleTrack,
       preferredQuality:
-          request.preferredQuality ?? _string(progress['preferredResolution']),
+          request.preferredQuality ??
+          _string(progress['preferredResolution']) ??
+          defaultedRequest.preferredQuality,
     );
+  }
+
+  Future<PlaybackRequest> _requestWithDefaultPreferences(
+    PlaybackRequest request,
+  ) async {
+    if (request.hasPlayableSource) return request;
+    try {
+      final prefs = await SharedPreferences.getInstance().timeout(
+        const Duration(milliseconds: 250),
+      );
+      final quality = _normalizedPreference(prefs.getString('video_quality'));
+      final subtitle = _normalizedPreference(
+        prefs.getString('preferred_subtitle_language'),
+      );
+      var audio = _normalizedPreference(
+        prefs.getString('preferred_audio_language'),
+      );
+      if (request.mediaType == PlaybackMediaType.anime) {
+        audio ??= prefs.getString('animePreferredAudio') == 'dub'
+            ? 'dub'
+            : 'sub';
+      }
+
+      return request.copyWith(
+        preferredQuality: request.preferredQuality ?? quality,
+        preferredAudioTrack: request.preferredAudioTrack ?? audio,
+        preferredSubtitleTrack: request.preferredSubtitleTrack ?? subtitle,
+      );
+    } catch (_) {
+      return request;
+    }
+  }
+
+  static String? _normalizedPreference(String? value) {
+    final text = value?.trim();
+    if (text == null || text.isEmpty || text.toLowerCase() == 'auto') {
+      return null;
+    }
+    return text;
   }
 
   static int? _integer(Object? value) {

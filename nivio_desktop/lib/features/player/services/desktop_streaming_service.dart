@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:dio/dio.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../../shared/models/stream_result.dart';
 import '../models/playback_request.dart';
@@ -394,7 +395,7 @@ class DesktopStreamingService implements StreamResolver {
       );
       return enumerated;
     }
-    return _registry.sourcesFor(request);
+    return _sourcesFor(request);
   }
 
   @override
@@ -472,9 +473,13 @@ class DesktopStreamingService implements StreamResolver {
 
     _lastFailure = null;
     final providers = _registry.providersFor(request);
-    final allSources = (await _registry.sourcesFor(request))
-        .where((source) => source.directMedia && !source.iframeOnly)
-        .toList(growable: false);
+    final allSources =
+        (await _sourcesFor(
+              request,
+              respectPreferredAnimeSource: request.providerIndex == null,
+            ))
+            .where((source) => source.directMedia && !source.iframeOnly)
+            .toList(growable: false);
     if (allSources.isEmpty) {
       throw const StreamResolutionException(
         'No downloadable providers are available for this media.',
@@ -530,7 +535,10 @@ class DesktopStreamingService implements StreamResolver {
     StreamResolutionStatus? onStatus,
   ) async {
     _lastFailure = null;
-    final sources = await _registry.sourcesFor(request);
+    final sources = await _sourcesFor(
+      request,
+      respectPreferredAnimeSource: request.providerIndex == null,
+    );
     _enumeratedSourcesKey = _sourcesKey(request);
     _enumeratedSources = List.unmodifiable(sources);
     if (sources.isEmpty) {
@@ -583,6 +591,43 @@ class DesktopStreamingService implements StreamResolver {
       _lastFailure ??
           'No stream is currently available from the configured providers.',
     );
+  }
+
+  Future<List<PlaybackSourceOption>> _sourcesFor(
+    PlaybackRequest request, {
+    bool respectPreferredAnimeSource = true,
+  }) async {
+    final sources = await _registry.sourcesFor(request);
+    if (!respectPreferredAnimeSource ||
+        request.mediaType != PlaybackMediaType.anime ||
+        sources.length < 2) {
+      return sources;
+    }
+
+    final preferred = await _preferredAnimeSourceId();
+    if (preferred == null) return sources;
+
+    final ordered = [...sources]
+      ..sort((a, b) {
+        final aPreferred = a.providerId == preferred;
+        final bPreferred = b.providerId == preferred;
+        if (aPreferred == bPreferred) return a.index.compareTo(b.index);
+        return aPreferred ? -1 : 1;
+      });
+    return ordered;
+  }
+
+  Future<String?> _preferredAnimeSourceId() async {
+    try {
+      final prefs = await SharedPreferences.getInstance().timeout(
+        const Duration(milliseconds: 250),
+      );
+      final preferred = prefs.getString('preferred_anime_source')?.trim();
+      if (preferred == null || preferred.isEmpty) return null;
+      return preferred.toLowerCase();
+    } catch (_) {
+      return null;
+    }
   }
 
   static String _sourcesKey(PlaybackRequest request) {

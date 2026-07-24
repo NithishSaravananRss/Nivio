@@ -199,64 +199,95 @@ class _ProviderHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        IconButton(
-          tooltip: 'All providers',
-          onPressed: controller.showAllProviders,
-          icon: const Icon(LucideIcons.arrowLeft),
-        ),
-        const SizedBox(width: AppSpacing.md),
-        Container(
-          width: 72,
-          height: 72,
+    final logoUrl = _providerLogoUrl(provider.logoPath);
+    final fallbackAccent = context.appAccent;
+
+    return FutureBuilder<DynamicArtworkColors>(
+      future: dynamicArtworkColorsForUrl(logoUrl),
+      builder: (context, snapshot) {
+        final accent = snapshot.data?.dominant ?? fallbackAccent;
+        return DecoratedBox(
           decoration: BoxDecoration(
-            color: AppColors.surfaceVariant,
-            borderRadius: BorderRadius.circular(AppRadius.large),
-            border: Border.all(color: AppColors.borderSubtle),
+            color: Color.lerp(AppColors.surface, accent, 0.08),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: accent.withValues(alpha: 0.22)),
           ),
-          clipBehavior: Clip.antiAlias,
-          child: _providerLogo(provider.logoPath) == null
-              ? Center(
-                  child: Text(
-                    provider.name.characters.first,
-                    style: AppTypography.sectionTitle,
-                  ),
-                )
-              : Image(
-                  image: _providerLogo(provider.logoPath)!,
-                  fit: BoxFit.cover,
+          child: Padding(
+            padding: const EdgeInsets.all(AppSpacing.lg),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                IconButton(
+                  tooltip: 'All providers',
+                  onPressed: controller.showAllProviders,
+                  icon: const Icon(LucideIcons.arrowLeft),
                 ),
-        ),
-        const SizedBox(width: AppSpacing.lg),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                provider.name.trim(),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: AppTypography.pageTitle,
-              ),
-              const SizedBox(height: AppSpacing.md),
-              Wrap(
-                spacing: AppSpacing.sm,
-                runSpacing: AppSpacing.sm,
-                children: [
-                  for (final mediaType in ProviderMediaType.values)
-                    ChoiceChip(
-                      label: Text(mediaType.label),
-                      selected: controller.selectedMediaType == mediaType,
-                      onSelected: (_) => controller.selectMediaType(mediaType),
-                    ),
-                ],
-              ),
-            ],
+                const SizedBox(width: AppSpacing.md),
+                Container(
+                  width: 72,
+                  height: 72,
+                  decoration: BoxDecoration(
+                    color: AppColors.surfaceVariant,
+                    borderRadius: BorderRadius.circular(AppRadius.large),
+                    border: Border.all(color: accent.withValues(alpha: 0.35)),
+                  ),
+                  clipBehavior: Clip.antiAlias,
+                  child: _providerLogo(provider.logoPath) == null
+                      ? Center(
+                          child: Text(
+                            provider.name.characters.first,
+                            style: AppTypography.sectionTitle,
+                          ),
+                        )
+                      : Image(
+                          image: _providerLogo(provider.logoPath)!,
+                          fit: BoxFit.cover,
+                        ),
+                ),
+                const SizedBox(width: AppSpacing.lg),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        provider.name.trim(),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: AppTypography.pageTitle,
+                      ),
+                      const SizedBox(height: AppSpacing.md),
+                      Wrap(
+                        spacing: AppSpacing.sm,
+                        runSpacing: AppSpacing.sm,
+                        children: [
+                          for (final mediaType in ProviderMediaType.values)
+                            ChoiceChip(
+                              label: Text(mediaType.label),
+                              selected:
+                                  controller.selectedMediaType == mediaType,
+                              selectedColor: accent.withValues(alpha: 0.2),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(999),
+                                side: BorderSide(
+                                  color:
+                                      controller.selectedMediaType == mediaType
+                                      ? accent.withValues(alpha: 0.65)
+                                      : AppColors.borderSubtle,
+                                ),
+                              ),
+                              onSelected: (_) =>
+                                  controller.selectMediaType(mediaType),
+                            ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
           ),
-        ),
-      ],
+        );
+      },
     );
   }
 }
@@ -351,7 +382,12 @@ class _ProviderMediaCard extends StatelessWidget {
 }
 
 ImageProvider? _providerLogo(String? logoPath) {
+  final logoUrl = _providerLogoUrl(logoPath);
+  return logoUrl == null ? null : NetworkImage(logoUrl);
+}
+
+String? _providerLogoUrl(String? logoPath) {
   if (logoPath == null || logoPath.isEmpty) return null;
-  if (logoPath.startsWith('http')) return NetworkImage(logoPath);
-  return NetworkImage('$tmdbImageBaseUrl/w200$logoPath');
+  if (logoPath.startsWith('http')) return logoPath;
+  return '$tmdbImageBaseUrl/w200$logoPath';
 }

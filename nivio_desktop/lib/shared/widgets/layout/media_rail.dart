@@ -1,3 +1,4 @@
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 
 import '../../theme/index.dart';
@@ -36,6 +37,34 @@ class _MediaRailState extends State<MediaRail> {
     super.dispose();
   }
 
+  void _handlePointerSignal(PointerSignalEvent event) {
+    if (event is! PointerScrollEvent) return;
+    final delta = event.scrollDelta;
+    if (delta.dy == 0 || delta.dy.abs() < delta.dx.abs()) return;
+
+    final verticalPosition = Scrollable.maybeOf(
+      context,
+      axis: Axis.vertical,
+    )?.position;
+    if (verticalPosition == null || !verticalPosition.hasPixels) return;
+
+    final target = (verticalPosition.pixels + delta.dy)
+        .clamp(
+          verticalPosition.minScrollExtent,
+          verticalPosition.maxScrollExtent,
+        )
+        .toDouble();
+    if (target == verticalPosition.pixels) return;
+
+    GestureBinding.instance.pointerSignalResolver.register(event, (
+      resolvedEvent,
+    ) {
+      if (resolvedEvent is PointerScrollEvent) {
+        verticalPosition.pointerScroll(resolvedEvent.scrollDelta.dy);
+      }
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     final rail = ListView.separated(
@@ -51,11 +80,14 @@ class _MediaRailState extends State<MediaRail> {
           SizedBox(width: widget.itemWidth, child: widget.children[index]),
     );
 
-    return SizedBox(
-      height: widget.height,
-      child: widget.thumbVisibility
-          ? DesktopScrollbar(controller: _controller, child: rail)
-          : rail,
+    return Listener(
+      onPointerSignal: _handlePointerSignal,
+      child: SizedBox(
+        height: widget.height,
+        child: widget.thumbVisibility
+            ? DesktopScrollbar(controller: _controller, child: rail)
+            : rail,
+      ),
     );
   }
 }

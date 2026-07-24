@@ -29,6 +29,7 @@ import '../../features/search/controllers/search_controller.dart';
 import '../../features/search/models/search_media_item.dart';
 import '../../features/home/controllers/home_controller.dart';
 import '../../features/details/controllers/detail_controller.dart';
+import '../../features/details/models/detail_models.dart';
 import '../../features/details/models/detail_route_args.dart';
 import '../../features/search/presentation/search_view.dart';
 import '../../core/repositories/tmdb_search_repository.dart';
@@ -114,6 +115,7 @@ class _DesktopScaffoldState extends State<DesktopScaffold> {
   Timer? _sidebarCollapseTimer;
   DetailRouteArgs? _detailRouteArgs;
   PlaybackRequest? _playbackRequest;
+  PartyPreselection? _partyPreselection;
   bool _isProviderBrowserOpen = false;
   bool _isMoviesBrowserOpen = false;
   bool _showHomeDetailOverlay = false;
@@ -150,7 +152,7 @@ class _DesktopScaffoldState extends State<DesktopScaffold> {
     }
   }
 
-  void _selectDestination(int index) {
+  void _selectDestination(int index, {bool keepPartyPreselection = false}) {
     setState(() {
       _selectedIndex = index;
       _detailRouteArgs = null;
@@ -158,6 +160,9 @@ class _DesktopScaffoldState extends State<DesktopScaffold> {
       _homeDetailOverlayMounted = false;
       _isProviderBrowserOpen = false;
       _isMoviesBrowserOpen = false;
+      if (index == _partyIndex && !keepPartyPreselection) {
+        _partyPreselection = null;
+      }
       _lastSidebarIndex = index;
     });
 
@@ -168,6 +173,43 @@ class _DesktopScaffoldState extends State<DesktopScaffold> {
         }
       });
     }
+  }
+
+  void _returnHome() {
+    _selectDestination(_homeIndex);
+  }
+
+  void _openWatchTogether(DetailMedia media, int season) {
+    final mediaId = _numericDetailMediaId(media);
+    if (mediaId == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Watch Together unavailable.')),
+      );
+      return;
+    }
+    setState(() {
+      _partyPreselection = PartyPreselection(
+        mediaId: mediaId,
+        mediaType: _routeTypeForDetailMedia(media.mediaType),
+        season: media.isSeries ? season : 1,
+        title: media.title,
+      );
+    });
+    _selectDestination(_partyIndex, keepPartyPreselection: true);
+  }
+
+  int? _numericDetailMediaId(DetailMedia media) {
+    final raw = media.id.contains(':') ? media.id.split(':').last : media.id;
+    return int.tryParse(raw);
+  }
+
+  String _routeTypeForDetailMedia(DetailMediaType type) {
+    return switch (type) {
+      DetailMediaType.movie => 'movie',
+      DetailMediaType.tv => 'tv',
+      DetailMediaType.anime => 'anime',
+      DetailMediaType.live => 'tv',
+    };
   }
 
   void _focusGlobalSearch() {
@@ -446,11 +488,10 @@ class _DesktopScaffoldState extends State<DesktopScaffold> {
       return ColoredBox(color: AppColors.background, child: _buildContent());
     }
 
-    final content = _buildContentStack();
     if (_selectedIndex == _homeIndex) {
       return Stack(
         children: [
-          Positioned.fill(child: content),
+          Positioned.fill(child: _buildContentStack()),
           const Positioned(
             left: 0,
             right: 0,
@@ -464,42 +505,41 @@ class _DesktopScaffoldState extends State<DesktopScaffold> {
       );
     }
 
-    return Column(
-      children: [
-        SizedBox(
-          height: AppBreakpoints.topbarHeight,
-          child: const DesktopTopbar(),
-        ),
-        Expanded(child: content),
-      ],
-    );
+    return _buildContentStack();
   }
 
   Widget _buildContentStack() {
+    final hideSidebar = _selectedIndex == _profileIndex;
     return Stack(
       children: [
         Positioned.fill(
           child: ColoredBox(
             color: AppColors.background,
-            child: _buildContent(includeDetail: !_homeDetailOverlayMounted),
+            child: Padding(
+              padding: EdgeInsets.only(
+                left: hideSidebar ? 0 : DesktopSidebar.preferredWidth,
+              ),
+              child: _buildContent(includeDetail: !_homeDetailOverlayMounted),
+            ),
           ),
         ),
-        AnimatedPositioned(
-          duration: AppAnimation.sidebar,
-          curve: AppAnimation.emphasized,
-          left: 0,
-          top: 0,
-          bottom: 0,
-          width: _isSidebarHovered
-              ? DesktopSidebar.expandedWidth
-              : DesktopSidebar.preferredWidth,
-          child: DesktopSidebar(
-            isExpanded: _isSidebarHovered,
-            selectedIndex: _lastSidebarIndex,
-            onItemHoverChanged: _setSidebarHovered,
-            onDestinationSelected: _selectDestination,
+        if (!hideSidebar)
+          AnimatedPositioned(
+            duration: AppAnimation.sidebar,
+            curve: AppAnimation.emphasized,
+            left: 0,
+            top: 0,
+            bottom: 0,
+            width: _isSidebarHovered
+                ? DesktopSidebar.expandedWidth
+                : DesktopSidebar.preferredWidth,
+            child: DesktopSidebar(
+              isExpanded: _isSidebarHovered,
+              selectedIndex: _lastSidebarIndex,
+              onItemHoverChanged: _setSidebarHovered,
+              onDestinationSelected: _selectDestination,
+            ),
           ),
-        ),
       ],
     );
   }
@@ -544,6 +584,7 @@ class _DesktopScaffoldState extends State<DesktopScaffold> {
                     onBack: _closeDetail,
                     onOpenDetail: _openDetail,
                     onPlay: _openPlayback,
+                    onWatchTogether: _openWatchTogether,
                     watchHistoryRepository: _watchHistoryRepository,
                     homeOverlay: true,
                   ),
@@ -565,6 +606,7 @@ class _DesktopScaffoldState extends State<DesktopScaffold> {
         onBack: _closeDetail,
         onOpenDetail: _openDetail,
         onPlay: _openPlayback,
+        onWatchTogether: _openWatchTogether,
         watchHistoryRepository: _watchHistoryRepository,
       );
     }
@@ -601,9 +643,13 @@ class _DesktopScaffoldState extends State<DesktopScaffold> {
         watchHistoryRepository: _watchHistoryRepository,
       ),
       _liveTvIndex => LiveTvView(onPlay: _openPlayback),
-      _partyIndex => PartyView(onPlay: _openPlayback),
+      _partyIndex => PartyView(
+        onPlay: _openPlayback,
+        preselection: _partyPreselection,
+      ),
       _profileIndex => ProfileView(
         onOpenDetail: _openDetail,
+        onBack: _returnHome,
         onHomeLayoutChanged: () {
           unawaited(_homeStateController.reloadHomeLayoutOrder());
         },

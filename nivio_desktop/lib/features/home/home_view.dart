@@ -240,7 +240,7 @@ class _FeaturedMasthead extends StatelessWidget {
     final selectedIndex = currentPage % items.length;
     final screenWidth = MediaQuery.sizeOf(context).width;
     final compact = screenWidth < AppBreakpoints.compact;
-    final contentInset = compact ? AppSpacing.xxl : 150.0;
+    final contentInset = compact ? AppSpacing.xl : 92.0;
     final heroHeight = _heroHeight(context);
     final narrowDesktop = screenWidth < AppBreakpoints.standard;
     final contentWidth = compact
@@ -288,7 +288,7 @@ class _FeaturedMasthead extends StatelessWidget {
                   final offset = scrollController.hasClients
                       ? scrollController.offset.clamp(0.0, heroHeight)
                       : 0.0;
-                  final fade = (offset / (heroHeight * 0.64)).clamp(0.0, 0.82);
+                  final fade = (offset / (heroHeight * 0.72)).clamp(0.0, 0.54);
 
                   return Transform.translate(
                     offset: Offset(0, offset),
@@ -558,7 +558,7 @@ class _HeroThumbnailState extends State<_HeroThumbnail> {
                     borderRadius: BorderRadius.circular(AppRadius.medium),
                     border: Border.all(
                       color: widget.selected
-                          ? const Color(0xFFE5097F)
+                          ? context.appAccent
                           : _hovered
                           ? Colors.white.withValues(alpha: 0.78)
                           : Colors.white.withValues(alpha: 0.16),
@@ -716,12 +716,18 @@ class _ContinueWatchingSection extends StatelessWidget {
                 ? 'Season $season · Episode $episode'
                 : 'Movie';
 
-            final imagePath =
-                (item['posterPath'] ??
-                        item['poster_path'] ??
-                        item['backdropPath'] ??
-                        item['backdrop_path'])
-                    ?.toString();
+            final posterPath = (item['posterPath'] ?? item['poster_path'])
+                ?.toString();
+            final backdropPath = (item['backdropPath'] ?? item['backdrop_path'])
+                ?.toString();
+            final imagePath = backdropPath?.isNotEmpty == true
+                ? backdropPath
+                : posterPath;
+            final imageUrl = imagePath?.isNotEmpty == true
+                ? backdropPath?.isNotEmpty == true
+                      ? TmdbImageBuilder.backdrop(imagePath!)
+                      : TmdbImageBuilder.poster(imagePath!)
+                : null;
             final remainingSeconds =
                 ((item['totalDurationSeconds'] as num?)?.toInt() ?? 0) -
                 ((item['lastPositionSeconds'] as num?)?.toInt() ?? 0);
@@ -736,9 +742,7 @@ class _ContinueWatchingSection extends StatelessWidget {
                   ? '${remainingMinutes}m'
                   : null,
               posterLabel: title,
-              imageProvider: imagePath != null && imagePath.isNotEmpty
-                  ? NetworkImage(TmdbImageBuilder.backdrop(imagePath))
-                  : null,
+              imageProvider: imageUrl == null ? null : NetworkImage(imageUrl),
               progress: progress,
               onResume: id == null
                   ? null

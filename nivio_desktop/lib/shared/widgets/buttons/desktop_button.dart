@@ -47,14 +47,19 @@ class _DesktopButtonState extends State<DesktopButton> {
   @override
   Widget build(BuildContext context) {
     final enabled = widget.onPressed != null && !widget.isLoading;
-    final colors = _resolveColors(widget.variant, enabled);
-    final scale = _isPressed ? 0.98 : _isHovered && enabled ? 1.02 : 1.0;
+    final colors = _resolveColors(context, widget.variant, enabled);
+    final scale = _isPressed
+        ? 0.98
+        : _isHovered && enabled
+        ? 1.02
+        : 1.0;
 
     final button = FocusableActionDetector(
       focusNode: widget.focusNode,
       autofocus: widget.autofocus,
-      mouseCursor:
-          enabled ? SystemMouseCursors.click : SystemMouseCursors.forbidden,
+      mouseCursor: enabled
+          ? SystemMouseCursors.click
+          : SystemMouseCursors.forbidden,
       onShowFocusHighlight: (value) => setState(() => _isFocused = value),
       onShowHoverHighlight: (value) => setState(() => _isHovered = value),
       shortcuts: const <ShortcutActivator, Intent>{
@@ -80,9 +85,13 @@ class _DesktopButtonState extends State<DesktopButton> {
           child: GestureDetector(
             behavior: HitTestBehavior.opaque,
             onTap: enabled ? widget.onPressed : null,
-            onTapDown: enabled ? (_) => setState(() => _isPressed = true) : null,
+            onTapDown: enabled
+                ? (_) => setState(() => _isPressed = true)
+                : null,
             onTapUp: enabled ? (_) => setState(() => _isPressed = false) : null,
-            onTapCancel: enabled ? () => setState(() => _isPressed = false) : null,
+            onTapCancel: enabled
+                ? () => setState(() => _isPressed = false)
+                : null,
             child: AnimatedScaleContainer(
               scale: scale,
               child: AnimatedContainer(
@@ -95,7 +104,9 @@ class _DesktopButtonState extends State<DesktopButton> {
                 padding: widget.padding ?? _defaultPadding(widget.variant),
                 decoration: BoxDecoration(
                   color: colors.background,
-                  borderRadius: BorderRadius.circular(_borderRadius(widget.variant)),
+                  borderRadius: BorderRadius.circular(
+                    _borderRadius(widget.variant),
+                  ),
                   border: Border.all(
                     color: _isFocused ? colors.focusBorder : colors.border,
                     width: _isFocused ? 1.5 : 1,
@@ -104,14 +115,19 @@ class _DesktopButtonState extends State<DesktopButton> {
                 child: Stack(
                   alignment: Alignment.center,
                   children: [
-                    Opacity(opacity: widget.isLoading ? 0 : 1, child: _buildChild(colors)),
+                    Opacity(
+                      opacity: widget.isLoading ? 0 : 1,
+                      child: _buildChild(colors),
+                    ),
                     if (widget.isLoading)
                       SizedBox(
                         width: 18,
                         height: 18,
                         child: CircularProgressIndicator(
                           strokeWidth: 2,
-                          valueColor: AlwaysStoppedAnimation<Color>(colors.foreground),
+                          valueColor: AlwaysStoppedAnimation<Color>(
+                            colors.foreground,
+                          ),
                         ),
                       ),
                   ],
@@ -123,7 +139,10 @@ class _DesktopButtonState extends State<DesktopButton> {
       ),
     );
 
-    return MouseRegion(cursor: enabled ? SystemMouseCursors.click : SystemMouseCursors.forbidden, child: button);
+    return MouseRegion(
+      cursor: enabled ? SystemMouseCursors.click : SystemMouseCursors.forbidden,
+      child: button,
+    );
   }
 
   Widget _buildChild(_DesktopButtonColors colors) {
@@ -175,13 +194,18 @@ class _DesktopButtonColors {
   final Color focusBorder;
 }
 
-_DesktopButtonColors _resolveColors(DesktopButtonVariant variant, bool enabled) {
+_DesktopButtonColors _resolveColors(
+  BuildContext context,
+  DesktopButtonVariant variant,
+  bool enabled,
+) {
+  final accent = context.appAccent;
   switch (variant) {
     case DesktopButtonVariant.primary:
       return _DesktopButtonColors(
-        background: enabled ? AppColors.primary : AppColors.disabledFill,
+        background: enabled ? accent : AppColors.disabledFill,
         foreground: enabled ? AppColors.textPrimary : AppColors.disabledText,
-        border: enabled ? AppColors.primary : AppColors.disabledFill,
+        border: enabled ? accent : AppColors.disabledFill,
         focusBorder: AppColors.textPrimary,
       );
     case DesktopButtonVariant.secondary:
@@ -189,27 +213,29 @@ _DesktopButtonColors _resolveColors(DesktopButtonVariant variant, bool enabled) 
         background: enabled ? AppColors.surfaceVariant : AppColors.disabledFill,
         foreground: enabled ? AppColors.textPrimary : AppColors.disabledText,
         border: enabled ? AppColors.borderStrong : AppColors.disabledFill,
-        focusBorder: AppColors.primary,
+        focusBorder: accent,
       );
     case DesktopButtonVariant.ghost:
       return _DesktopButtonColors(
         background: Colors.transparent,
         foreground: enabled ? AppColors.textPrimary : AppColors.disabledText,
         border: Colors.transparent,
-        focusBorder: AppColors.primary,
+        focusBorder: accent,
       );
     case DesktopButtonVariant.icon:
       return _DesktopButtonColors(
         background: enabled ? AppColors.surfaceVariant : AppColors.disabledFill,
         foreground: enabled ? AppColors.textPrimary : AppColors.disabledText,
         border: enabled ? AppColors.borderSubtle : AppColors.disabledFill,
-        focusBorder: AppColors.primary,
+        focusBorder: accent,
       );
   }
 }
 
 double _borderRadius(DesktopButtonVariant variant) {
-  return variant == DesktopButtonVariant.icon ? AppRadius.pill : AppRadius.medium;
+  return variant == DesktopButtonVariant.icon
+      ? AppRadius.pill
+      : AppRadius.medium;
 }
 
 EdgeInsetsGeometry _defaultPadding(DesktopButtonVariant variant) {

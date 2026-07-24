@@ -32,7 +32,7 @@ class HeroBanner extends StatelessWidget {
       builder: (context, constraints) {
         final compact = constraints.maxWidth < AppBreakpoints.compact;
         final contentWidth = compact ? constraints.maxWidth : 460.0;
-        final contentInset = compact ? AppSpacing.xxl : 150.0;
+        final contentInset = compact ? AppSpacing.xl : 92.0;
 
         return Semantics(
           label: semanticLabel ?? title,
@@ -142,9 +142,9 @@ class _MastheadScrims extends StatelessWidget {
                     begin: Alignment.centerLeft,
                     end: Alignment.centerRight,
                     colors: [
-                      AppColors.background.withValues(alpha: 0.95),
-                      AppColors.background.withValues(alpha: 0.80),
-                      AppColors.background.withValues(alpha: 0.30),
+                      AppColors.background.withValues(alpha: 0.84),
+                      AppColors.background.withValues(alpha: 0.58),
+                      AppColors.background.withValues(alpha: 0.18),
                       Colors.transparent,
                     ],
                     stops: const [0, 0.38, 0.78, 1],
@@ -161,8 +161,8 @@ class _MastheadScrims extends StatelessWidget {
                 begin: Alignment.bottomCenter,
                 end: Alignment.topCenter,
                 colors: [
-                  const Color(0xFF070914),
-                  AppColors.background.withValues(alpha: 0.76),
+                  AppColors.background.withValues(alpha: 0.88),
+                  AppColors.background.withValues(alpha: 0.46),
                   Colors.transparent,
                 ],
                 stops: const [0, 0.24, 0.72],
@@ -177,7 +177,7 @@ class _MastheadScrims extends StatelessWidget {
                 begin: Alignment.topCenter,
                 end: Alignment.bottomCenter,
                 colors: [
-                  Colors.black.withValues(alpha: 0.24),
+                  Colors.black.withValues(alpha: 0.10),
                   Colors.transparent,
                 ],
                 stops: const [0, 0.28],
@@ -464,6 +464,8 @@ class _MastheadButtonState extends State<_MastheadButton> {
   Widget build(BuildContext context) {
     final enabled = widget.onPressed != null;
     final active = enabled && (_hovered || _focused);
+    final accent = context.appAccent;
+    final accentLight = Color.lerp(accent, Colors.white, active ? 0.28 : 0.16)!;
     final scale = _pressed
         ? 0.985
         : active
@@ -531,15 +533,7 @@ class _MastheadButtonState extends State<_MastheadButton> {
                             ? LinearGradient(
                                 begin: Alignment.centerLeft,
                                 end: Alignment.centerRight,
-                                colors: active
-                                    ? const [
-                                        Color(0xFF2DA7FF),
-                                        Color(0xFFED0A7C),
-                                      ]
-                                    : const [
-                                        Color(0xFF2096F3),
-                                        Color(0xFFE80073),
-                                      ],
+                                colors: [accentLight, accent],
                               )
                             : null,
                         borderRadius: BorderRadius.circular(AppRadius.medium),
@@ -558,9 +552,7 @@ class _MastheadButtonState extends State<_MastheadButton> {
                             ? [
                                 BoxShadow(
                                   color:
-                                      (widget.iconOnly
-                                              ? Colors.white
-                                              : const Color(0xFFE80073))
+                                      (widget.iconOnly ? Colors.white : accent)
                                           .withValues(alpha: 0.28),
                                   blurRadius: 24,
                                   offset: const Offset(0, 10),

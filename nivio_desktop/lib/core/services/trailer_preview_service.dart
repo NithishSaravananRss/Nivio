@@ -1,4 +1,5 @@
 import '../constants/constants.dart';
+import '../network/anilist_client.dart';
 import '../network/tmdb_client.dart';
 
 class TrailerPreviewService {
@@ -6,6 +7,7 @@ class TrailerPreviewService {
 
   static final TrailerPreviewService instance = TrailerPreviewService._();
 
+  final AniListClient _aniListClient = AniListClient();
   final TmdbClient _client = TmdbClient(apiKey: tmdbApiKey);
   final Map<String, Future<String?>> _cache = {};
 
@@ -18,10 +20,14 @@ class TrailerPreviewService {
     if (parts.length != 2) return null;
 
     final mediaType = parts.first;
-    if (mediaType != 'movie' && mediaType != 'tv') return null;
-
     final id = int.tryParse(parts.last);
     if (id == null || id <= 0) return null;
+
+    if (mediaType == 'anime') {
+      return _resolveAniListTrailer(id);
+    }
+
+    if (mediaType != 'movie' && mediaType != 'tv') return null;
 
     try {
       final response = await _client.getDetails(
@@ -59,6 +65,31 @@ class TrailerPreviewService {
       });
 
       return candidates.first['key']?.toString();
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<String?> _resolveAniListTrailer(int anilistId) async {
+    const query = r'''
+      query ($id: Int) {
+        Media(id: $id, type: ANIME) {
+          trailer { site id }
+        }
+      }
+    ''';
+
+    try {
+      final response = await _aniListClient.query(
+        query,
+        variables: {'id': anilistId},
+      );
+      final trailer = response['data']?['Media']?['trailer'];
+      if (trailer is! Map) return null;
+      final site = trailer['site']?.toString().toLowerCase();
+      final key = trailer['id']?.toString().trim();
+      if (site != 'youtube' || key == null || key.isEmpty) return null;
+      return key;
     } catch (_) {
       return null;
     }

@@ -137,6 +137,16 @@ class _SettingsViewState extends State<SettingsView> {
     );
   }
 
+  Future<void> _updateHomeFeedString(String key, String value) async {
+    await _controller.updateString(key, value);
+    widget.onHomeLayoutChanged?.call();
+  }
+
+  Future<void> _updateHomeFeedBool(String key, bool value) async {
+    await _controller.updateBool(key, value);
+    widget.onHomeLayoutChanged?.call();
+  }
+
   Future<void> _showChangelog() async {
     await _controller.markChangelogSeen();
     if (!mounted) return;
@@ -268,72 +278,49 @@ class _SettingsViewState extends State<SettingsView> {
           final title = visibleQuery.isEmpty
               ? _categories[_selectedCategoryIndex].label
               : 'Search Results';
-          if (!desktop) {
-            return CustomScrollView(
-              slivers: [
-                SliverPadding(
-                  padding: const EdgeInsets.fromLTRB(
-                    AppSpacing.xxl,
-                    AppSpacing.xxl,
-                    AppSpacing.xxl,
-                    AppSpacing.lg,
-                  ),
-                  sliver: SliverToBoxAdapter(
-                    child: _SettingsHeader(onBack: widget.onBack),
-                  ),
-                ),
-                SliverPadding(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: AppSpacing.xxl,
-                  ),
-                  sliver: SliverToBoxAdapter(
-                    child: _SettingsCategoryWrap(
-                      categories: _categories,
-                      selectedIndex: _selectedCategoryIndex,
-                      onSelected: (index) {
-                        setState(() => _selectedCategoryIndex = index);
-                      },
-                    ),
-                  ),
-                ),
-                SliverPadding(
-                  padding: const EdgeInsets.all(AppSpacing.xxl),
-                  sliver: SliverToBoxAdapter(
-                    child: _SettingsContentCard(children: children),
-                  ),
-                ),
-              ],
-            );
-          }
+          final horizontalPadding = desktop ? AppSpacing.huge : AppSpacing.lg;
+          final contentWidth = desktop ? 1080.0 : double.infinity;
 
-          return Row(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              _SettingsSidebar(
-                categories: _categories,
-                selectedIndex: _selectedCategoryIndex,
-                onSelected: (index) {
-                  setState(() => _selectedCategoryIndex = index);
-                },
-              ),
-              Expanded(
-                child: Padding(
-                  padding: const EdgeInsets.all(32),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(title, style: AppTypography.pageTitle),
-                      const SizedBox(height: AppSpacing.xxl),
-                      Expanded(
-                        child: AnimatedSwitcher(
-                          duration: const Duration(milliseconds: 240),
-                          child: _SettingsContentCard(
-                            key: ValueKey('$title-$selectedSection'),
-                            children: children,
+          return CustomScrollView(
+            slivers: [
+              SliverPadding(
+                padding: EdgeInsets.fromLTRB(
+                  horizontalPadding,
+                  AppSpacing.lg,
+                  horizontalPadding,
+                  AppSpacing.massive,
+                ),
+                sliver: SliverToBoxAdapter(
+                  child: Center(
+                    child: ConstrainedBox(
+                      constraints: BoxConstraints(maxWidth: contentWidth),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          _SettingsHeader(onBack: widget.onBack),
+                          const SizedBox(height: AppSpacing.xxl),
+                          _SettingsCategoryWrap(
+                            categories: _categories,
+                            selectedIndex: _selectedCategoryIndex,
+                            onSelected: (index) {
+                              setState(() => _selectedCategoryIndex = index);
+                            },
                           ),
-                        ),
+                          const SizedBox(height: AppSpacing.xl),
+                          Text(title, style: AppTypography.pageTitle),
+                          const SizedBox(height: AppSpacing.lg),
+                          AnimatedSwitcher(
+                            duration: const Duration(milliseconds: 260),
+                            switchInCurve: Curves.easeOutCubic,
+                            switchOutCurve: Curves.easeInCubic,
+                            child: _SettingsContentCard(
+                              key: ValueKey('$title-$selectedSection'),
+                              children: children,
+                            ),
+                          ),
+                        ],
                       ),
-                    ],
+                    ),
                   ),
                 ),
               ),
@@ -536,7 +523,21 @@ class _SettingsViewState extends State<SettingsView> {
             ],
           ),
         ),
-      if (showSection('home', 'Content Feed', ['home', 'layout', 'feed']))
+      if (showSection('home', 'Content Feed', [
+        'home',
+        'layout',
+        'feed',
+        'anime',
+        'source',
+        'audio',
+        'sub',
+        'dub',
+        'tamil',
+        'telugu',
+        'hindi',
+        'korean',
+        'malayalam',
+      ]))
         _Section(
           title: 'Content Feed',
           icon: LucideIcons.rows3,
@@ -548,6 +549,62 @@ class _SettingsViewState extends State<SettingsView> {
                 subtitle: state.settings.homeLayoutSummary,
                 icon: LucideIcons.listOrdered,
                 onTap: _showHomeLayoutDialog,
+              ),
+              _ChoiceTile(
+                title: 'Preferred Anime Source',
+                value: state.settings.preferredAnimeSource,
+                options: SettingsDefaults.animeSources,
+                onChanged: (value) => _updateHomeFeedString(
+                  SettingsKeys.preferredAnimeSource,
+                  value,
+                ),
+              ),
+              _ChoiceTile(
+                title: 'Preferred Anime Audio',
+                value: state.settings.animePreferredAudio == 'dub'
+                    ? 'Dubbed'
+                    : 'Subbed',
+                options: const ['Subbed', 'Dubbed'],
+                onChanged: (value) => _updateHomeFeedString(
+                  SettingsKeys.animePreferredAudio,
+                  value == 'Dubbed' ? 'dub' : 'sub',
+                ),
+              ),
+              _SwitchTile(
+                title: 'Anime',
+                value: state.settings.showAnime,
+                onChanged: (value) =>
+                    _updateHomeFeedBool(SettingsKeys.showAnime, value),
+              ),
+              _SwitchTile(
+                title: 'Tamil',
+                value: state.settings.showTamil,
+                onChanged: (value) =>
+                    _updateHomeFeedBool(SettingsKeys.showTamil, value),
+              ),
+              _SwitchTile(
+                title: 'Telugu',
+                value: state.settings.showTelugu,
+                onChanged: (value) =>
+                    _updateHomeFeedBool(SettingsKeys.showTelugu, value),
+              ),
+              _SwitchTile(
+                title: 'Hindi',
+                value: state.settings.showHindi,
+                onChanged: (value) =>
+                    _updateHomeFeedBool(SettingsKeys.showHindi, value),
+              ),
+              _SwitchTile(
+                title: 'Korean',
+                value: state.settings.showKorean,
+                onChanged: (value) =>
+                    _updateHomeFeedBool(SettingsKeys.showKorean, value),
+              ),
+              _SwitchTile(
+                title: 'Malayalam',
+                value: state.settings.showMalayalam,
+                onChanged: (value) =>
+                    _updateHomeFeedBool(SettingsKeys.showMalayalam, value),
               ),
             ],
           ),
@@ -754,10 +811,19 @@ class _SettingsHeader extends StatelessWidget {
     return Row(
       children: [
         if (onBack != null) ...[
-          IconButton.filledTonal(
-            tooltip: 'Back to Profile',
+          IconButton(
+            tooltip: 'Back',
             onPressed: onBack,
-            icon: const Icon(LucideIcons.arrowLeft),
+            style: IconButton.styleFrom(
+              foregroundColor: AppColors.textPrimary,
+              backgroundColor: Colors.white.withValues(alpha: 0.05),
+              hoverColor: Colors.white.withValues(alpha: 0.1),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(AppRadius.extraLarge),
+                side: BorderSide(color: Colors.white.withValues(alpha: 0.1)),
+              ),
+            ),
+            icon: const Icon(LucideIcons.chevronLeft, size: 22),
           ),
           const SizedBox(width: AppSpacing.md),
         ],
@@ -773,89 +839,6 @@ class _SettingsHeader extends StatelessWidget {
               ),
             ],
           ),
-        ),
-      ],
-    );
-  }
-}
-
-class _SettingsSidebar extends StatelessWidget {
-  const _SettingsSidebar({
-    required this.categories,
-    required this.selectedIndex,
-    required this.onSelected,
-  });
-
-  final List<_SettingsCategory> categories;
-  final int selectedIndex;
-  final ValueChanged<int> onSelected;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: 280,
-      color: Colors.black.withValues(alpha: 0.3),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          const Padding(
-            padding: EdgeInsets.fromLTRB(20, 28, 20, 16),
-            child: _SettingsSidebarHeader(),
-          ),
-          const Divider(color: Colors.white12, height: 1),
-          Expanded(
-            child: ListView.builder(
-              padding: const EdgeInsets.symmetric(vertical: 12),
-              itemCount: categories.length,
-              itemBuilder: (context, index) {
-                return Padding(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 4,
-                  ),
-                  child: _SettingsCategoryButton(
-                    category: categories[index],
-                    selected: selectedIndex == index,
-                    onTap: () => onSelected(index),
-                    showIcon: false,
-                  ),
-                );
-              },
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _SettingsSidebarHeader extends StatelessWidget {
-  const _SettingsSidebarHeader();
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      children: [
-        CircleAvatar(
-          radius: 38,
-          backgroundColor: AppColors.surfaceVariant,
-          child: Icon(
-            LucideIcons.settings,
-            size: 36,
-            color: AppColors.textPrimary.withValues(alpha: 0.9),
-          ),
-        ),
-        const SizedBox(height: AppSpacing.md),
-        Text(
-          'Nivio Settings',
-          textAlign: TextAlign.center,
-          style: AppTypography.sectionTitle,
-        ),
-        const SizedBox(height: AppSpacing.xs),
-        Text(
-          'Desktop preferences',
-          textAlign: TextAlign.center,
-          style: AppTypography.caption,
         ),
       ],
     );
@@ -895,13 +878,11 @@ class _SettingsCategoryButton extends StatelessWidget {
     required this.category,
     required this.selected,
     required this.onTap,
-    this.showIcon = true,
   });
 
   final _SettingsCategory category;
   final bool selected;
   final VoidCallback onTap;
-  final bool showIcon;
 
   @override
   Widget build(BuildContext context) {
@@ -929,14 +910,12 @@ class _SettingsCategoryButton extends StatelessWidget {
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              if (showIcon) ...[
-                Icon(
-                  category.icon,
-                  color: selected ? AppColors.textPrimary : Colors.white60,
-                  size: 18,
-                ),
-                const SizedBox(width: AppSpacing.sm),
-              ],
+              Icon(
+                category.icon,
+                color: selected ? AppColors.textPrimary : Colors.white60,
+                size: 18,
+              ),
+              const SizedBox(width: AppSpacing.sm),
               Flexible(
                 child: AnimatedDefaultTextStyle(
                   duration: const Duration(milliseconds: 200),
@@ -966,31 +945,30 @@ class _SettingsContentCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return SingleChildScrollView(
-      child: Material(
-        color: Colors.white.withValues(alpha: 0.03),
-        borderRadius: BorderRadius.circular(16),
-        child: Container(
-          width: double.infinity,
-          padding: const EdgeInsets.all(24),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: Colors.white.withValues(alpha: 0.05)),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: children,
-          ),
-        ),
-      ),
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: children,
     );
   }
 }
 
 class SettingsController extends ChangeNotifier {
   SettingsState state = SettingsState.loading();
+  bool _isDisposed = false;
+  int _loadGeneration = 0;
+  int _refreshGeneration = 0;
+
+  @override
+  void dispose() {
+    _isDisposed = true;
+    _loadGeneration++;
+    _refreshGeneration++;
+    super.dispose();
+  }
 
   Future<void> load() async {
+    if (_isDisposed) return;
+    final generation = ++_loadGeneration;
     state = SettingsState.loading();
     notifyListeners();
 
@@ -1055,6 +1033,8 @@ class SettingsController extends ChangeNotifier {
       errors['episodes'] = 'Could not read episode alert status: $error';
     }
 
+    if (_isDisposed || generation != _loadGeneration) return;
+
     state = SettingsState.loaded(
       settings: settings,
       sectionErrors: errors,
@@ -1069,10 +1049,15 @@ class SettingsController extends ChangeNotifier {
     );
     notifyListeners();
 
-    unawaited(_refreshServiceStatus());
+    unawaited(_refreshServiceStatus(loadGeneration: generation));
   }
 
   Future<void> updateString(String key, String value) async {
+    if (key == SettingsKeys.accentColor) {
+      await AppAccentController.instance.setAccentColor(value);
+      await load();
+      return;
+    }
     await _save(key, value);
   }
 
@@ -1111,7 +1096,9 @@ class SettingsController extends ChangeNotifier {
 
   Future<void> refreshIptvStatus() => _refreshServiceStatus();
 
-  Future<void> _refreshServiceStatus() async {
+  Future<void> _refreshServiceStatus({int? loadGeneration}) async {
+    if (_isDisposed) return;
+    final refreshGeneration = ++_refreshGeneration;
     final current = state;
     if (current.isLoading || current.fatalError != null) return;
 
@@ -1128,6 +1115,11 @@ class SettingsController extends ChangeNotifier {
     );
 
     final results = await Future.wait([tmdb, anilist, iptv, supabase]);
+    if (_isDisposed ||
+        refreshGeneration != _refreshGeneration ||
+        (loadGeneration != null && loadGeneration != _loadGeneration)) {
+      return;
+    }
     state = current.copyWith(
       serviceStatus: ServiceStatus(
         tmdb: results[0],
@@ -1268,12 +1260,12 @@ class _SettingsEmptySearch extends StatelessWidget {
   Widget build(BuildContext context) {
     return DecoratedBox(
       decoration: BoxDecoration(
-        color: AppColors.glassFill,
-        borderRadius: BorderRadius.circular(AppRadius.medium),
-        border: Border.all(color: AppColors.borderSubtle),
+        color: Colors.white.withValues(alpha: 0.04),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.1)),
       ),
       child: Padding(
-        padding: const EdgeInsets.all(AppSpacing.xl),
+        padding: const EdgeInsets.all(AppSpacing.lg),
         child: Row(
           children: [
             const Icon(LucideIcons.searchX, color: AppColors.textMuted),
@@ -1415,6 +1407,14 @@ class DesktopSettings {
     required this.episodeCheckEnabled,
     required this.episodeCheckFrequencyHours,
     required this.homeSectionOrder,
+    required this.preferredAnimeSource,
+    required this.animePreferredAudio,
+    required this.showAnime,
+    required this.showTamil,
+    required this.showTelugu,
+    required this.showHindi,
+    required this.showKorean,
+    required this.showMalayalam,
     required this.lastSeenChangelogVersion,
   });
 
@@ -1443,6 +1443,14 @@ class DesktopSettings {
     episodeCheckEnabled: true,
     episodeCheckFrequencyHours: 24,
     homeSectionOrder: HomeController.sectionOrder,
+    preferredAnimeSource: 'Miruro',
+    animePreferredAudio: 'sub',
+    showAnime: true,
+    showTamil: true,
+    showTelugu: true,
+    showHindi: true,
+    showKorean: true,
+    showMalayalam: true,
     lastSeenChangelogVersion: '',
   );
 
@@ -1512,6 +1520,19 @@ class DesktopSettings {
       homeSectionOrder: HomeController.normalizeSectionOrder(
         prefs.getStringList(SettingsKeys.homeSectionOrder),
       ),
+      preferredAnimeSource:
+          prefs.getString(SettingsKeys.preferredAnimeSource) ??
+          defaults.preferredAnimeSource,
+      animePreferredAudio:
+          prefs.getString(SettingsKeys.animePreferredAudio) ??
+          defaults.animePreferredAudio,
+      showAnime: prefs.getBool(SettingsKeys.showAnime) ?? defaults.showAnime,
+      showTamil: prefs.getBool(SettingsKeys.showTamil) ?? defaults.showTamil,
+      showTelugu: prefs.getBool(SettingsKeys.showTelugu) ?? defaults.showTelugu,
+      showHindi: prefs.getBool(SettingsKeys.showHindi) ?? defaults.showHindi,
+      showKorean: prefs.getBool(SettingsKeys.showKorean) ?? defaults.showKorean,
+      showMalayalam:
+          prefs.getBool(SettingsKeys.showMalayalam) ?? defaults.showMalayalam,
       lastSeenChangelogVersion:
           prefs.getString(SettingsKeys.lastSeenChangelogVersion) ??
           defaults.lastSeenChangelogVersion,
@@ -1542,6 +1563,14 @@ class DesktopSettings {
   final bool episodeCheckEnabled;
   final int episodeCheckFrequencyHours;
   final List<String> homeSectionOrder;
+  final String preferredAnimeSource;
+  final String animePreferredAudio;
+  final bool showAnime;
+  final bool showTamil;
+  final bool showTelugu;
+  final bool showHindi;
+  final bool showKorean;
+  final bool showMalayalam;
   final String lastSeenChangelogVersion;
 
   String get subtitleFontSizeLabel {
@@ -1561,7 +1590,7 @@ class DesktopSettings {
 }
 
 abstract final class SettingsKeys {
-  static const accentColor = 'app_accent_color';
+  static const accentColor = appAccentColorPreferenceKey;
   static const videoQuality = 'video_quality';
   static const playbackSpeed = 'playback_speed';
   static const preferredAudioLanguage = 'preferred_audio_language';
@@ -1589,6 +1618,14 @@ abstract final class SettingsKeys {
   static const episodeCheckFrequencyHours =
       'desktop_episode_check_frequency_hours';
   static const homeSectionOrder = HomeController.homeSectionOrderKey;
+  static const preferredAnimeSource = 'preferred_anime_source';
+  static const animePreferredAudio = 'animePreferredAudio';
+  static const showAnime = 'showAnime';
+  static const showTamil = 'showTamil';
+  static const showTelugu = 'showTelugu';
+  static const showHindi = 'showHindi';
+  static const showKorean = 'showKorean';
+  static const showMalayalam = 'showMalayalam';
   static const lastSeenChangelogVersion = 'last_seen_changelog_version';
 }
 
@@ -1620,6 +1657,7 @@ abstract final class SettingsDefaults {
   ];
   static const subtitleOutlines = ['None', 'Subtle Shadow', 'Outline'];
   static const episodeCheckFrequencies = [6, 12, 24, 48, 72];
+  static const animeSources = ['Miruro', 'Animex', 'Animetsu'];
   static List<String> get subtitleFontSizeLabels =>
       subtitleFontSizes.keys.toList();
   static const audioLanguages = [
@@ -1741,33 +1779,58 @@ class _Section extends StatelessWidget {
   Widget build(BuildContext context) {
     return Padding(
       padding: const EdgeInsets.only(bottom: AppSpacing.lg),
-      child: Card(
-        child: Padding(
-          padding: const EdgeInsets.all(AppSpacing.lg),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.only(left: 4, bottom: 8),
+            child: Text(
+              title.toUpperCase(),
+              style: AppTypography.metadata.copyWith(
+                color: AppColors.textMuted,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+          ),
+          Material(
+            color: Colors.white.withValues(alpha: 0.04),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16),
+              side: BorderSide(color: Colors.white.withValues(alpha: 0.1)),
+            ),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: AppSpacing.sm),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  Icon(icon, size: 18, color: AppColors.textSecondary),
-                  const SizedBox(width: AppSpacing.sm),
-                  Expanded(child: Text(title, style: AppTypography.title)),
+                  if (error != null)
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
+                      child: Row(
+                        children: [
+                          const Icon(
+                            LucideIcons.triangleAlert,
+                            size: 16,
+                            color: AppColors.warning,
+                          ),
+                          const SizedBox(width: AppSpacing.sm),
+                          Expanded(
+                            child: Text(
+                              error!,
+                              style: AppTypography.caption.copyWith(
+                                color: AppColors.warning,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  child,
                 ],
               ),
-              if (error != null) ...[
-                const SizedBox(height: AppSpacing.sm),
-                Text(
-                  error!,
-                  style: AppTypography.caption.copyWith(
-                    color: AppColors.warning,
-                  ),
-                ),
-              ],
-              const SizedBox(height: AppSpacing.md),
-              child,
-            ],
+            ),
           ),
-        ),
+        ],
       ),
     );
   }
@@ -1810,15 +1873,21 @@ class _InfoTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return ListTile(
-      dense: true,
-      title: Text(title),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+      title: Text(
+        title,
+        style: AppTypography.body.copyWith(
+          color: AppColors.textPrimary,
+          fontWeight: FontWeight.w600,
+        ),
+      ),
       trailing: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 520),
         child: Text(
           value,
           textAlign: TextAlign.end,
           overflow: TextOverflow.ellipsis,
-          style: AppTypography.body,
+          style: AppTypography.caption.copyWith(color: AppColors.textMuted),
         ),
       ),
     );
@@ -1841,9 +1910,18 @@ class _ChoiceTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return ListTile(
-      title: Text(title),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+      title: Text(
+        title,
+        style: AppTypography.body.copyWith(
+          color: AppColors.textPrimary,
+          fontWeight: FontWeight.w600,
+        ),
+      ),
       trailing: DropdownButton<String>(
         value: options.contains(value) ? value : options.first,
+        dropdownColor: AppColors.surfaceVariant,
+        style: AppTypography.body.copyWith(color: AppColors.textPrimary),
         items: options
             .map(
               (option) => DropdownMenuItem(value: option, child: Text(option)),
@@ -1872,9 +1950,17 @@ class _SwitchTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return SwitchListTile(
+      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
       value: value,
       onChanged: onChanged,
-      title: Text(title),
+      activeThumbColor: AppColors.primary,
+      title: Text(
+        title,
+        style: AppTypography.body.copyWith(
+          color: AppColors.textPrimary,
+          fontWeight: FontWeight.w600,
+        ),
+      ),
     );
   }
 }
@@ -1935,9 +2021,26 @@ class _ActionTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return ListTile(
-      title: Text(title),
-      subtitle: Text(subtitle),
-      trailing: Icon(icon),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+      leading: Icon(icon, color: AppColors.textPrimary, size: 22),
+      title: Text(
+        title,
+        style: AppTypography.body.copyWith(
+          color: AppColors.textPrimary,
+          fontWeight: FontWeight.w600,
+        ),
+      ),
+      subtitle: Text(
+        subtitle,
+        maxLines: 2,
+        overflow: TextOverflow.ellipsis,
+        style: AppTypography.caption.copyWith(color: AppColors.textMuted),
+      ),
+      trailing: const Icon(
+        LucideIcons.chevronRight,
+        color: AppColors.textMuted,
+        size: 18,
+      ),
       onTap: onTap,
     );
   }
@@ -1952,8 +2055,25 @@ class _DestructiveTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return ListTile(
-      title: Text(title),
-      trailing: const Icon(LucideIcons.trash2, color: AppColors.danger),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+      leading: const Icon(LucideIcons.trash2, color: AppColors.danger),
+      title: Text(
+        title,
+        style: AppTypography.body.copyWith(
+          color: AppColors.textPrimary,
+          fontWeight: FontWeight.w600,
+        ),
+      ),
+      subtitle: const Text(
+        'This action cannot be undone.',
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+      ),
+      trailing: const Icon(
+        LucideIcons.chevronRight,
+        color: AppColors.textMuted,
+        size: 18,
+      ),
       onTap: () async {
         final confirmed = await _confirm(context, title);
         if (!confirmed) return;

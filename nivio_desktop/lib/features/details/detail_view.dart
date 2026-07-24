@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:lucide_flutter/lucide_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../shared/theme/index.dart';
 import '../../shared/widgets/widgets.dart';
@@ -23,6 +24,8 @@ import 'models/detail_route_args.dart';
 import 'controllers/detail_controller.dart';
 import 'widgets/download_prompt.dart';
 
+typedef WatchTogetherLauncher = void Function(DetailMedia media, int season);
+
 class DetailView extends StatefulWidget {
   const DetailView({
     super.key,
@@ -31,6 +34,7 @@ class DetailView extends StatefulWidget {
     required this.onBack,
     required this.onOpenDetail,
     required this.onPlay,
+    required this.onWatchTogether,
     required this.watchHistoryRepository,
     this.homeOverlay = false,
   });
@@ -40,6 +44,7 @@ class DetailView extends StatefulWidget {
   final VoidCallback onBack;
   final ValueChanged<String> onOpenDetail;
   final ValueChanged<PlaybackRequest> onPlay;
+  final WatchTogetherLauncher onWatchTogether;
   final WatchHistoryRepository watchHistoryRepository;
   final bool homeOverlay;
 
@@ -397,17 +402,21 @@ class _DetailViewState extends State<DetailView> {
                               : null,
                         ),
                         onToggleWatchlist: _toggleWatchlist,
+                        onDownload: () => _downloadFromHero(displayMedia),
+                        onWatchTrailer: displayMedia.trailers.isEmpty
+                            ? null
+                            : () => _openTrailer(displayMedia),
+                        onWatchTogether: () => widget.onWatchTogether(
+                          displayMedia,
+                          _selectedSeason,
+                        ),
                       ),
                       _ModalTabsHeader(
                         primaryLabel: displayMedia.isSeries
                             ? 'Episodes'
                             : 'More Like This',
-                        secondaryLabel: displayMedia.isSeries
-                            ? 'More Like This'
-                            : null,
-                        onSecondaryTap: displayMedia.isSeries
-                            ? _scrollToMoreLikeThis
-                            : null,
+                        secondaryLabel: 'More Like This',
+                        onSecondaryTap: _scrollToMoreLikeThis,
                       ),
                       if (displayMedia.isSeries)
                         _EpisodePlaybackSection(
@@ -432,6 +441,8 @@ class _DetailViewState extends State<DetailView> {
                             episodes: episodes,
                           ),
                         ),
+                      _DetailBadgesSection(media: displayMedia),
+                      _CastSection(media: displayMedia),
                       _RecommendationsSection(
                         key: _moreLikeThisKey,
                         media: displayMedia,
@@ -513,17 +524,22 @@ class _DetailViewState extends State<DetailView> {
                                         : null,
                                   ),
                                   onToggleWatchlist: _toggleWatchlist,
+                                  onDownload: () =>
+                                      _downloadFromHero(displayMedia),
+                                  onWatchTrailer: displayMedia.trailers.isEmpty
+                                      ? null
+                                      : () => _openTrailer(displayMedia),
+                                  onWatchTogether: () => widget.onWatchTogether(
+                                    displayMedia,
+                                    _selectedSeason,
+                                  ),
                                 ),
                                 _ModalTabsHeader(
                                   primaryLabel: displayMedia.isSeries
                                       ? 'Episodes'
                                       : 'More Like This',
-                                  secondaryLabel: displayMedia.isSeries
-                                      ? 'More Like This'
-                                      : null,
-                                  onSecondaryTap: displayMedia.isSeries
-                                      ? _scrollToMoreLikeThis
-                                      : null,
+                                  secondaryLabel: 'More Like This',
+                                  onSecondaryTap: _scrollToMoreLikeThis,
                                 ),
                                 if (displayMedia.isSeries)
                                   _EpisodePlaybackSection(
@@ -550,6 +566,8 @@ class _DetailViewState extends State<DetailView> {
                                           episodes: episodes,
                                         ),
                                   ),
+                                _DetailBadgesSection(media: displayMedia),
+                                _CastSection(media: displayMedia),
                                 _RecommendationsSection(
                                   key: _moreLikeThisKey,
                                   media: displayMedia,
@@ -906,6 +924,31 @@ class _DetailViewState extends State<DetailView> {
     return url;
   }
 
+  Future<void> _downloadFromHero(DetailMedia media) async {
+    if (media.isSeries) {
+      await _queueSeasonDownload(
+        media,
+        season: _selectedSeason,
+        episodes: widget.controller.episodes,
+      );
+      return;
+    }
+    await _queueDownload(media);
+  }
+
+  Future<void> _openTrailer(DetailMedia media) async {
+    final trailerKey = media.trailers.firstOrNull;
+    if (trailerKey == null || trailerKey.trim().isEmpty) {
+      _showActionFeedback('Trailer unavailable');
+      return;
+    }
+    final uri = Uri.https('www.youtube.com', '/watch', {'v': trailerKey});
+    final opened = await launchUrl(uri, mode: LaunchMode.externalApplication);
+    if (!opened && mounted) {
+      _showActionFeedback('Unable to open trailer');
+    }
+  }
+
   void _playMedia({int? season, int? episode}) {
     final media = _media;
     if (media == null) return;
@@ -1079,6 +1122,9 @@ class _HotstarModalHero extends StatelessWidget {
     required this.watchProgress,
     required this.onPlay,
     required this.onToggleWatchlist,
+    required this.onDownload,
+    required this.onWatchTogether,
+    this.onWatchTrailer,
     this.height = 470,
     this.contentLeft = AppSpacing.huge,
     this.contentBottom = AppSpacing.massive,
@@ -1091,6 +1137,9 @@ class _HotstarModalHero extends StatelessWidget {
   final double watchProgress;
   final VoidCallback onPlay;
   final VoidCallback onToggleWatchlist;
+  final VoidCallback onDownload;
+  final VoidCallback onWatchTogether;
+  final VoidCallback? onWatchTrailer;
   final double height;
   final double contentLeft;
   final double contentBottom;
@@ -1109,124 +1158,223 @@ class _HotstarModalHero extends StatelessWidget {
         .where((season) => season.number > 0)
         .length;
     final languageCount = media.languages.length;
+    final fallbackColors = DynamicArtworkColors(
+      dominant: context.appAccent,
+      darkMuted: AppColors.background,
+      darkVibrant: context.appAccentSecondary,
+      lightVibrant: context.appAccent,
+      lightMuted: AppColors.surfaceVariant,
+      onSurface: Colors.white,
+    );
 
     return SizedBox(
       height: height,
-      child: Stack(
-        fit: StackFit.expand,
-        children: [
-          if (backdropUrl.isNotEmpty)
-            Image.network(
-              backdropUrl,
-              fit: BoxFit.cover,
-              alignment: Alignment.centerRight,
-              errorBuilder: (_, _, _) =>
-                  const ColoredBox(color: AppColors.surfaceVariant),
-            )
-          else
-            const ColoredBox(color: AppColors.surfaceVariant),
-          const DecoratedBox(
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.centerLeft,
-                end: Alignment.centerRight,
-                colors: [
-                  Color(0xFF0F1016),
-                  Color(0xD90F1016),
-                  Color(0x33101118),
-                ],
-                stops: [0, 0.42, 1],
-              ),
-            ),
-          ),
-          const DecoratedBox(
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topCenter,
-                end: Alignment.bottomCenter,
-                colors: [
-                  Color(0x000F1016),
-                  Color(0x330F1016),
-                  Color(0xFF0F1016),
-                ],
-                stops: [0.38, 0.72, 1],
-              ),
-            ),
-          ),
-          Positioned(
-            left: contentLeft,
-            bottom: contentBottom,
-            width: contentWidth,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                if (logoUrl.isNotEmpty)
-                  Image.network(
-                    logoUrl,
-                    width: logoWidth,
-                    fit: BoxFit.contain,
-                    alignment: Alignment.centerLeft,
-                    errorBuilder: (_, _, _) => _ModalTitle(
-                      title: media.title,
-                      fontSize: titleFontSize,
+      child: FutureBuilder<DynamicArtworkColors>(
+        future: dynamicArtworkColorsForUrl(
+          backdropUrl.isNotEmpty
+              ? backdropUrl
+              : TmdbImageBuilder.poster(media.posterPath, size: 'w500'),
+        ),
+        builder: (context, snapshot) {
+          final artworkColors = snapshot.data ?? fallbackColors;
+          final accent = artworkColors.dominant;
+          final background = Color.lerp(
+            const Color(0xFF0F1016),
+            artworkColors.darkMuted,
+            0.35,
+          )!;
+          return LayoutBuilder(
+            builder: (context, constraints) {
+              final maxPreviewLeft = (constraints.maxWidth - 260)
+                  .clamp(0.0, double.infinity)
+                  .toDouble();
+              final previewLeft = (contentLeft + contentWidth + AppSpacing.xl)
+                  .clamp(0.0, maxPreviewLeft)
+                  .toDouble();
+
+              return Stack(
+                fit: StackFit.expand,
+                children: [
+                  if (backdropUrl.isNotEmpty)
+                    Image.network(
+                      backdropUrl,
+                      fit: BoxFit.cover,
+                      alignment: Alignment.centerRight,
+                      errorBuilder: (_, _, _) =>
+                          const ColoredBox(color: AppColors.surfaceVariant),
+                    )
+                  else
+                    const ColoredBox(color: AppColors.surfaceVariant),
+                  DecoratedBox(
+                    decoration: BoxDecoration(
+                      gradient: RadialGradient(
+                        center: const Alignment(0.36, -0.18),
+                        radius: 1.05,
+                        colors: [
+                          accent.withValues(alpha: 0.28),
+                          accent.withValues(alpha: 0.08),
+                          Colors.transparent,
+                        ],
+                        stops: const [0, 0.42, 1],
+                      ),
                     ),
-                  )
-                else
-                  _ModalTitle(title: media.title, fontSize: titleFontSize),
-                const SizedBox(height: AppSpacing.lg),
-                _ModalMetadataRow(
-                  items: [
-                    media.releaseYear,
-                    media.certification,
-                    if (media.isSeries && seasonCount > 0)
-                      '$seasonCount ${seasonCount == 1 ? 'Season' : 'Seasons'}'
-                    else
-                      media.runtime,
-                    if (languageCount > 0)
-                      '$languageCount ${languageCount == 1 ? 'Language' : 'Languages'}',
-                  ],
-                ),
-                if (media.overview.isNotEmpty) ...[
-                  const SizedBox(height: AppSpacing.lg),
-                  Text(
-                    media.overview,
-                    maxLines: 3,
-                    overflow: TextOverflow.ellipsis,
-                    style: AppTypography.body.copyWith(
-                      color: Colors.white.withValues(alpha: 0.84),
-                      fontSize: 15,
-                      height: 1.42,
+                  ),
+                  Positioned(
+                    left: previewLeft,
+                    top: 0,
+                    right: 0,
+                    bottom: 0,
+                    child: Stack(
+                      fit: StackFit.expand,
+                      children: [
+                        NativeTrailerPreviewOverlay(
+                          mediaId: media.id,
+                          startDelay: const Duration(seconds: 2),
+                          trigger: NativeTrailerPreviewTrigger.hover,
+                        ),
+                      ],
+                    ),
+                  ),
+                  DecoratedBox(
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: Alignment.centerLeft,
+                        end: Alignment.centerRight,
+                        colors: [
+                          background,
+                          background.withValues(alpha: 0.86),
+                          accent.withValues(alpha: 0.2),
+                        ],
+                        stops: const [0, 0.42, 1],
+                      ),
+                    ),
+                  ),
+                  DecoratedBox(
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: Alignment.topCenter,
+                        end: Alignment.bottomCenter,
+                        colors: [
+                          background.withValues(alpha: 0),
+                          background.withValues(alpha: 0.35),
+                          background,
+                        ],
+                        stops: const [0.38, 0.72, 1],
+                      ),
+                    ),
+                  ),
+                  Positioned(
+                    left: contentLeft,
+                    bottom: contentBottom,
+                    width: contentWidth,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        if (logoUrl.isNotEmpty)
+                          Image.network(
+                            logoUrl,
+                            width: logoWidth,
+                            fit: BoxFit.contain,
+                            alignment: Alignment.centerLeft,
+                            errorBuilder: (_, _, _) => _ModalTitle(
+                              title: media.title,
+                              fontSize: titleFontSize,
+                            ),
+                          )
+                        else
+                          _ModalTitle(
+                            title: media.title,
+                            fontSize: titleFontSize,
+                          ),
+                        const SizedBox(height: AppSpacing.lg),
+                        _ModalMetadataRow(
+                          items: [
+                            media.releaseYear,
+                            media.certification,
+                            if (media.isSeries && seasonCount > 0)
+                              '$seasonCount ${seasonCount == 1 ? 'Season' : 'Seasons'}'
+                            else
+                              media.runtime,
+                            if (languageCount > 0)
+                              '$languageCount ${languageCount == 1 ? 'Language' : 'Languages'}',
+                          ],
+                        ),
+                        if (media.overview.isNotEmpty) ...[
+                          const SizedBox(height: AppSpacing.lg),
+                          Text(
+                            media.overview,
+                            maxLines: 3,
+                            overflow: TextOverflow.ellipsis,
+                            style: AppTypography.body.copyWith(
+                              color: Colors.white.withValues(alpha: 0.84),
+                              fontSize: 15,
+                              height: 1.42,
+                            ),
+                          ),
+                        ],
+                        if (media.genres.isNotEmpty) ...[
+                          const SizedBox(height: AppSpacing.lg),
+                          _ModalMetadataRow(
+                            items: media.genres.take(4).toList(),
+                          ),
+                        ],
+                        const SizedBox(height: AppSpacing.xl),
+                        Row(
+                          children: [
+                            _GradientPlayButton(
+                              label: watchProgress > 0 ? 'Resume' : 'Watch Now',
+                              accent: accent,
+                              onTap: onPlay,
+                            ),
+                            const SizedBox(width: AppSpacing.md),
+                            _SquareOverlayButton(
+                              icon: media.isInWatchlist
+                                  ? LucideIcons.check
+                                  : LucideIcons.plus,
+                              tooltip: media.isInWatchlist
+                                  ? 'In watchlist'
+                                  : 'Add to watchlist',
+                              onTap: onToggleWatchlist,
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: AppSpacing.md),
+                        Wrap(
+                          spacing: AppSpacing.sm,
+                          runSpacing: AppSpacing.sm,
+                          children: [
+                            _HeroUtilityButton(
+                              icon: LucideIcons.download,
+                              label: media.isSeries
+                                  ? 'Download Season'
+                                  : 'Download',
+                              accent: accent,
+                              onTap: onDownload,
+                            ),
+                            if (onWatchTrailer != null)
+                              _HeroUtilityButton(
+                                icon: LucideIcons.circlePlay,
+                                label: 'Watch Trailer',
+                                accent: accent,
+                                onTap: onWatchTrailer!,
+                              ),
+                            _HeroUtilityButton(
+                              icon: LucideIcons.users,
+                              label: 'Watch Together',
+                              accent: accent,
+                              onTap: onWatchTogether,
+                            ),
+                          ],
+                        ),
+                      ],
                     ),
                   ),
                 ],
-                if (media.genres.isNotEmpty) ...[
-                  const SizedBox(height: AppSpacing.lg),
-                  _ModalMetadataRow(items: media.genres.take(4).toList()),
-                ],
-                const SizedBox(height: AppSpacing.xl),
-                Row(
-                  children: [
-                    _GradientPlayButton(
-                      label: watchProgress > 0 ? 'Resume' : 'Watch Now',
-                      onTap: onPlay,
-                    ),
-                    const SizedBox(width: AppSpacing.md),
-                    _SquareOverlayButton(
-                      icon: media.isInWatchlist
-                          ? LucideIcons.check
-                          : LucideIcons.plus,
-                      tooltip: media.isInWatchlist
-                          ? 'In watchlist'
-                          : 'Add to watchlist',
-                      onTap: onToggleWatchlist,
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          ),
-        ],
+              );
+            },
+          );
+        },
       ),
     );
   }
@@ -1293,13 +1441,19 @@ class _ModalMetadataRow extends StatelessWidget {
 }
 
 class _GradientPlayButton extends StatelessWidget {
-  const _GradientPlayButton({required this.label, required this.onTap});
+  const _GradientPlayButton({
+    required this.label,
+    required this.accent,
+    required this.onTap,
+  });
 
   final String label;
+  final Color accent;
   final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
+    final secondary = Color.lerp(accent, Colors.white, 0.32)!;
     return Material(
       color: Colors.transparent,
       child: InkWell(
@@ -1310,9 +1464,7 @@ class _GradientPlayButton extends StatelessWidget {
           height: 52,
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(6),
-            gradient: const LinearGradient(
-              colors: [Color(0xFF1595F9), Color(0xFFE3007B)],
-            ),
+            gradient: LinearGradient(colors: [secondary, accent]),
           ),
           child: Row(
             mainAxisAlignment: MainAxisAlignment.center,
@@ -1358,6 +1510,75 @@ class _SquareOverlayButton extends StatelessWidget {
           backgroundColor: Colors.white.withValues(alpha: 0.13),
           hoverColor: Colors.white.withValues(alpha: 0.22),
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+        ),
+      ),
+    );
+  }
+}
+
+class _HeroUtilityButton extends StatefulWidget {
+  const _HeroUtilityButton({
+    required this.icon,
+    required this.label,
+    required this.accent,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String label;
+  final Color accent;
+  final VoidCallback onTap;
+
+  @override
+  State<_HeroUtilityButton> createState() => _HeroUtilityButtonState();
+}
+
+class _HeroUtilityButtonState extends State<_HeroUtilityButton> {
+  bool _hovered = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      onEnter: (_) => setState(() => _hovered = true),
+      onExit: (_) => setState(() => _hovered = false),
+      child: GestureDetector(
+        onTap: widget.onTap,
+        child: AnimatedContainer(
+          duration: AppAnimation.hover,
+          curve: AppAnimation.standard,
+          height: 38,
+          padding: const EdgeInsets.symmetric(
+            horizontal: AppSpacing.md,
+            vertical: AppSpacing.sm,
+          ),
+          decoration: BoxDecoration(
+            color: _hovered
+                ? widget.accent.withValues(alpha: 0.24)
+                : Colors.white.withValues(alpha: 0.09),
+            borderRadius: BorderRadius.circular(999),
+            border: Border.all(
+              color: _hovered
+                  ? widget.accent.withValues(alpha: 0.55)
+                  : Colors.white.withValues(alpha: 0.12),
+            ),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(widget.icon, size: 16, color: Colors.white),
+              const SizedBox(width: AppSpacing.xs),
+              Text(
+                widget.label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: AppTypography.caption.copyWith(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -2001,6 +2222,175 @@ class _EpisodeCard extends StatelessWidget {
       parts.add(episode.runtime.trim());
     }
     return parts.join(' | ');
+  }
+}
+
+class _DetailBadgesSection extends StatelessWidget {
+  const _DetailBadgesSection({required this.media});
+
+  final DetailMedia media;
+
+  @override
+  Widget build(BuildContext context) {
+    final badges = _detailBadges(media);
+    final providers = media.providers
+        .where(
+          (provider) =>
+              provider.trim().isNotEmpty && provider.trim() != 'Not Available',
+        )
+        .take(8)
+        .toList(growable: false);
+    if (badges.isEmpty && providers.isEmpty) return const SizedBox.shrink();
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(
+        AppSpacing.huge,
+        AppSpacing.xxl,
+        AppSpacing.huge,
+        0,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (badges.isNotEmpty)
+            Wrap(
+              spacing: AppSpacing.sm,
+              runSpacing: AppSpacing.sm,
+              children: [
+                for (final badge in badges) _DetailInfoChip(label: badge),
+              ],
+            ),
+          if (providers.isNotEmpty) ...[
+            if (badges.isNotEmpty) const SizedBox(height: AppSpacing.lg),
+            Text(
+              'Available On',
+              style: AppTypography.caption.copyWith(
+                color: AppColors.textMuted,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+            const SizedBox(height: AppSpacing.sm),
+            Wrap(
+              spacing: AppSpacing.sm,
+              runSpacing: AppSpacing.sm,
+              children: [
+                for (final provider in providers)
+                  _DetailInfoChip(label: provider, muted: true),
+              ],
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  List<String> _detailBadges(DetailMedia media) {
+    final badges = <String>[
+      media.mediaType.label,
+      if (media.isSeries)
+        _episodeCountLabel(media)
+      else if (media.runtime.trim().isNotEmpty && media.runtime != 'N/A')
+        media.runtime,
+      if (media.releaseYear.trim().isNotEmpty && media.releaseYear != 'N/A')
+        media.releaseYear,
+      if (media.status.trim().isNotEmpty) media.status,
+      if (media.rating > 0) '${(media.rating * 10).round()}%',
+      if (media.certification.trim().isNotEmpty && media.certification != 'N/A')
+        media.certification,
+    ];
+    return badges.toSet().toList(growable: false);
+  }
+
+  String _episodeCountLabel(DetailMedia media) {
+    final total = media.seasons.fold<int>(
+      0,
+      (sum, season) => sum + season.episodes.length,
+    );
+    if (total > 0) return '$total Episodes';
+    final seasonCount = media.seasons
+        .where((season) => season.number > 0)
+        .length;
+    if (seasonCount > 0) {
+      return '$seasonCount ${seasonCount == 1 ? 'Season' : 'Seasons'}';
+    }
+    return 'Series';
+  }
+}
+
+class _DetailInfoChip extends StatelessWidget {
+  const _DetailInfoChip({required this.label, this.muted = false});
+
+  final String label;
+  final bool muted;
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: muted
+            ? Colors.white.withValues(alpha: 0.06)
+            : AppColors.primary.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(
+          color: muted
+              ? Colors.white.withValues(alpha: 0.12)
+              : AppColors.primary.withValues(alpha: 0.36),
+        ),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(
+          horizontal: AppSpacing.md,
+          vertical: AppSpacing.sm,
+        ),
+        child: Text(
+          label,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: AppTypography.caption.copyWith(
+            color: muted ? AppColors.textSecondary : AppColors.textPrimary,
+            fontWeight: FontWeight.w800,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _CastSection extends StatelessWidget {
+  const _CastSection({required this.media});
+
+  final DetailMedia media;
+
+  @override
+  Widget build(BuildContext context) {
+    final cast = media.cast
+        .where((person) => person.name.trim().isNotEmpty)
+        .take(20)
+        .toList(growable: false);
+    if (cast.isEmpty) return const SizedBox.shrink();
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(
+        AppSpacing.huge,
+        AppSpacing.xxl,
+        AppSpacing.huge,
+        0,
+      ),
+      child: PersonCarousel(
+        title: 'Cast',
+        itemCount: cast.length,
+        height: 260,
+        itemWidth: 150,
+        itemBuilder: (context, index) {
+          final person = cast[index];
+          return PersonCard(
+            title: person.name,
+            subtitle: person.role,
+            profilePath: person.profilePath,
+          );
+        },
+      ),
+    );
   }
 }
 

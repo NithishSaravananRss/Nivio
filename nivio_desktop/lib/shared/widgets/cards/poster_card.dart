@@ -1,15 +1,12 @@
 import 'dart:async';
-import 'dart:convert';
 
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:webview_all/webview_all.dart';
-import 'package:webview_all_linux/webview_all_linux.dart';
 
-import '../../../core/services/trailer_preview_service.dart';
-import '../../../features/player/services/web_runtime_service.dart';
 import '../../theme/index.dart';
 import '../common/animated_fade_container.dart';
+import '../native_trailer_preview.dart';
 
 class PosterCard extends StatefulWidget {
   const PosterCard({
@@ -69,7 +66,6 @@ class _PosterCardState extends State<PosterCard> {
 
   OverlayEntry? _overlayEntry;
   Timer? _showTimer;
-  Timer? _hideTimer;
   Timer? _postScrollHoverTimer;
   ScrollPosition? _horizontalScrollPosition;
   ScrollPosition? _verticalScrollPosition;
@@ -116,7 +112,6 @@ class _PosterCardState extends State<PosterCard> {
   void deactivate() {
     _isDeactivated = true;
     _showTimer?.cancel();
-    _hideTimer?.cancel();
     _removeOverlay();
     super.deactivate();
   }
@@ -130,7 +125,6 @@ class _PosterCardState extends State<PosterCard> {
       _onScrollChanged,
     );
     _showTimer?.cancel();
-    _hideTimer?.cancel();
     _postScrollHoverTimer?.cancel();
     _removeOverlay();
     super.dispose();
@@ -164,12 +158,74 @@ class _PosterCardState extends State<PosterCard> {
 
   void _cancelHoverForScroll() {
     _showTimer?.cancel();
-    _hideTimer?.cancel();
     _postScrollHoverTimer?.cancel();
     _removeOverlay();
-    if (_isHovered && mounted && !_isDeactivated) {
-      setState(() => _isHovered = false);
+    if ((_isHovered || _isFocused) && mounted && !_isDeactivated) {
+      setState(() {
+        _isHovered = false;
+        _isFocused = false;
+      });
     }
+  }
+
+  void _handleOverlayPointerSignal(PointerSignalEvent event) {
+    if (event is! PointerScrollEvent) return;
+    _lastPointerPosition = event.position;
+    if (!_scrollFromPointerDelta(event.scrollDelta)) return;
+    _forceCloseHover();
+  }
+
+  void _forceCloseHover() {
+    _showTimer?.cancel();
+    _postScrollHoverTimer?.cancel();
+    _removeOverlay();
+    if (mounted && !_isDeactivated) {
+      setState(() {
+        _isHovered = false;
+        _isFocused = false;
+      });
+    }
+  }
+
+  bool _scrollFromPointerDelta(Offset delta) {
+    final verticalDelta = delta.dy;
+    final horizontalDelta = delta.dx;
+    final preferVertical = verticalDelta.abs() >= horizontalDelta.abs();
+    final verticalPosition = _resolveScrollPosition(Axis.vertical);
+    final horizontalPosition = _resolveScrollPosition(Axis.horizontal);
+
+    if (preferVertical) {
+      return _scrollPositionBy(verticalPosition, verticalDelta) ||
+          _scrollPositionBy(horizontalPosition, verticalDelta) ||
+          _scrollPositionBy(horizontalPosition, horizontalDelta);
+    }
+
+    return _scrollPositionBy(horizontalPosition, horizontalDelta) ||
+        _scrollPositionBy(verticalPosition, verticalDelta);
+  }
+
+  ScrollPosition? _resolveScrollPosition(Axis axis) {
+    final targetContext = _targetKey.currentContext;
+    final resolved = targetContext == null
+        ? null
+        : Scrollable.maybeOf(targetContext, axis: axis)?.position;
+    return resolved ??
+        switch (axis) {
+          Axis.horizontal => _horizontalScrollPosition,
+          Axis.vertical => _verticalScrollPosition,
+        };
+  }
+
+  bool _scrollPositionBy(ScrollPosition? position, double delta) {
+    if (position == null || delta == 0 || !position.hasPixels) {
+      return false;
+    }
+    final target = (position.pixels + delta)
+        .clamp(position.minScrollExtent, position.maxScrollExtent)
+        .toDouble();
+    if (target == position.pixels) return false;
+    position.jumpTo(target);
+    return true;
   }
 
   void _setHovered(bool value) {
@@ -201,8 +257,12 @@ class _PosterCardState extends State<PosterCard> {
 
   void _handlePointerExit(PointerExitEvent event) {
     _lastPointerPosition = event.position;
-    if (_isPointerOverHoverRegion(event.position)) return;
-    _setHovered(false);
+    _closeHoverIfPointerOutside(event.position);
+  }
+
+  void _closeHoverIfPointerOutside(Offset globalPosition) {
+    if (_isPointerOverHoverRegion(globalPosition)) return;
+    _forceCloseHover();
   }
 
   void _scheduleHoverFromPointerPosition() {
@@ -268,7 +328,6 @@ class _PosterCardState extends State<PosterCard> {
 
   void _syncOverlay() {
     _showTimer?.cancel();
-    _hideTimer?.cancel();
     if (_isActive) {
       if (_overlayEntry != null) {
         _scheduleOverlayUpdate();
@@ -278,17 +337,12 @@ class _PosterCardState extends State<PosterCard> {
       return;
     }
 
-    _hideTimer = Timer(const Duration(milliseconds: 180), () {
-      final pointerPosition = _lastPointerPosition;
-      if (pointerPosition != null &&
-          _isPointerOverHoverRegion(pointerPosition)) {
-        _setHovered(true);
-        return;
-      }
-      if (mounted && !_isDeactivated && !_isActive) {
-        _removeOverlay();
-      }
-    });
+    final pointerPosition = _lastPointerPosition;
+    if (pointerPosition != null && _isPointerOverHoverRegion(pointerPosition)) {
+      _setHovered(true);
+      return;
+    }
+    _removeOverlay();
   }
 
   void _showOrUpdateOverlay() {
@@ -368,7 +422,6 @@ class _PosterCardState extends State<PosterCard> {
     if (activeOwner == null || identical(activeOwner, this)) return;
     activeOwner
       .._showTimer?.cancel()
-      .._hideTimer?.cancel()
       .._postScrollHoverTimer?.cancel()
       .._removeOverlay();
     if (activeOwner.mounted && !activeOwner._isDeactivated) {
@@ -377,6 +430,12 @@ class _PosterCardState extends State<PosterCard> {
         activeOwner._isFocused = false;
       });
     }
+  }
+
+  void _handleOverlayDetailsPressed() {
+    final openDetails = widget.onMore ?? widget.onSecondaryTap ?? widget.onTap;
+    _forceCloseHover();
+    openDetails?.call();
   }
 
   Widget _buildOverlay(BuildContext context) {
@@ -391,40 +450,42 @@ class _PosterCardState extends State<PosterCard> {
       top: offset.dy,
       width: layout.expandedWidth,
       height: layout.availableHeight,
-      child: MouseRegion(
-        cursor: SystemMouseCursors.click,
-        onEnter: (event) {
-          _lastPointerPosition = event.position;
-          _setHovered(true);
-        },
-        onHover: (event) {
-          _lastPointerPosition = event.position;
-          if (!_isHovered) _setHovered(true);
-        },
-        onExit: (event) {
-          _lastPointerPosition = event.position;
-          if (_isPointerOverHoverRegion(event.position)) return;
-          _setHovered(false);
-        },
-        child: _HoverUplift(
-          child: Material(
-            color: Colors.transparent,
-            child: _ExpandedPosterTrayCard(
-              mediaId: widget.mediaId,
-              title: widget.title,
-              imageProvider:
-                  widget.previewImageProvider ?? widget.imageProvider,
-              isLoading: widget.isLoading,
-              subtitle: widget.subtitle,
-              year: widget.year,
-              rating: widget.rating,
-              overview: widget.overview,
-              isInWatchlist: widget.isInWatchlist,
-              onPlay: widget.onPlay ?? widget.onTap,
-              onWatchlist: widget.onWatchlist,
-              onOpenDetail: widget.onTap,
-              onMore: widget.onMore ?? widget.onSecondaryTap,
-              progress: widget.progress,
+      child: Listener(
+        onPointerSignal: _handleOverlayPointerSignal,
+        child: MouseRegion(
+          cursor: SystemMouseCursors.basic,
+          onEnter: (event) {
+            _lastPointerPosition = event.position;
+            _setHovered(true);
+          },
+          onHover: (event) {
+            _lastPointerPosition = event.position;
+            if (!_isHovered) _setHovered(true);
+          },
+          onExit: (event) {
+            _lastPointerPosition = event.position;
+            _closeHoverIfPointerOutside(event.position);
+          },
+          child: _HoverUplift(
+            child: Material(
+              color: Colors.transparent,
+              child: _ExpandedPosterTrayCard(
+                mediaId: widget.mediaId,
+                title: widget.title,
+                imageProvider:
+                    widget.previewImageProvider ?? widget.imageProvider,
+                isLoading: widget.isLoading,
+                subtitle: widget.subtitle,
+                year: widget.year,
+                rating: widget.rating,
+                overview: widget.overview,
+                isInWatchlist: widget.isInWatchlist,
+                onPlay: widget.onPlay ?? widget.onTap,
+                onWatchlist: widget.onWatchlist,
+                onOpenDetail: widget.onTap,
+                onMore: _handleOverlayDetailsPressed,
+                progress: widget.progress,
+              ),
             ),
           ),
         ),
@@ -447,6 +508,12 @@ class _PosterCardState extends State<PosterCard> {
         final compactHeight = (baseWidth / AppBreakpoints.posterRatio)
             .clamp(0.0, availableHeight)
             .toDouble();
+        final maxExpandedHeight = availableHeight
+            .clamp(compactHeight, compactHeight > 460 ? compactHeight : 460.0)
+            .toDouble();
+        final expandedHeight = (compactHeight + 112)
+            .clamp(compactHeight, maxExpandedHeight)
+            .toDouble();
         final expandedWidth = (baseWidth * 1.46)
             .clamp(baseWidth, 356.0)
             .toDouble();
@@ -454,7 +521,7 @@ class _PosterCardState extends State<PosterCard> {
         _latestLayout = _PosterCardLayout(
           baseWidth: baseWidth,
           compactHeight: compactHeight,
-          availableHeight: availableHeight,
+          availableHeight: expandedHeight,
           expandedWidth: expandedWidth,
           canShowDetails: canShowDetails,
         );
@@ -638,46 +705,42 @@ class _ExpandedPosterTrayCard extends StatelessWidget {
   Widget build(BuildContext context) {
     return Material(
       color: Colors.transparent,
-      child: InkWell(
-        onTap: onOpenDetail ?? onMore,
-        borderRadius: BorderRadius.circular(AppRadius.medium),
-        child: DecoratedBox(
-          decoration: BoxDecoration(
-            color: const Color(0xFF171B24),
-            borderRadius: BorderRadius.circular(AppRadius.medium),
-            border: Border.all(color: Colors.white.withValues(alpha: 0.18)),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withValues(alpha: 0.62),
-                blurRadius: 38,
-                spreadRadius: -8,
-                offset: const Offset(0, 22),
-              ),
-            ],
-          ),
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(AppRadius.medium),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Expanded(
-                  flex: 58,
-                  child: Stack(
-                    fit: StackFit.expand,
-                    children: [
-                      _PosterArtwork(
-                        title: title,
-                        imageProvider: imageProvider,
-                        isLoading: isLoading,
-                        borderRadius: BorderRadius.zero,
-                      ),
-                      _TrailerPreviewArtwork(
-                        mediaId: mediaId,
-                        title: title,
-                        imageProvider: imageProvider,
-                        isLoading: isLoading,
-                      ),
-                      const DecoratedBox(
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: const Color(0xFF171B24),
+          borderRadius: BorderRadius.circular(AppRadius.medium),
+          border: Border.all(color: Colors.white.withValues(alpha: 0.18)),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.62),
+              blurRadius: 38,
+              spreadRadius: -8,
+              offset: const Offset(0, 22),
+            ),
+          ],
+        ),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(AppRadius.medium),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Expanded(
+                flex: 58,
+                child: Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    _PosterArtwork(
+                      title: title,
+                      imageProvider: imageProvider,
+                      isLoading: isLoading,
+                      borderRadius: BorderRadius.zero,
+                    ),
+                    NativeTrailerPreviewOverlay(
+                      mediaId: mediaId,
+                      isLoading: isLoading,
+                    ),
+                    const IgnorePointer(
+                      child: DecoratedBox(
                         decoration: BoxDecoration(
                           gradient: LinearGradient(
                             begin: Alignment.topCenter,
@@ -691,10 +754,12 @@ class _ExpandedPosterTrayCard extends StatelessWidget {
                           ),
                         ),
                       ),
-                      Positioned(
-                        left: AppSpacing.md,
-                        right: AppSpacing.md,
-                        bottom: AppSpacing.sm,
+                    ),
+                    Positioned(
+                      left: AppSpacing.md,
+                      right: AppSpacing.md,
+                      bottom: AppSpacing.sm,
+                      child: IgnorePointer(
                         child: Text(
                           title,
                           maxLines: 1,
@@ -709,26 +774,26 @@ class _ExpandedPosterTrayCard extends StatelessWidget {
                           ),
                         ),
                       ),
-                    ],
-                  ),
+                    ),
+                  ],
                 ),
-                Expanded(
-                  flex: 42,
-                  child: _PosterHoverPanel(
-                    title: title,
-                    subtitle: subtitle,
-                    year: year,
-                    rating: rating,
-                    overview: overview,
-                    isInWatchlist: isInWatchlist,
-                    onPlay: onPlay,
-                    onWatchlist: onWatchlist,
-                    onMore: onMore ?? onOpenDetail,
-                    progress: progress,
-                  ),
+              ),
+              Expanded(
+                flex: 42,
+                child: _PosterHoverPanel(
+                  title: title,
+                  subtitle: subtitle,
+                  year: year,
+                  rating: rating,
+                  overview: overview,
+                  isInWatchlist: isInWatchlist,
+                  onPlay: onPlay,
+                  onWatchlist: onWatchlist,
+                  onMore: onMore ?? onOpenDetail,
+                  progress: progress,
                 ),
-              ],
-            ),
+              ),
+            ],
           ),
         ),
       ),
@@ -768,347 +833,6 @@ class _PosterArtwork extends StatelessWidget {
         },
         errorBuilder: (context, error, stackTrace) =>
             _Placeholder(errorState: true, borderRadius: borderRadius),
-      ),
-    );
-  }
-}
-
-class _TrailerPreviewArtwork extends StatefulWidget {
-  const _TrailerPreviewArtwork({
-    required this.mediaId,
-    required this.title,
-    required this.imageProvider,
-    required this.isLoading,
-  });
-
-  final String? mediaId;
-  final String title;
-  final ImageProvider? imageProvider;
-  final bool isLoading;
-
-  @override
-  State<_TrailerPreviewArtwork> createState() => _TrailerPreviewArtworkState();
-}
-
-class _TrailerPreviewArtworkState extends State<_TrailerPreviewArtwork> {
-  Timer? _startTimer;
-  Timer? _validationTimer;
-  WebViewController? _controller;
-  bool _isMuted = true;
-  bool _hasTrailer = false;
-  bool _disposed = false;
-  int _loadGeneration = 0;
-
-  @override
-  void initState() {
-    super.initState();
-    _scheduleTrailerStart();
-  }
-
-  @override
-  void didUpdateWidget(covariant _TrailerPreviewArtwork oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.mediaId == widget.mediaId) return;
-    _disposeController();
-    _scheduleTrailerStart();
-  }
-
-  @override
-  void dispose() {
-    _disposed = true;
-    _startTimer?.cancel();
-    _validationTimer?.cancel();
-    _disposeController();
-    super.dispose();
-  }
-
-  void _scheduleTrailerStart() {
-    _startTimer?.cancel();
-    _validationTimer?.cancel();
-    _loadGeneration++;
-    _hasTrailer = false;
-    _isMuted = true;
-    _startTimer = Timer(const Duration(milliseconds: 320), () {
-      unawaited(_loadTrailer());
-    });
-  }
-
-  Future<void> _loadTrailer() async {
-    final mediaId = widget.mediaId?.trim();
-    if (mediaId == null || mediaId.isEmpty || widget.isLoading) return;
-
-    final key = await TrailerPreviewService.instance.resolve(mediaId);
-    if (_disposed || !mounted || key == null || key.isEmpty) return;
-
-    final controller = WebRuntimeService.instance.createController();
-    final generation = _loadGeneration;
-    try {
-      await controller.setJavaScriptMode(JavaScriptMode.unrestricted);
-      await controller.setBackgroundColor(Colors.black);
-      await controller.enableZoom(false);
-      await controller.setUserAgent(
-        'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 '
-        '(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-      );
-      await controller.loadHtmlString(
-        _youtubePreviewHtml(key, muted: _isMuted),
-        baseUrl: 'https://youtube-nocookie.com',
-      );
-    } catch (_) {
-      _disposeController(controller);
-      return;
-    }
-
-    if (_disposed || !mounted) {
-      _disposeController(controller);
-      return;
-    }
-    setState(() {
-      _controller = controller;
-      _hasTrailer = false;
-    });
-    _scheduleTrailerValidation(controller, generation);
-  }
-
-  void _scheduleTrailerValidation(
-    WebViewController controller,
-    int generation, [
-    int attempt = 0,
-  ]) {
-    _validationTimer?.cancel();
-    _validationTimer = Timer(const Duration(milliseconds: 650), () {
-      unawaited(_validateTrailer(controller, generation, attempt));
-    });
-  }
-
-  Future<void> _validateTrailer(
-    WebViewController controller,
-    int generation,
-    int attempt,
-  ) async {
-    if (_disposed ||
-        !mounted ||
-        generation != _loadGeneration ||
-        !identical(controller, _controller)) {
-      return;
-    }
-
-    Object? status;
-    try {
-      status = await controller.runJavaScriptReturningResult('''
-        (function() {
-          return JSON.stringify({
-            ready: document.body.dataset.ytReady === '1',
-            playing: document.body.dataset.ytPlaying === '1',
-            error: document.body.dataset.ytError || ''
-          });
-        })();
-      ''');
-    } catch (_) {
-      if (attempt >= 6) {
-        _failTrailer(controller);
-      } else {
-        _scheduleTrailerValidation(controller, generation, attempt + 1);
-      }
-      return;
-    }
-
-    final normalized = status.toString().toLowerCase();
-    final hasError =
-        normalized.contains('error') && !normalized.contains('"error":""');
-    if (hasError ||
-        normalized.contains('153') ||
-        normalized.contains('video player configuration')) {
-      _failTrailer(controller);
-      return;
-    }
-
-    if (normalized.contains('"ready":true') ||
-        normalized.contains('"playing":true')) {
-      if (!mounted || !identical(controller, _controller)) return;
-      setState(() => _hasTrailer = true);
-      return;
-    }
-
-    if (attempt >= 6) {
-      _failTrailer(controller);
-      return;
-    }
-    _scheduleTrailerValidation(controller, generation, attempt + 1);
-  }
-
-  void _failTrailer(WebViewController controller) {
-    if (!identical(controller, _controller)) {
-      _disposeController(controller);
-      return;
-    }
-    if (mounted && !_disposed) {
-      setState(() {
-        _hasTrailer = false;
-        _controller = null;
-      });
-    } else {
-      _controller = null;
-      _hasTrailer = false;
-    }
-    _disposeController(controller);
-  }
-
-  Future<void> _toggleMute() async {
-    final controller = _controller;
-    if (controller == null) return;
-    final nextMuted = !_isMuted;
-    setState(() => _isMuted = nextMuted);
-    final command = nextMuted ? 'mute' : 'unMute';
-    final volumeCommand = nextMuted
-        ? ''
-        : '''
-          post({"event":"command","func":"setVolume","args":[100]});
-        ''';
-    try {
-      await controller.runJavaScript('''
-        (function() {
-          var iframe = document.querySelector('iframe');
-          if (!iframe || !iframe.contentWindow) return;
-          var post = function(payload) {
-            iframe.contentWindow.postMessage(JSON.stringify(payload), '*');
-          };
-          post({"event":"command","func":"$command","args":[]});
-          $volumeCommand
-        })();
-      ''');
-    } catch (_) {}
-  }
-
-  void _disposeController([WebViewController? controller]) {
-    if (controller == null) {
-      _validationTimer?.cancel();
-      _loadGeneration++;
-    }
-    final target = controller ?? _controller;
-    if (target == null) return;
-    if (controller == null) {
-      _controller = null;
-      _hasTrailer = false;
-    }
-    unawaited(() async {
-      try {
-        await target.loadHtmlString('<html><body></body></html>');
-      } catch (_) {}
-      WebRuntimeService.instance.markDestroyed();
-      if (target.platform is LinuxWebViewController) {
-        try {
-          await (target.platform as LinuxWebViewController).dispose();
-        } catch (_) {}
-      }
-    }());
-  }
-
-  String _youtubePreviewHtml(String key, {required bool muted}) {
-    final source = Uri.https('www.youtube-nocookie.com', '/embed/$key', {
-      'autoplay': '1',
-      'mute': '1',
-      'controls': '0',
-      'enablejsapi': '1',
-      'playsinline': '1',
-      'fs': '0',
-      'iv_load_policy': '3',
-      'rel': '0',
-      'modestbranding': '1',
-      'playlist': key,
-      'origin': 'https://youtube-nocookie.com',
-    }).toString();
-    final escapedSource = const HtmlEscape().convert(source);
-    final shouldUnmute = muted ? 'false' : 'true';
-
-    return '''
-<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <style>
-    * { margin: 0; padding: 0; overflow: hidden; }
-    html, body { width: 100%; height: 100%; background: #000; }
-    #player { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
-  </style>
-</head>
-<body>
-  <iframe
-    id="player"
-    src="$escapedSource"
-    allow="autoplay; encrypted-media"
-    allowfullscreen>
-  </iframe>
-  <script>
-    var tag = document.createElement('script');
-    tag.src = 'https://www.youtube.com/iframe_api';
-    var firstScriptTag = document.getElementsByTagName('script')[0];
-    firstScriptTag.parentNode.insertBefore(tag, firstScriptTag);
-
-    var player;
-    function onYouTubeIframeAPIReady() {
-      player = new YT.Player('player', {
-        events: {
-          onReady: function(event) {
-            document.body.dataset.ytReady = '1';
-            event.target.mute();
-            event.target.playVideo();
-          },
-          onStateChange: function(event) {
-            if (event.data === 1) {
-              document.body.dataset.ytPlaying = '1';
-            }
-            if (event.data === 0) {
-              event.target.seekTo(0);
-              event.target.playVideo();
-            }
-            if (event.data === 1 && $shouldUnmute) {
-              setTimeout(function() {
-                event.target.unMute();
-                event.target.setVolume(100);
-              }, 250);
-            }
-          },
-          onError: function(event) {
-            document.body.dataset.ytError = String(event.data || 'unknown');
-          }
-        }
-      });
-    }
-  </script>
-</body>
-</html>
-''';
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final controller = _controller;
-    if (controller == null) return const SizedBox.shrink();
-
-    return Positioned.fill(
-      child: Stack(
-        fit: StackFit.expand,
-        children: [
-          AnimatedOpacity(
-            opacity: _hasTrailer ? 1 : 0,
-            duration: const Duration(milliseconds: 180),
-            child: IgnorePointer(child: WebViewWidget(controller: controller)),
-          ),
-          if (_hasTrailer)
-            Positioned(
-              right: AppSpacing.sm,
-              top: AppSpacing.sm,
-              child: _TrayIconButton(
-                icon: _isMuted
-                    ? Icons.volume_off_rounded
-                    : Icons.volume_up_rounded,
-                tooltip: _isMuted ? 'Unmute trailer' : 'Mute trailer',
-                onPressed: _toggleMute,
-              ),
-            ),
-        ],
       ),
     );
   }

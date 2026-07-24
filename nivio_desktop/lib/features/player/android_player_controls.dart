@@ -12,6 +12,8 @@ class _AndroidPlayerControls extends StatelessWidget {
     required this.onSettings,
     required this.onServer,
     required this.canSwitchServer,
+    this.watchPartyMemberCount,
+    this.onWatchParty,
     this.serverLabel,
     this.onEpisodes,
     this.onMiniPlayer,
@@ -29,6 +31,8 @@ class _AndroidPlayerControls extends StatelessWidget {
   final VoidCallback onSettings;
   final VoidCallback onServer;
   final bool canSwitchServer;
+  final int? watchPartyMemberCount;
+  final VoidCallback? onWatchParty;
   final VoidCallback? onEpisodes;
   final VoidCallback? onMiniPlayer;
   final VoidCallback? onPictureInPicture;
@@ -113,6 +117,20 @@ class _AndroidPlayerControls extends StatelessWidget {
                           ],
                         ),
                       ),
+                      if (onWatchParty != null)
+                        IconButton(
+                          tooltip: 'Watch Party',
+                          onPressed: onWatchParty,
+                          icon: Badge(
+                            isLabelVisible: watchPartyMemberCount != null,
+                            label: Text('${watchPartyMemberCount ?? 0}'),
+                            child: const Icon(
+                              Icons.groups_rounded,
+                              color: Colors.white,
+                              size: 27,
+                            ),
+                          ),
+                        ),
                       if (onEpisodes != null)
                         IconButton(
                           tooltip: 'Episodes',

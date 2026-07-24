@@ -86,6 +86,9 @@ class _PlayerScreenState extends State<PlayerScreen> {
   static const _defaultSubtitleFontSize = 18.0;
 
   final int _instanceId = ++_nextInstanceId;
+  final FocusNode _videoControlsFocusNode = FocusNode(
+    debugLabel: 'Nivio video controls',
+  );
   late final bool _ownsEngine = widget.engine == null;
   late final PlaybackEngine _engine =
       widget.engine ??
@@ -118,6 +121,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
   bool _closeInFlight = false;
   bool _debandingEnabled = false;
   bool _sourceSwitchInFlight = false;
+  bool _watchPartyPanelExpanded = false;
   String? _sourceSwitchMessage;
   bool _subtitleBackgroundEnabled = false;
   bool _subtitleOutlineEnabled = false;
@@ -590,9 +594,31 @@ class _PlayerScreenState extends State<PlayerScreen> {
       _showWatchPartyStatus('Left watch party');
     }
     if (!mounted) return;
-    setState(() => _watchPartySession = null);
+    setState(() {
+      _watchPartySession = null;
+      _watchPartyPanelExpanded = false;
+    });
     _watchPartyHostSyncTimer?.cancel();
     _watchPartyHostSyncTimer = null;
+  }
+
+  void _toggleWatchPartyPanel() {
+    if (!_hasWatchPartyContext) return;
+    setState(() {
+      _controlsVisible = true;
+      _watchPartyPanelExpanded = !_watchPartyPanelExpanded;
+    });
+    if (!_watchPartyPanelExpanded) {
+      _scheduleControlsHide();
+    } else {
+      _hideControlsTimer?.cancel();
+    }
+  }
+
+  void _setWatchPartyPanelExpanded(bool expanded) {
+    if (_watchPartyPanelExpanded == expanded) return;
+    setState(() => _watchPartyPanelExpanded = expanded);
+    if (!expanded) _scheduleControlsHide();
   }
 
   void _scheduleWatchPartyBootstrapSyncs() {
@@ -789,6 +815,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
     unawaited(_watchPartyErrorSub?.cancel());
     unawaited(_setPlaybackWakelock(enabled: false));
     unawaited(DesktopPipService.instance.exit());
+    _videoControlsFocusNode.dispose();
     if (_ownsEngine) {
       unawaited(_controller.close());
     } else {
@@ -890,7 +917,10 @@ class _PlayerScreenState extends State<PlayerScreen> {
       _scheduleControlsHide();
       return;
     }
-    setState(() => _controlsVisible = !_controlsVisible);
+    setState(() {
+      _controlsVisible = !_controlsVisible;
+      if (!_controlsVisible) _watchPartyPanelExpanded = false;
+    });
     if (_controlsVisible) {
       _scheduleControlsHide();
     } else {
@@ -1561,6 +1591,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
   Widget _buildVideoControls(VideoState videoState) {
     return Focus(
+      focusNode: _videoControlsFocusNode,
       autofocus: true,
       onKeyEvent: (node, event) {
         if (event is! KeyDownEvent) return KeyEventResult.ignored;
@@ -1604,8 +1635,12 @@ class _PlayerScreenState extends State<PlayerScreen> {
           _changeVolume(-0.05);
         } else if (key == LogicalKeyboardKey.keyF) {
           unawaited(videoState.toggleFullscreen());
+        } else if (key == LogicalKeyboardKey.keyC && _hasWatchPartyContext) {
+          _toggleWatchPartyPanel();
         } else if (key == LogicalKeyboardKey.escape) {
-          if (videoState.isFullscreen()) {
+          if (_watchPartyPanelExpanded) {
+            _setWatchPartyPanelExpanded(false);
+          } else if (videoState.isFullscreen()) {
             unawaited(videoState.exitFullscreen());
           } else {
             _close();
@@ -1616,7 +1651,87 @@ class _PlayerScreenState extends State<PlayerScreen> {
         _showControls();
         return KeyEventResult.handled;
       },
-      child: const SizedBox.shrink(),
+      child: videoState.isFullscreen()
+          ? ValueListenableBuilder<PlaybackState>(
+              valueListenable: _engine.state,
+              builder: (context, playback, _) {
+                return MouseRegion(
+                  onHover: (_) {
+                    _videoControlsFocusNode.requestFocus();
+                    _showControls();
+                  },
+                  child: GestureDetector(
+                    behavior: HitTestBehavior.translucent,
+                    onTap: () {
+                      _videoControlsFocusNode.requestFocus();
+                      _toggleControls();
+                    },
+                    child: Stack(
+                      fit: StackFit.expand,
+                      children: [
+                        if (_controlsVisible &&
+                            playback.status != PlaybackStatus.error)
+                          const ColoredBox(color: Color(0x66000000)),
+                        if (playback.status != PlaybackStatus.error)
+                          _AndroidPlayerControls(
+                            visible: _controlsVisible,
+                            playback: playback,
+                            request: widget.request,
+                            providerLabel: _providerLabel,
+                            serverLabel: _serverLabel,
+                            canSwitchServer: widget.sourceOptions.length > 1,
+                            watchPartyMemberCount: _hasWatchPartyContext
+                                ? _watchPartySession?.participantCount ?? 0
+                                : null,
+                            onWatchParty: _hasWatchPartyContext
+                                ? _toggleWatchPartyPanel
+                                : null,
+                            onClose: () =>
+                                unawaited(videoState.exitFullscreen()),
+                            onPlayPause: () {
+                              if (!_ensurePartyCanControl()) return;
+                              unawaited(_controller.togglePlayPause());
+                              _showControls();
+                            },
+                            onSeek: (position) {
+                              if (!_ensurePartyCanControl()) return;
+                              unawaited(_engine.seek(position));
+                              _showControls();
+                            },
+                            onSettings: () =>
+                                _openDrawer(_PlayerDrawer.settings),
+                            onServer: () => _openDrawer(_PlayerDrawer.server),
+                            onEpisodes: widget.request.totalEpisodes == null
+                                ? null
+                                : _showEpisodeSelector,
+                          ),
+                        if (_hasWatchPartyContext)
+                          _WatchPartyStatusOverlay(
+                            visible:
+                                _controlsVisible ||
+                                _watchPartyPanelExpanded ||
+                                _watchPartyStatusMessage != null,
+                            expanded: _watchPartyPanelExpanded,
+                            onExpandedChanged: _setWatchPartyPanelExpanded,
+                            session: _watchPartySession,
+                            isHost: _watchPartyService?.isHost == true,
+                            canControl: _canControlPartyPlayback,
+                            connectionLabel: _partyConnectionLabel,
+                            controllerLabel: _partyControllerLabel,
+                            statusMessage: _watchPartyStatusMessage,
+                            messages: _watchPartyMessages,
+                            reactions: _watchPartyReactions,
+                            onSendMessage: _sendWatchPartyChat,
+                            onSendReaction: _sendWatchPartyReaction,
+                            onLeaveOrEnd: _leaveOrEndWatchParty,
+                          ),
+                      ],
+                    ),
+                  ),
+                );
+              },
+            )
+          : const SizedBox.expand(),
     );
   }
 
@@ -1849,6 +1964,12 @@ class _PlayerScreenState extends State<PlayerScreen> {
                       providerLabel: _providerLabel,
                       serverLabel: _serverLabel,
                       canSwitchServer: widget.sourceOptions.length > 1,
+                      watchPartyMemberCount: _hasWatchPartyContext
+                          ? _watchPartySession?.participantCount ?? 0
+                          : null,
+                      onWatchParty: _hasWatchPartyContext
+                          ? _toggleWatchPartyPanel
+                          : null,
                       onClose: _close,
                       onMiniPlayer: widget.onMinimize == null
                           ? null
@@ -1893,6 +2014,12 @@ class _PlayerScreenState extends State<PlayerScreen> {
                     ),
                   if (_hasWatchPartyContext)
                     _WatchPartyStatusOverlay(
+                      visible:
+                          _controlsVisible ||
+                          _watchPartyPanelExpanded ||
+                          _watchPartyStatusMessage != null,
+                      expanded: _watchPartyPanelExpanded,
+                      onExpandedChanged: _setWatchPartyPanelExpanded,
                       session: _watchPartySession,
                       isHost: _watchPartyService?.isHost == true,
                       canControl: _canControlPartyPlayback,

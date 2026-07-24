@@ -5,7 +5,7 @@ import 'package:flutter/material.dart';
 
 import '../core/services/desktop_update_service.dart';
 import '../shared/layout/desktop_scaffold.dart';
-import '../shared/theme/theme.dart';
+import '../shared/theme/index.dart';
 import '../shared/widgets/dialogs/update_dialog.dart';
 import '../core/interfaces/search_repository.dart';
 import '../core/interfaces/home_repository.dart';
@@ -15,7 +15,7 @@ import '../features/player/playback_engine.dart';
 import '../core/interfaces/watch_history_repository.dart';
 
 /// Root widget for the Nivio Linux desktop application.
-class NivioDesktopApp extends StatelessWidget {
+class NivioDesktopApp extends StatefulWidget {
   final SearchRepository? searchRepository;
   final HomeRepository? homeRepository;
   final DetailsRepository? detailsRepository;
@@ -34,19 +34,43 @@ class NivioDesktopApp extends StatelessWidget {
   });
 
   @override
+  State<NivioDesktopApp> createState() => _NivioDesktopAppState();
+}
+
+class _NivioDesktopAppState extends State<NivioDesktopApp> {
+  final AppAccentController _accentController = AppAccentController.instance;
+
+  @override
+  void initState() {
+    super.initState();
+    _accentController.addListener(_onAccentChanged);
+    unawaited(_accentController.load());
+  }
+
+  @override
+  void dispose() {
+    _accentController.removeListener(_onAccentChanged);
+    super.dispose();
+  }
+
+  void _onAccentChanged() {
+    if (mounted) setState(() {});
+  }
+
+  @override
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'Nivio Desktop',
       debugShowCheckedModeBanner: false,
-      theme: buildNivioDesktopTheme(),
+      theme: buildNivioDesktopTheme(accentColor: _accentController.color),
       home: _StartupUpdateGate(
         child: DesktopScaffold(
-          searchRepository: searchRepository,
-          homeRepository: homeRepository,
-          detailsRepository: detailsRepository,
-          streamResolver: streamResolver,
-          playbackEngineFactory: playbackEngineFactory,
-          watchHistoryRepository: watchHistoryRepository,
+          searchRepository: widget.searchRepository,
+          homeRepository: widget.homeRepository,
+          detailsRepository: widget.detailsRepository,
+          streamResolver: widget.streamResolver,
+          playbackEngineFactory: widget.playbackEngineFactory,
+          watchHistoryRepository: widget.watchHistoryRepository,
         ),
       ),
     );
